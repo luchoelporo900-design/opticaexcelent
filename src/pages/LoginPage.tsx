@@ -1,14 +1,28 @@
 import { useState, FormEvent } from 'react';
-import { Eye, EyeOff, Glasses, Zap } from 'lucide-react';
+import { Eye, EyeOff, Glasses, Zap, UserPlus, ChevronLeft, Check } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 
 export default function LoginPage() {
   const { signIn, enterDevMode } = useAuth();
-  const [email,    setEmail]    = useState('admin@opticayolanda.com');
-  const [password, setPassword] = useState('admin123');
+
+  // ── Login state ──────────────────────────────────────────
+  const [email,    setEmail]    = useState('');
+  const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState('');
+
+  // ── Register state ───────────────────────────────────────
+  const [view,       setView]       = useState<'login' | 'register'>('login');
+  const [regName,    setRegName]    = useState('');
+  const [regEmail,   setRegEmail]   = useState('');
+  const [regPass,    setRegPass]    = useState('');
+  const [regRole,    setRegRole]    = useState<'vendedor' | 'admin'>('vendedor');
+  const [showRegPass, setShowRegPass] = useState(false);
+  const [regLoading, setRegLoading] = useState(false);
+  const [regError,   setRegError]   = useState('');
+  const [regOk,      setRegOk]      = useState('');
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -17,6 +31,50 @@ export default function LoginPage() {
     const { error } = await signIn(email, password);
     if (error) setError('Credenciales incorrectas. Verifique e intente de nuevo.');
     setLoading(false);
+  }
+
+  async function handleRegister(e: FormEvent) {
+    e.preventDefault();
+    setRegError('');
+    if (!regName.trim() || !regEmail.trim() || !regPass.trim()) {
+      setRegError('Todos los campos son obligatorios.');
+      return;
+    }
+    if (regPass.length < 6) {
+      setRegError('La contraseña debe tener al menos 6 caracteres.');
+      return;
+    }
+    setRegLoading(true);
+
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-user`,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          email: regEmail.trim(),
+          password: regPass,
+          full_name: regName.trim(),
+          role: regRole,
+          branch_id: null,
+        }),
+      }
+    );
+    const json = await res.json();
+    setRegLoading(false);
+    if (!res.ok || json.error) {
+      setRegError(json.error ?? 'Error al registrar usuario.');
+      return;
+    }
+    setRegOk(`Usuario "${regName.trim()}" registrado con exito.`);
+    setRegName(''); setRegEmail(''); setRegPass(''); setRegRole('vendedor');
+    setTimeout(() => { setRegOk(''); setView('login'); }, 3000);
   }
 
   return (
@@ -100,126 +158,236 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* Login card */}
+        {/* Card */}
         <div className="login-card p-7">
-          <p className="text-white text-sm font-light tracking-[0.20em] uppercase text-center mb-5">
-            Acceso al Sistema
-          </p>
 
-          {/* Credentials hint */}
-          <div className="mb-5 px-3 py-2.5 rounded-xl text-center"
-            style={{
-              background: 'rgba(197,160,89,0.055)',
-              border: '1px solid rgba(197,160,89,0.18)',
-            }}>
-            <p className="text-xs font-light text-gold-muted">
-              Administrador configurado
-            </p>
-            <p className="text-xs font-mono mt-0.5" style={{ color: 'rgba(255,255,255,0.36)' }}>
-              admin@opticayolanda.com · admin123
-            </p>
-          </div>
+          {view === 'login' ? (
+            <>
+              <p className="text-white text-sm font-light tracking-[0.20em] uppercase text-center mb-5">
+                Acceso al Sistema
+              </p>
 
-          {/* Error */}
-          {error && (
-            <div className="mb-4 px-3 py-2.5 rounded-xl text-xs text-center animate-fade-in"
-              style={{
-                background: 'rgba(239,68,68,0.09)',
-                border: '1px solid rgba(239,68,68,0.28)',
-                color: '#f87171',
-              }}>
-              {error}
-            </div>
-          )}
+              {error && (
+                <div className="mb-4 px-3 py-2.5 rounded-xl text-xs text-center animate-fade-in"
+                  style={{ background: 'rgba(239,68,68,0.09)', border: '1px solid rgba(239,68,68,0.28)', color: '#f87171' }}>
+                  {error}
+                </div>
+              )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Email */}
-            <div>
-              <label className="section-label block mb-2">Correo Electrónico</label>
-              <input
-                type="email" value={email} onChange={e => setEmail(e.target.value)}
-                required autoComplete="email"
-                className="w-full px-4 py-3 text-sm"
-                style={{ borderRadius: 10 }}
-              />
-            </div>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <label className="section-label block mb-2">Correo Electronico</label>
+                  <input
+                    type="email" value={email} onChange={e => setEmail(e.target.value)}
+                    required autoComplete="email" placeholder="usuario@opticayolanda.com"
+                    className="w-full px-4 py-3 text-sm" style={{ borderRadius: 10 }}
+                  />
+                </div>
+                <div>
+                  <label className="section-label block mb-2">Contrasena</label>
+                  <div className="relative">
+                    <input
+                      type={showPass ? 'text' : 'password'}
+                      value={password} onChange={e => setPassword(e.target.value)}
+                      required autoComplete="current-password" placeholder="••••••••"
+                      className="w-full px-4 py-3 text-sm pr-11" style={{ borderRadius: 10 }}
+                    />
+                    <button type="button" onClick={() => setShowPass(!showPass)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2"
+                      style={{ color: 'rgba(197,160,89,0.55)' }}
+                      onMouseEnter={e => (e.currentTarget.style.color = '#C5A059')}
+                      onMouseLeave={e => (e.currentTarget.style.color = 'rgba(197,160,89,0.55)')}>
+                      {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
+                  </div>
+                </div>
+                <button type="submit" disabled={loading}
+                  className="luxury-button w-full py-3 mt-1"
+                  style={loading ? { opacity: 0.52, cursor: 'not-allowed' } : {}}>
+                  {loading ? (
+                    <span className="flex items-center justify-center gap-2.5">
+                      <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                      </svg>
+                      Verificando...
+                    </span>
+                  ) : 'Ingresar al Sistema'}
+                </button>
+              </form>
 
-            {/* Password */}
-            <div>
-              <label className="section-label block mb-2">Contraseña</label>
-              <div className="relative">
-                <input
-                  type={showPass ? 'text' : 'password'}
-                  value={password} onChange={e => setPassword(e.target.value)}
-                  required autoComplete="current-password"
-                  className="w-full px-4 py-3 text-sm pr-11"
-                  style={{ borderRadius: 10 }}
-                />
+              {/* Divider */}
+              <div className="flex items-center gap-3 my-5">
+                <div className="flex-1 gold-divider" />
+                <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.18)' }}>o</span>
+                <div className="flex-1 gold-divider" />
+              </div>
+
+              {/* Register button */}
+              <button
+                onClick={() => { setView('register'); setRegError(''); setRegOk(''); }}
+                className="w-full py-2.5 rounded-xl text-sm font-light tracking-wider flex items-center justify-center gap-2 mb-3"
+                style={{
+                  background: 'rgba(197,160,89,0.07)',
+                  border: '1px solid rgba(197,160,89,0.26)',
+                  color: 'rgba(197,160,89,0.80)',
+                  transition: 'background 0.22s, border-color 0.22s, color 0.22s',
+                }}
+                onMouseEnter={e => {
+                  const b = e.currentTarget;
+                  b.style.background = 'rgba(197,160,89,0.13)';
+                  b.style.borderColor = 'rgba(197,160,89,0.46)';
+                  b.style.color = '#C5A059';
+                }}
+                onMouseLeave={e => {
+                  const b = e.currentTarget;
+                  b.style.background = 'rgba(197,160,89,0.07)';
+                  b.style.borderColor = 'rgba(197,160,89,0.26)';
+                  b.style.color = 'rgba(197,160,89,0.80)';
+                }}>
+                <UserPlus size={13} />
+                Registrar nuevo usuario
+              </button>
+
+              {/* Dev mode */}
+              <button
+                onClick={enterDevMode}
+                className="w-full py-2.5 rounded-xl text-sm font-light tracking-wider flex items-center justify-center gap-2"
+                style={{
+                  background: 'rgba(245,158,11,0.07)',
+                  border: '1px solid rgba(245,158,11,0.24)',
+                  color: 'rgba(245,158,11,0.72)',
+                  transition: 'background 0.22s, border-color 0.22s, color 0.22s',
+                }}
+                onMouseEnter={e => {
+                  const b = e.currentTarget;
+                  b.style.background = 'rgba(245,158,11,0.13)';
+                  b.style.borderColor = 'rgba(245,158,11,0.44)';
+                  b.style.color = '#f59e0b';
+                }}
+                onMouseLeave={e => {
+                  const b = e.currentTarget;
+                  b.style.background = 'rgba(245,158,11,0.07)';
+                  b.style.borderColor = 'rgba(245,158,11,0.24)';
+                  b.style.color = 'rgba(245,158,11,0.72)';
+                }}>
+                <Zap size={13} />
+                Modo Desarrollo — Acceso Inmediato
+              </button>
+              <p className="text-center text-xs mt-2 font-light" style={{ color: 'rgba(255,255,255,0.16)' }}>
+                Sin base de datos · Solo para desarrollo
+              </p>
+            </>
+          ) : (
+            <>
+              {/* Register form */}
+              <div className="flex items-center gap-3 mb-5">
                 <button
-                  type="button"
-                  onClick={() => setShowPass(!showPass)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2"
-                  style={{ color: 'rgba(197,160,89,0.55)', transition: 'color 0.2s' }}
+                  onClick={() => setView('login')}
+                  className="p-1.5 rounded-lg"
+                  style={{ color: 'rgba(197,160,89,0.55)', background: 'rgba(197,160,89,0.07)', border: '1px solid rgba(197,160,89,0.18)' }}
                   onMouseEnter={e => (e.currentTarget.style.color = '#C5A059')}
                   onMouseLeave={e => (e.currentTarget.style.color = 'rgba(197,160,89,0.55)')}>
-                  {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
+                  <ChevronLeft size={14} />
                 </button>
+                <p className="text-white text-sm font-light tracking-[0.18em] uppercase">
+                  Registrar Usuario
+                </p>
               </div>
-            </div>
 
-            {/* Submit */}
-            <button
-              type="submit"
-              disabled={loading}
-              className="luxury-button w-full py-3 mt-1"
-              style={loading ? { opacity: 0.52, cursor: 'not-allowed' } : {}}>
-              {loading ? (
-                <span className="flex items-center justify-center gap-2.5">
-                  <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                  </svg>
-                  Verificando...
-                </span>
-              ) : 'Ingresar al Sistema'}
-            </button>
-          </form>
+              {regOk && (
+                <div className="mb-4 px-3 py-3 rounded-xl text-xs text-center animate-fade-in flex items-center justify-center gap-2"
+                  style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.28)', color: '#22c55e' }}>
+                  <Check size={13} />
+                  {regOk}
+                </div>
+              )}
 
-          {/* Divider */}
-          <div className="flex items-center gap-3 my-5">
-            <div className="flex-1 gold-divider" />
-            <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.18)' }}>o</span>
-            <div className="flex-1 gold-divider" />
-          </div>
+              {regError && (
+                <div className="mb-4 px-3 py-2.5 rounded-xl text-xs text-center animate-fade-in"
+                  style={{ background: 'rgba(239,68,68,0.09)', border: '1px solid rgba(239,68,68,0.28)', color: '#f87171' }}>
+                  {regError}
+                </div>
+              )}
 
-          {/* Dev mode */}
-          <button
-            onClick={enterDevMode}
-            className="w-full py-2.5 rounded-xl text-sm font-light tracking-wider flex items-center justify-center gap-2"
-            style={{
-              background: 'rgba(245,158,11,0.07)',
-              border: '1px solid rgba(245,158,11,0.24)',
-              color: 'rgba(245,158,11,0.72)',
-              transition: 'background 0.22s, border-color 0.22s, color 0.22s',
-            }}
-            onMouseEnter={e => {
-              const b = e.currentTarget;
-              b.style.background = 'rgba(245,158,11,0.13)';
-              b.style.borderColor = 'rgba(245,158,11,0.44)';
-              b.style.color = '#f59e0b';
-            }}
-            onMouseLeave={e => {
-              const b = e.currentTarget;
-              b.style.background = 'rgba(245,158,11,0.07)';
-              b.style.borderColor = 'rgba(245,158,11,0.24)';
-              b.style.color = 'rgba(245,158,11,0.72)';
-            }}>
-            <Zap size={13} />
-            Modo Desarrollo — Acceso Inmediato
-          </button>
-          <p className="text-center text-xs mt-2 font-light" style={{ color: 'rgba(255,255,255,0.16)' }}>
-            Sin base de datos · Solo para desarrollo
-          </p>
+              <form onSubmit={handleRegister} className="space-y-4">
+                <div>
+                  <label className="section-label block mb-2">Nombre Completo</label>
+                  <input
+                    type="text" value={regName} onChange={e => setRegName(e.target.value)}
+                    required placeholder="Ej: Maria Garcia"
+                    className="w-full px-4 py-3 text-sm" style={{ borderRadius: 10 }}
+                  />
+                </div>
+                <div>
+                  <label className="section-label block mb-2">Correo Electronico</label>
+                  <input
+                    type="email" value={regEmail} onChange={e => setRegEmail(e.target.value)}
+                    required placeholder="usuario@opticayolanda.com"
+                    className="w-full px-4 py-3 text-sm" style={{ borderRadius: 10 }}
+                  />
+                </div>
+                <div>
+                  <label className="section-label block mb-2">Contrasena</label>
+                  <div className="relative">
+                    <input
+                      type={showRegPass ? 'text' : 'password'}
+                      value={regPass} onChange={e => setRegPass(e.target.value)}
+                      required placeholder="Minimo 6 caracteres"
+                      className="w-full px-4 py-3 text-sm pr-11" style={{ borderRadius: 10 }}
+                    />
+                    <button type="button" onClick={() => setShowRegPass(!showRegPass)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2"
+                      style={{ color: 'rgba(197,160,89,0.55)' }}
+                      onMouseEnter={e => (e.currentTarget.style.color = '#C5A059')}
+                      onMouseLeave={e => (e.currentTarget.style.color = 'rgba(197,160,89,0.55)')}>
+                      {showRegPass ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="section-label block mb-2">Rol</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {([['vendedor', 'Vendedora'], ['admin', 'Administrador']] as const).map(([val, lbl]) => (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() => setRegRole(val)}
+                        className="py-2.5 rounded-xl text-xs font-light tracking-wide transition-all"
+                        style={{
+                          background: regRole === val ? 'rgba(197,160,89,0.14)' : 'rgba(255,255,255,0.03)',
+                          border: regRole === val ? '1px solid rgba(197,160,89,0.48)' : '1px solid rgba(255,255,255,0.08)',
+                          color: regRole === val ? '#C5A059' : 'rgba(255,255,255,0.42)',
+                        }}>
+                        {lbl}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  disabled={regLoading}
+                  className="luxury-button w-full py-3 mt-1"
+                  style={regLoading ? { opacity: 0.52, cursor: 'not-allowed' } : {}}>
+                  {regLoading ? (
+                    <span className="flex items-center justify-center gap-2.5">
+                      <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                      </svg>
+                      Registrando...
+                    </span>
+                  ) : 'Guardar Usuario'}
+                </button>
+              </form>
+
+              <p className="text-center text-xs mt-4 font-light leading-relaxed"
+                style={{ color: 'rgba(255,255,255,0.20)' }}>
+                El primer usuario se crea libremente.<br />
+                Los siguientes requieren un Administrador activo.
+              </p>
+            </>
+          )}
         </div>
 
         <p className="text-center text-xs mt-7 font-light" style={{ color: 'rgba(255,255,255,0.12)' }}>
