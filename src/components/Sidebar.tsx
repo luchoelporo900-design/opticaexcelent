@@ -3,7 +3,7 @@ import {
   LayoutDashboard, ShoppingCart, Users, FlaskConical,
   Glasses, Building2, ChevronLeft, ChevronRight,
   Bell, LogOut, Settings, Eye, Trophy, ChevronDown,
-  DollarSign, BarChart3, AlertCircle
+  DollarSign, BarChart3, AlertCircle, Search
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useBranch } from '../context/BranchContext';
@@ -13,7 +13,7 @@ type Page = 'dashboard' | 'pos' | 'customers' | 'lab' | 'simulator' | 'branches'
 
 type Props = {
   current: Page;
-  onChange: (p: Page) => void;
+  onChange: (p: Page, searchQuery?: string) => void;
 };
 
 const navItems: { id: Page; label: string; icon: React.ReactNode }[] = [
@@ -34,9 +34,11 @@ const navItems: { id: Page; label: string; icon: React.ReactNode }[] = [
 const CURRENT_MONTH = new Date().toISOString().slice(0, 7);
 
 export default function Sidebar({ current, onChange }: Props) {
-  const [collapsed,  setCollapsed]  = useState(false);
-  const [branchOpen, setBranchOpen] = useState(false);
-  const [myPoints,   setMyPoints]   = useState<number | null>(null);
+  const [collapsed,    setCollapsed]    = useState(false);
+  const [branchOpen,   setBranchOpen]   = useState(false);
+  const [myPoints,     setMyPoints]     = useState<number | null>(null);
+  const [searchQuery,  setSearchQuery]  = useState('');
+  const [searchFocused, setSearchFocused] = useState(false);
 
   const { profile, signOut } = useAuth();
   const { branches, activeBranch, setActiveBranchId } = useBranch();
@@ -157,6 +159,68 @@ export default function Sidebar({ current, onChange }: Props) {
             )}
           </div>
         </div>
+      )}
+
+      {/* ── Universal Client Search ──────────────────────────── */}
+      {!collapsed && (
+        <div className="px-3 pt-2.5 pb-2 animate-fade-in">
+          <form
+            onSubmit={e => {
+              e.preventDefault();
+              if (searchQuery.trim()) {
+                onChange('customers', searchQuery.trim());
+                setSearchQuery('');
+              }
+            }}>
+            <div
+              className="relative flex items-center"
+              style={{
+                borderRadius: 8,
+                border: searchFocused
+                  ? '1px solid rgba(197,160,89,0.55)'
+                  : '1px solid rgba(197,160,89,0.20)',
+                background: searchFocused
+                  ? 'rgba(197,160,89,0.07)'
+                  : 'rgba(197,160,89,0.04)',
+                boxShadow: searchFocused
+                  ? '0 0 0 2px rgba(197,160,89,0.12), 0 2px 12px rgba(197,160,89,0.10)'
+                  : 'none',
+                transition: 'border-color 0.22s, background 0.22s, box-shadow 0.22s',
+              }}>
+              <Search
+                size={13}
+                className="absolute left-2.5 shrink-0 pointer-events-none"
+                style={{ color: searchFocused ? '#C5A059' : 'rgba(197,160,89,0.45)' }} />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                onFocus={() => setSearchFocused(true)}
+                onBlur={() => setSearchFocused(false)}
+                placeholder="Buscar cliente..."
+                className="w-full bg-transparent outline-none text-xs font-light pl-7 pr-3 py-2"
+                style={{
+                  color: 'rgba(255,255,255,0.82)',
+                  caretColor: '#C5A059',
+                  letterSpacing: '0.04em',
+                }}
+              />
+            </div>
+          </form>
+        </div>
+      )}
+      {collapsed && (
+        <button
+          onClick={() => { setCollapsed(false); }}
+          title="Buscar cliente"
+          className="mx-auto flex items-center justify-center w-9 h-9 rounded-lg mt-2"
+          style={{
+            border: '1px solid rgba(197,160,89,0.20)',
+            background: 'rgba(197,160,89,0.04)',
+            color: 'rgba(197,160,89,0.55)',
+          }}>
+          <Search size={15} />
+        </button>
       )}
 
       {/* ── Navigation ───────────────────────────────────────── */}

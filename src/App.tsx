@@ -21,6 +21,7 @@ type Page = 'dashboard' | 'pos' | 'customers' | 'lab' | 'simulator' | 'branches'
 function AppContent() {
   const { user, loading, devMode } = useAuth();
   const [page, setPage] = useState<Page>('dashboard');
+  const [sidebarSearch, setSidebarSearch] = useState('');
 
   if (loading) {
     return (
@@ -49,7 +50,7 @@ function AppContent() {
   const pages: Record<Page, React.ReactNode> = {
     dashboard: <Dashboard />,
     pos: <POSPage />,
-    customers: <CustomersPage />,
+    customers: <CustomersPage initialSearch={sidebarSearch} onSearchConsumed={() => setSidebarSearch('')} />,
     crm: <CRMPage />,
     lab: <LabPage />,
     commissions: <CommissionsPage />,
@@ -63,7 +64,7 @@ function AppContent() {
 
   return (
     <div className="flex min-h-screen bg-black">
-      <Sidebar current={page} onChange={setPage} />
+      <Sidebar current={page} onChange={(p, q) => { setPage(p); if (q) setSidebarSearch(q); }} />
       <main className="flex-1 overflow-y-auto min-h-screen cinematic-bg animate-fade-in">
         {pages[page]}
       </main>

@@ -49,7 +49,11 @@ export default function Dashboard() {
     const today = new Date().toISOString().split('T')[0];
     const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 7);
 
-    const ventas = getSales();
+    const allVentas = getSales();
+    const isVendedor = profile?.role === 'vendedor';
+    const ventas = isVendedor
+      ? allVentas.filter(v => v.vendedora === profile?.full_name)
+      : allVentas;
 
     const todaySalesData = ventas.filter(v => (v.fecha || '').startsWith(today));
     const monthlySalesData = ventas.filter(v => (v.fecha || '').startsWith(monthStart));
@@ -70,7 +74,7 @@ export default function Dashboard() {
 
     setStats({
       totalSales: ventas.length,
-      totalCustomers: 0,
+      totalCustomers: isVendedor ? ventas.length : 0,
       pendingLab: 0,
       readyLab: 0,
       todaySales: todaySalesData.length,
@@ -98,8 +102,10 @@ export default function Dashboard() {
     supabase.from('lab_orders').select('*, sales(sale_number, customers(full_name))').order('created_at', { ascending: false }).limit(10)
       .then(({ data }) => { setLabOrders((data || []) as any); });
 
-    supabase.from('customers').select('id', { count: 'exact', head: true })
-      .then(({ count }) => { setStats(s => ({ ...s, totalCustomers: count || 0 })); });
+    if (!isVendedor) {
+      supabase.from('customers').select('id', { count: 'exact', head: true })
+        .then(({ count }) => { setStats(s => ({ ...s, totalCustomers: count || 0 })); });
+    }
 
     setLoading(false);
   }
