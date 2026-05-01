@@ -1,4 +1,4 @@
-const LS_KEY = 'optica_yolanda_ventas';
+export const LS_KEY = 'optica_yolanda_ventas';
 
 export type StoredSale = {
   id: number;
@@ -25,7 +25,9 @@ export type SalesSummary = {
 
 export function getSales(): StoredSale[] {
   try {
-    return JSON.parse(localStorage.getItem(LS_KEY) || '[]');
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as StoredSale[];
   } catch {
     return [];
   }
@@ -35,11 +37,13 @@ export function saveSale(sale: StoredSale): void {
   const existing = getSales();
   const updated = [...existing, sale];
   localStorage.setItem(LS_KEY, JSON.stringify(updated));
-  console.log('salesStorage.saveSale — guardado', updated.length, 'ventas en', LS_KEY);
+  // Notify same-tab listeners (cross-tab already fires 'storage' natively)
+  window.dispatchEvent(new CustomEvent('optica_ventas_updated'));
 }
 
 export function clearSales(): void {
   localStorage.removeItem(LS_KEY);
+  window.dispatchEvent(new CustomEvent('optica_ventas_updated'));
 }
 
 export function getSalesSummary(ventas?: StoredSale[]): SalesSummary {

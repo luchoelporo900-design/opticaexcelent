@@ -72,6 +72,12 @@ export default function ReportPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    const onUpdate = () => load();
+    window.addEventListener('optica_ventas_updated', onUpdate);
+    return () => window.removeEventListener('optica_ventas_updated', onUpdate);
+  }, [load]);
+
   function handlePrint() {
     window.print();
   }

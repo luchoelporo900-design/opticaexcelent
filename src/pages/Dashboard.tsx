@@ -32,7 +32,18 @@ export default function Dashboard() {
   useEffect(() => {
     loadDashboard();
     loadMyPoints();
-  }, [profile]);
+
+    // Reload whenever a sale is saved from POSPage (same tab)
+    const onUpdate = () => loadDashboard();
+    window.addEventListener('optica_ventas_updated', onUpdate);
+    // Also reload when tab becomes visible again (user switched away and back)
+    const onVisible = () => { if (document.visibilityState === 'visible') loadDashboard(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('optica_ventas_updated', onUpdate);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [profile]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function loadDashboard() {
     const today = new Date().toISOString().split('T')[0];

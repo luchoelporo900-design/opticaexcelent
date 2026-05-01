@@ -263,44 +263,74 @@ export default function POSPage() {
 
   // ── Save ───────────────────────────────────────────────────────────────────
   async function handleSaveSale() {
-    alert('CLICK GUARDAR VENTA');
-    console.log('CLICK GUARDAR VENTA');
     setSaveErr('');
-    if (!nFirst.trim())    { setSaveErr('El campo Nombre es obligatorio.');              return; }
-    if (!nLast.trim())     { setSaveErr('El campo Apellido es obligatorio.');            return; }
-    if (!totalNum)         { setSaveErr('El campo Total venta es obligatorio.');         return; }
-    if (!saleBranch)       { setSaveErr('Seleccioná la Sucursal de venta.');             return; }
-    if (!delBranch)        { setSaveErr('Seleccioná la Sucursal de entrega.');           return; }
-    if (!payBranch)        { setSaveErr('Seleccioná la Sucursal de cobro.');             return; }
-    if (!sellerId)         { setSaveErr('Seleccioná la Vendedora.');                     return; }
+
+    // ── Validation ──────────────────────────────────────────────────────────
+    if (!nFirst.trim()) { setSaveErr('El campo Nombre es obligatorio.');     return; }
+    if (!nLast.trim())  { setSaveErr('El campo Apellido es obligatorio.');   return; }
+    if (!totalNum)      { setSaveErr('El campo Total venta es obligatorio.'); return; }
+    if (!saleBranch)    { setSaveErr('Seleccioná la Sucursal de venta.');    return; }
+    if (!delBranch)     { setSaveErr('Seleccioná la Sucursal de entrega.');  return; }
+    if (!payBranch)     { setSaveErr('Seleccioná la Sucursal de cobro.');    return; }
+    if (!sellerId)      { setSaveErr('Seleccioná la Vendedora.');            return; }
+
     setSaving(true);
 
     const sellerObj  = sellers.find(s => s.id === sellerId);
     const sellerName = sellerObj?.full_name ?? '';
-    const sellerUuid = (sellerId && !sellerId.startsWith('__'))
-      ? sellerId
-      : (profile?.id ?? null);
-    const saleNum    = `VTA-${Date.now()}`;
+    const sellerUuid = (sellerId && !sellerId.startsWith('__')) ? sellerId : (profile?.id ?? null);
+    const saleId     = Date.now();
+    const saleNum    = `VTA-${saleId}`;
+    const firstName  = nFirst.trim();
+    const lastName   = nLast.trim();
+    const phone      = nPhone.trim();
+    const ci         = nCi.trim();
+    const primaryMethod = payments.find(p => parseFloat(p.amount) > 0)?.method ?? 'efectivo';
+    const deliveredAt   = status === 'entregado' ? new Date().toISOString().split('T')[0] : null;
 
-    // Save customer automatically — only name is required, phone/ci are optional
+    // ── Step 1: Save to localStorage immediately (guaranteed, no network) ──
+    const nuevaVenta = {
+      id: saleId,
+      fecha: new Date().toISOString(),
+      cliente: { nombre: firstName, apellido: lastName, telefono: phone, ci },
+      sucursalVenta: saleBranch,
+      sucursalEntrega: delBranch,
+      sucursalCobro: payBranch,
+      vendedora: sellerName,
+      total: totalNum,
+      sena: depositNum,
+      saldo: balanceNum,
+      metodoPago: primaryMethod,
+      estadoTrabajo: status,
+      anteojos: eyeglasses,
+      observaciones: notes,
+    };
+    saveToStorage(nuevaVenta as any);
+
+    // ── Step 2: Show success immediately after localStorage write ──────────
+    setSaved(`Venta ${saleNum} guardada con éxito.`);
+    resetForm();
+    loadSales();
+    setSaving(false);
+    setTimeout(() => setSaved(''), 6000);
+
+    // ── Step 3: Persist to Supabase in background (best-effort) ───────────
     let resolvedCustomerId: string | null = null;
-    const firstName = nFirst.trim();
-    const lastName  = nLast.trim();
-    const phone     = nPhone.trim();
-    const ci        = nCi.trim();
-    const fullName  = [firstName, lastName].filter(Boolean).join(' ') || 'Cliente';
+    const fullName = [firstName, lastName].filter(Boolean).join(' ') || 'Cliente';
 
     if (firstName || lastName) {
-      // If phone provided, try to find existing by phone to avoid duplicates
+      // Try phone lookup first to avoid duplicates
       if (phone) {
-        const { data: existing } = await supabase
-          .from('customers')
-          .select('id')
-          .or(`phone.eq.${phone},whatsapp.eq.${phone}`)
-          .maybeSingle();
-        resolvedCustomerId = existing?.id ?? null;
+        const { data: ex } = await supabase.from('customers').select('id')
+          .or(`phone.eq.${phone},whatsapp.eq.${phone}`).maybeSingle();
+        resolvedCustomerId = ex?.id ?? null;
       }
-
+      // Try CI lookup if still not found
+      if (!resolvedCustomerId && ci) {
+        const { data: ex2 } = await supabase.from('customers').select('id')
+          .eq('ci', ci).maybeSingle();
+        resolvedCustomerId = ex2?.id ?? null;
+      }
       if (resolvedCustomerId) {
         await supabase.from('customers').update({
           full_name: fullName,
@@ -319,32 +349,7 @@ export default function POSPage() {
       }
     }
 
-    const deliveredAt = status === 'entregado' ? new Date().toISOString().split('T')[0] : null;
-    const primaryMethod = payments.find(p => parseFloat(p.amount) > 0)?.method ?? 'efectivo';
-
-    // ── Save to localStorage FIRST via service (unconditional) ──
-    const nuevaVenta = {
-      id: Date.now(),
-      fecha: new Date().toISOString(),
-      cliente: { nombre: firstName, apellido: lastName, telefono: phone, ci },
-      sucursalVenta: saleBranch,
-      sucursalEntrega: delBranch,
-      sucursalCobro: payBranch,
-      vendedora: sellerName,
-      total: totalNum,
-      sena: depositNum,
-      saldo: balanceNum,
-      metodoPago: primaryMethod,
-      estadoTrabajo: status,
-      anteojos: eyeglasses,
-      observaciones: notes,
-    };
-    console.log('VENTA A GUARDAR', nuevaVenta);
-    saveToStorage(nuevaVenta as any);
-    console.log('LOCALSTORAGE VENTAS', localStorage.getItem('optica_yolanda_ventas'));
-
-    // ── Also attempt Supabase save in background (best-effort) ──
-    supabase.from('sales').insert([{
+    const { data: sd, error: se } = await supabase.from('sales').insert([{
       sale_number: saleNum,
       customer_id: resolvedCustomerId,
       branch_id: saleBranch,
@@ -371,47 +376,48 @@ export default function POSPage() {
       shipping_tracking: shipTrack || null,
       notes: notes || null,
       delivered_at: deliveredAt,
-    }]).select('id').maybeSingle().then(({ data: sd, error: se }) => {
-      if (se) { console.error('SUPABASE VENTA ERROR', se); return; }
-      if (!sd) return;
-      const sid = sd.id;
-      eyeglasses.forEach((eg, i) => {
-        supabase.from('sale_eyeglasses').insert([{
-          sale_id: sid, frame_id: null,
-          frame_description: eg.frame_description || null,
-          crystals: eg.crystals || null, treatments: eg.treatments || null,
-          prescription_text: eg.showReceta ? rxToText(eg.prescription) : null,
-          photo_url: eg.photo_url || null, price: parseFloat(eg.price) || 0, sort_order: i,
-        }]).then(({ error: e }) => { if (e) console.error('SUPABASE ANTEOJO', e); });
-      });
-      const payAmt = depositNum > 0 ? depositNum : totalNum;
-      supabase.from('sale_payments').insert([{
-        sale_id: sid, amount: payAmt, method: payments[0].method, branch_id: payBranch,
-        reference: [payments[0].reference, paymentReceipt ? '[comprobante adjunto]' : ''].filter(Boolean).join(' | ') || null,
-        registered_by: sellerUuid,
-      }]).then(({ error: e }) => { if (e) console.error('SUPABASE PAGO', e); });
-      if (sellerUuid) {
-        supabase.from('seller_points').insert([{
-          seller_id: sellerUuid, sale_id: sid, points: 1.0, point_type: 'completa',
-          sale_month: new Date().toISOString().slice(0, 7), branch_id: saleBranch,
-        }]).then(({ error: e }) => { if (e) console.error('SUPABASE PUNTOS', e); });
-      }
-      if (resolvedCustomerId) {
-        const d6 = new Date(); d6.setMonth(d6.getMonth() + 6);
-        const d12 = new Date(); d12.setMonth(d12.getMonth() + 12);
-        supabase.from('reminders').insert([
-          { customer_id: resolvedCustomerId, sale_id: sid, reminder_type: '6_meses', scheduled_date: d6.toISOString().split('T')[0] },
-          { customer_id: resolvedCustomerId, sale_id: sid, reminder_type: '12_meses', scheduled_date: d12.toISOString().split('T')[0] },
-        ]).then(({ error: e }) => { if (e) console.error('SUPABASE RECORDATORIOS', e); });
-      }
+    }]).select('id').maybeSingle();
+
+    if (se) {
+      console.error('Supabase sales insert error:', se.message, se.details, se.hint);
+      return;
+    }
+    if (!sd) return;
+
+    const sid = sd.id;
+
+    eyeglasses.forEach((eg, i) => {
+      supabase.from('sale_eyeglasses').insert([{
+        sale_id: sid, frame_id: null,
+        frame_description: eg.frame_description || null,
+        crystals: eg.crystals || null, treatments: eg.treatments || null,
+        prescription_text: eg.showReceta ? rxToText(eg.prescription) : null,
+        photo_url: eg.photo_url || null, price: parseFloat(eg.price) || 0, sort_order: i,
+      }]).then(({ error: e }) => { if (e) console.error('sale_eyeglasses:', e.message); });
     });
 
-    alert('Venta guardada correctamente');
-    setSaved(`Venta ${saleNum} guardada correctamente.`);
-    resetForm();
-    loadSales();
-    setSaving(false);
-    setTimeout(() => setSaved(''), 5000);
+    const payAmt = depositNum > 0 ? depositNum : totalNum;
+    supabase.from('sale_payments').insert([{
+      sale_id: sid, amount: payAmt, method: payments[0].method, branch_id: payBranch,
+      reference: [payments[0].reference, paymentReceipt ? '[comprobante]' : ''].filter(Boolean).join(' | ') || null,
+      registered_by: sellerUuid,
+    }]).then(({ error: e }) => { if (e) console.error('sale_payments:', e.message); });
+
+    if (sellerUuid) {
+      supabase.from('seller_points').insert([{
+        seller_id: sellerUuid, sale_id: sid, points: 1.0, point_type: 'completa',
+        sale_month: new Date().toISOString().slice(0, 7), branch_id: saleBranch,
+      }]).then(({ error: e }) => { if (e) console.error('seller_points:', e.message); });
+    }
+
+    if (resolvedCustomerId) {
+      const d6 = new Date(); d6.setMonth(d6.getMonth() + 6);
+      const d12 = new Date(); d12.setMonth(d12.getMonth() + 12);
+      supabase.from('reminders').insert([
+        { customer_id: resolvedCustomerId, sale_id: sid, reminder_type: '6_meses', scheduled_date: d6.toISOString().split('T')[0] },
+        { customer_id: resolvedCustomerId, sale_id: sid, reminder_type: '12_meses', scheduled_date: d12.toISOString().split('T')[0] },
+      ]).then(({ error: e }) => { if (e) console.error('reminders:', e.message); });
+    }
   }
 
   function resetForm() {
