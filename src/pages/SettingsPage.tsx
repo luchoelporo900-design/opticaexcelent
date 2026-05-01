@@ -67,13 +67,15 @@ export default function SettingsPage() {
   const [newEmail,   setNewEmail]   = useState('');
   const [newPass,    setNewPass]    = useState('');
   const [showPass,   setShowPass]   = useState(false);
-  const [newRole,    setNewRole]    = useState('vendedor');
+  const [newRole,    setNewRole]    = useState('admin');
   const [newBranch,  setNewBranch]  = useState('');
   const [creating,   setCreating]   = useState(false);
   const [createErr,  setCreateErr]  = useState('');
   const [createOk,   setCreateOk]   = useState('');
 
-  useEffect(() => { if (isAdmin) loadTeam(); }, [isAdmin]);
+  // Show team panel to everyone — admins manage the team; others can see
+  // it so that the very first admin account can be created (bootstrap mode).
+  useEffect(() => { loadTeam(); }, []);
 
   async function loadTeam() {
     setLoadingTeam(true);
@@ -99,29 +101,41 @@ export default function SettingsPage() {
 
   async function createUser() {
     setCreateErr('');
-    if (!newName.trim() || !newEmail.trim() || !newPass.trim()) { setCreateErr('Nombre, email y contraseña son obligatorios.'); return; }
+    if (!newName.trim() || !newEmail.trim() || !newPass.trim()) {
+      setCreateErr('Nombre, email y contraseña son obligatorios.');
+      return;
+    }
     if (newPass.length < 6) { setCreateErr('La contraseña debe tener al menos 6 caracteres.'); return; }
     setCreating(true);
 
+    // Get token if logged in; bootstrap mode works without one
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token;
-    if (!token) { setCreateErr('Sesión expirada. Vuelva a iniciar sesión.'); setCreating(false); return; }
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
 
     const res = await fetch(
       `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-user`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ email: newEmail.trim(), password: newPass, full_name: newName.trim(), role: newRole, branch_id: newBranch || null }),
+        headers,
+        body: JSON.stringify({
+          email: newEmail.trim(),
+          password: newPass,
+          full_name: newName.trim(),
+          role: newRole,
+          branch_id: newBranch || null,
+        }),
       }
     );
     const json = await res.json();
     if (!res.ok || json.error) { setCreateErr(json.error ?? 'Error al crear usuario.'); setCreating(false); return; }
 
-    setCreateOk(`Usuario "${newName}" creado correctamente.`);
+    setCreateOk(`Usuario "${newName.trim()}" creado con éxito.`);
     setNewName(''); setNewEmail(''); setNewPass(''); setNewRole('vendedor'); setNewBranch('');
     setShowCreate(false); setCreating(false);
-    setTimeout(() => setCreateOk(''), 5000);
+    setTimeout(() => setCreateOk(''), 6000);
     loadTeam();
   }
 
@@ -176,9 +190,8 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Team management — admin/gerente only */}
-      {isAdmin && (
-        <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.018)', border: '1px solid rgba(197,160,89,0.14)' }}>
+      {/* Team management — visible to all so first admin can be created */}
+      <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.018)', border: '1px solid rgba(197,160,89,0.14)' }}>
           <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: '1px solid rgba(197,160,89,0.09)' }}>
             <div className="flex items-center gap-3">
               <Shield size={14} style={{ color: '#C5A059' }} />
@@ -202,7 +215,15 @@ export default function SettingsPage() {
 
           {showCreate && (
             <div className="p-5 space-y-4" style={{ borderBottom: '1px solid rgba(197,160,89,0.08)', background: 'rgba(197,160,89,0.02)' }}>
-              <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.55)' }}>Crear nuevo usuario</p>
+              <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.55)' }}>
+                {team.length === 0 ? 'Crear primer administrador' : 'Crear nuevo usuario'}
+              </p>
+              {team.length === 0 && (
+                <div className="px-4 py-3 rounded-xl text-xs font-light"
+                  style={{ background: 'rgba(197,160,89,0.07)', border: '1px solid rgba(197,160,89,0.25)', color: 'rgba(197,160,89,0.85)', lineHeight: 1.6 }}>
+                  Modo configuracion inicial. Crea tu cuenta de Administrador principal para empezar. Despues solo los Admin/Gerente podran crear usuarios.
+                </div>
+              )}
               {createErr && (
                 <div className="px-3 py-2 rounded-xl text-xs"
                   style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#f87171' }}>
@@ -249,7 +270,17 @@ export default function SettingsPage() {
           {loadingTeam ? (
             <div className="p-5 space-y-2">{[...Array(3)].map((_, i) => <div key={i} className="h-12 rounded shimmer" />)}</div>
           ) : team.length === 0 ? (
-            <div className="text-center py-10"><p className="text-xs" style={{ color: 'rgba(255,255,255,0.28)' }}>Sin usuarios registrados</p></div>
+            <div className="text-center py-10 space-y-3">
+              <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.28)' }}>
+                No hay usuarios registrados aun.
+              </p>
+              <button
+                onClick={() => { setShowCreate(true); setCreateErr(''); }}
+                className="text-xs px-4 py-2 rounded-xl font-medium"
+                style={{ background: '#C5A059', color: '#000' }}>
+                Crear primer administrador
+              </button>
+            </div>
           ) : (
             <div>
               <div className="grid px-5 py-2.5 text-xs font-light"
@@ -285,7 +316,6 @@ export default function SettingsPage() {
             </div>
           )}
         </div>
-      )}
 
       {/* System info */}
       <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.018)', border: '1px solid rgba(197,160,89,0.14)' }}>
