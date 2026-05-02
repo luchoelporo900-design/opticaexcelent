@@ -5,7 +5,7 @@ import {
   Glasses, FlaskConical, Phone,
 } from 'lucide-react';
 import { supabase, Customer } from '../lib/supabase';
-import { getSales } from '../lib/salesStorage';
+import { getSales, getPayments } from '../lib/salesStorage';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -17,6 +17,15 @@ type SaleEyeglass = {
   prescription_text: string;
   photo_url: string;
   price: number;
+};
+
+type SalePaymentEntry = {
+  id: string;
+  paid_at: string;
+  amount: number;
+  method: string;
+  tipo: 'sena' | 'abono';
+  reference?: string;
 };
 
 type SaleEntry = {
@@ -32,6 +41,7 @@ type SaleEntry = {
   notes: string;
   branches?: { name: string } | null;
   eyeglasses: SaleEyeglass[];
+  payments: SalePaymentEntry[];
 };
 
 type ClientHistory = {
@@ -49,6 +59,45 @@ const STATUS_CFG: Record<string, { label: string; color: string }> = {
 
 function fmt(n: number) {
   return n.toLocaleString('es-PY', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+
+// Normalize accents and case for fuzzy matching
+function normalize(s: string) {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+}
+
+// Returns true if query is contained in text (after normalization) OR
+// if query is within 1 edit distance of any substring of similar length (typo tolerance)
+function fuzzyMatch(text: string, query: string): boolean {
+  if (!query) return true;
+  const t = normalize(text);
+  const q = normalize(query);
+  if (t.includes(q)) return true;
+  // Typo tolerance: check if q appears as a subsequence or close substring
+  // For short queries skip costly check
+  if (q.length < 3) return false;
+  // Sliding window of length q.length ± 1 through t, compare edit distance
+  for (let i = 0; i <= t.length - q.length + 1; i++) {
+    const win = t.slice(i, i + q.length);
+    if (editDistance(win, q) <= 1) return true;
+  }
+  return false;
+}
+
+function editDistance(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  if (Math.abs(m - n) > 1) return 99;
+  const dp = Array.from({ length: m + 1 }, (_, i) => i);
+  for (let j = 1; j <= n; j++) {
+    let prev = dp[0];
+    dp[0] = j;
+    for (let i = 1; i <= m; i++) {
+      const tmp = dp[i];
+      dp[i] = a[i - 1] === b[j - 1] ? prev : 1 + Math.min(prev, dp[i], dp[i - 1]);
+      prev = tmp;
+    }
+  }
+  return dp[m];
 }
 
 function waLink(phone: string) {
@@ -216,7 +265,7 @@ function SaleCard({ sale }: { sale: SaleEntry }) {
             </div>
           )}
 
-          {/* Payment info */}
+          {/* Payment summary */}
           <div className="grid grid-cols-3 gap-3">
             {[
               { label: 'Total', value: `Gs. ${fmt(Number(sale.total))}`, color: '#C5A059' },
@@ -230,6 +279,50 @@ function SaleCard({ sale }: { sale: SaleEntry }) {
               </div>
             ))}
           </div>
+
+          {/* Payment detail timeline */}
+          {sale.payments.length > 0 && (
+            <div className="rounded-xl overflow-hidden"
+              style={{ border: '1px solid rgba(197,160,89,0.10)', background: 'rgba(197,160,89,0.02)' }}>
+              <div className="px-3 py-2 border-b flex items-center gap-2"
+                style={{ borderColor: 'rgba(197,160,89,0.08)' }}>
+                <span className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.55)' }}>
+                  Detalle de pagos
+                </span>
+              </div>
+              <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+                {sale.payments.map((p, i) => {
+                  const isSeña = p.tipo === 'sena';
+                  const color = isSeña ? '#22c55e' : '#3b82f6';
+                  const dt = new Date(p.paid_at);
+                  const dateStr = dt.toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit', year: '2-digit' });
+                  const timeStr = dt.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' });
+                  const totalPaidUpToNow = sale.payments.slice(0, i + 1).reduce((s, px) => s + px.amount, 0);
+                  const remaining = Math.max(0, sale.total - totalPaidUpToNow);
+                  return (
+                    <div key={p.id} className="flex items-center gap-2 px-3 py-2 text-xs font-light">
+                      <span className="shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-black font-medium"
+                        style={{ background: color, fontSize: 9 }}>{i + 1}</span>
+                      <span className="shrink-0 px-1.5 py-0.5 rounded-full"
+                        style={{ background: `${color}18`, color }}>{isSeña ? 'Seña' : 'Abono'}</span>
+                      <span className="text-white font-medium">Gs. {fmt(p.amount)}</span>
+                      <span style={{ color: 'rgba(255,255,255,0.38)' }}>{p.method}</span>
+                      <span className="ml-auto shrink-0 text-right space-x-1" style={{ color: 'rgba(255,255,255,0.30)' }}>
+                        {dateStr}
+                        <span style={{ color: 'rgba(255,255,255,0.18)' }}> {timeStr}</span>
+                      </span>
+                      {remaining > 0 && i === sale.payments.length - 1 && (
+                        <span className="shrink-0 px-1.5 py-0.5 rounded-full text-xs"
+                          style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)' }}>
+                          resta {fmt(remaining)}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {sale.notes && (
             <p className="text-xs font-light px-3 py-2 rounded-xl"
@@ -399,13 +492,12 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
           (sale.cliente.telefono && c.phone === sale.cliente.telefono)
       );
       if (alreadyInRemote) continue;
-      // Apply local filter too
+      // Apply local fuzzy filter too
       if (q && q.trim().length >= 2) {
-        const lq = q.trim().toLowerCase();
         if (
-          !fullName.toLowerCase().includes(lq) &&
-          !(sale.cliente.ci || '').includes(lq) &&
-          !(sale.cliente.telefono || '').includes(lq)
+          !fuzzyMatch(fullName, q) &&
+          !fuzzyMatch(sale.cliente.ci || '', q) &&
+          !(sale.cliente.telefono || '').includes(q.replace(/\D/g, ''))
         ) continue;
       }
       localCustomers.push({
@@ -439,11 +531,41 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
 
     const supabaseSales: SaleEntry[] = [];
     for (const s of (salesData ?? [])) {
-      const { data: egs } = await supabase
-        .from('sale_eyeglasses')
-        .select('id, frame_description, crystals, treatments, prescription_text, photo_url, price')
-        .eq('sale_id', s.id)
-        .order('sort_order');
+      const [{ data: egs }, { data: pays }] = await Promise.all([
+        supabase
+          .from('sale_eyeglasses')
+          .select('id, frame_description, crystals, treatments, prescription_text, photo_url, price')
+          .eq('sale_id', s.id)
+          .order('sort_order'),
+        supabase
+          .from('sale_payments')
+          .select('id, amount, method, paid_at, reference')
+          .eq('sale_id', s.id)
+          .order('paid_at'),
+      ]);
+      // Build initial seña row from sale itself if no payments recorded
+      const payRows: SalePaymentEntry[] = [];
+      if ((pays ?? []).length === 0 && Number(s.deposit) > 0) {
+        payRows.push({
+          id: `init-${s.id}`,
+          paid_at: s.created_at,
+          amount: Number(s.deposit),
+          method: s.payment_method ?? 'efectivo',
+          tipo: 'sena',
+          reference: 'Seña inicial',
+        });
+      } else {
+        (pays ?? []).forEach((p: any, i: number) => {
+          payRows.push({
+            id: String(p.id),
+            paid_at: p.paid_at,
+            amount: Number(p.amount),
+            method: p.method ?? '',
+            tipo: i === 0 ? 'sena' : 'abono',
+            reference: p.reference ?? undefined,
+          });
+        });
+      }
       supabaseSales.push({
         id: s.id,
         sale_number: s.sale_number,
@@ -465,38 +587,65 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
           photo_url: eg.photo_url ?? '',
           price: Number(eg.price),
         })),
+        payments: payRows,
       });
     }
 
     // Also include localStorage sales matching by name
-    const fullName = customer.full_name.toLowerCase();
+    const fullNameLower = customer.full_name.toLowerCase();
+    const allLocalPayments = getPayments();
     const localSales: SaleEntry[] = getSales()
       .filter(v => {
         const vName = `${v.cliente.nombre} ${v.cliente.apellido}`.trim().toLowerCase();
-        return vName === fullName || (customer.ci && v.cliente.ci === customer.ci);
+        return vName === fullNameLower || (customer.ci && v.cliente.ci === customer.ci);
       })
-      .map(v => ({
-        id: String(v.id),
-        sale_number: `VTA-${v.id}`,
-        created_at: v.fecha,
-        total: Number(v.total),
-        deposit: Number(v.sena),
-        balance: Number(v.saldo),
-        status: v.estadoTrabajo,
-        seller_name: v.vendedora,
-        payment_method: v.metodoPago,
-        notes: v.observaciones,
-        branches: v.sucursalVenta ? { name: v.sucursalVenta } : null,
-        eyeglasses: (v.anteojos as any[]).map((eg: any, i) => ({
-          id: String(i),
-          frame_description: eg.frame_description ?? '',
-          crystals: eg.crystals ?? '',
-          treatments: eg.treatments ?? '',
-          prescription_text: eg.prescription_text ?? '',
-          photo_url: eg.photo_url ?? '',
-          price: Number(eg.price) || 0,
-        })),
-      }));
+      .map(v => {
+        const salePayments: SalePaymentEntry[] = allLocalPayments
+          .filter(p => p.saleId === v.id)
+          .sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime())
+          .map(p => ({
+            id: String(p.id),
+            paid_at: p.fecha,
+            amount: p.monto,
+            method: p.metodo,
+            tipo: p.tipo,
+            reference: p.tipo === 'abono' ? 'Abono' : 'Seña inicial',
+          }));
+        // If no payments recorded, synthesize seña row
+        if (salePayments.length === 0 && Number(v.sena) > 0) {
+          salePayments.push({
+            id: `init-${v.id}`,
+            paid_at: v.fecha,
+            amount: Number(v.sena),
+            method: v.metodoPago,
+            tipo: 'sena',
+            reference: 'Seña inicial',
+          });
+        }
+        return {
+          id: String(v.id),
+          sale_number: `VTA-${v.id}`,
+          created_at: v.fecha,
+          total: Number(v.total),
+          deposit: Number(v.sena),
+          balance: Number(v.saldo),
+          status: v.estadoTrabajo,
+          seller_name: v.vendedora,
+          payment_method: v.metodoPago,
+          notes: v.observaciones,
+          branches: v.sucursalVenta ? { name: v.sucursalVenta } : null,
+          eyeglasses: (v.anteojos as any[]).map((eg: any, i) => ({
+            id: String(i),
+            frame_description: eg.frame_description ?? '',
+            crystals: eg.crystals ?? '',
+            treatments: eg.treatments ?? '',
+            prescription_text: eg.prescription_text ?? '',
+            photo_url: eg.photo_url ?? '',
+            price: Number(eg.price) || 0,
+          })),
+          payments: salePayments,
+        };
+      });
 
     // Merge, sort newest first
     const allSales = [...supabaseSales, ...localSales].sort(
@@ -513,12 +662,12 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
     return () => clearTimeout(t);
   }, [search]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Client-side filter as immediate feedback while query is in-flight
+  // Client-side fuzzy filter as immediate feedback while query is in-flight
   const filtered = customers.filter(c =>
     !search ||
-    (c.full_name || '').toLowerCase().includes(search.toLowerCase()) ||
-    (c.ci || '').toLowerCase().includes(search.toLowerCase()) ||
-    (c.phone || '').includes(search)
+    fuzzyMatch(c.full_name || '', search) ||
+    fuzzyMatch(c.ci || '', search) ||
+    (c.phone || '').includes(search.replace(/\D/g, ''))
   );
 
   return (

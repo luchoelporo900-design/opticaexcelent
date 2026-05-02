@@ -1,12 +1,74 @@
 import { useState, useEffect, useCallback } from 'react';
-import { BarChart3, Users, Building2, Calendar, RefreshCw, TrendingUp, Award, Printer } from 'lucide-react';
+import { BarChart3, Users, Building2, Calendar, RefreshCw, TrendingUp, Award, Printer, Camera, X, ZoomIn } from 'lucide-react';
 import { getSales } from '../lib/salesStorage';
+import { supabase } from '../lib/supabase';
 
 type SellerRow = { seller_name: string; sale_count: number; total: number; collected: number };
 type BranchRow = { branch_name: string; sale_count: number; total: number; collected: number };
 
+type PhotoEntry = {
+  sale_number: string;
+  branch_name: string;
+  seller_name: string;
+  created_at: string;
+  photo_url: string;
+  frame_description: string;
+  customer_name: string;
+};
+
 function fmt(n: number) {
   return n.toLocaleString('es-PY', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+
+// ── Photo lightbox ────────────────────────────────────────────────────────────
+function PhotoThumb({ entry }: { entry: PhotoEntry }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        className="relative group rounded-xl overflow-hidden"
+        style={{ width: 80, height: 80, border: '1px solid rgba(197,160,89,0.20)', flexShrink: 0 }}>
+        <img src={entry.photo_url} alt={entry.frame_description || 'armazón'}
+          className="w-full h-full object-cover" />
+        <div className="absolute inset-0 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+          style={{ background: 'rgba(0,0,0,0.65)' }}>
+          <ZoomIn size={16} style={{ color: '#C5A059' }} />
+        </div>
+        <div className="absolute bottom-0 inset-x-0 px-1 py-0.5"
+          style={{ background: 'rgba(0,0,0,0.6)', fontSize: 8, color: 'rgba(197,160,89,0.9)', lineHeight: 1.3 }}>
+          {entry.branch_name}
+        </div>
+      </button>
+      {open && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-6"
+          style={{ background: 'rgba(0,0,0,0.93)' }}
+          onClick={() => setOpen(false)}>
+          <div className="relative max-w-2xl w-full" onClick={e => e.stopPropagation()}>
+            <img src={entry.photo_url} alt={entry.frame_description || 'armazón'}
+              className="w-full rounded-2xl" style={{ border: '1px solid rgba(197,160,89,0.3)', maxHeight: '80vh', objectFit: 'contain' }} />
+            <div className="mt-3 text-center space-y-0.5">
+              <p className="text-xs text-white font-light">
+                {entry.sale_number} · {entry.customer_name} · {entry.branch_name}
+              </p>
+              {entry.frame_description && (
+                <p className="text-xs font-light" style={{ color: 'rgba(197,160,89,0.7)' }}>{entry.frame_description}</p>
+              )}
+              <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                {new Date(entry.created_at).toLocaleDateString('es-PY', { day: '2-digit', month: 'long', year: 'numeric' })}
+                {' · '}{entry.seller_name}
+              </p>
+            </div>
+            <button onClick={() => setOpen(false)}
+              className="absolute top-3 right-3 p-2 rounded-full"
+              style={{ background: 'rgba(0,0,0,0.7)', color: 'rgba(255,255,255,0.7)' }}>
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
 }
 
 export default function ReportPage() {
@@ -22,6 +84,8 @@ export default function ReportPage() {
   // Breakdowns
   const [bySeller, setBySeller] = useState<SellerRow[]>([]);
   const [byBranch, setByBranch] = useState<BranchRow[]>([]);
+  const [photos,   setPhotos]   = useState<PhotoEntry[]>([]);
+  const [photoBranch, setPhotoBranch] = useState<string>('');
 
   const load = useCallback(() => {
     setLoading(true);
@@ -66,6 +130,51 @@ export default function ReportPage() {
       branchMap[name].collected += (Number(v.total) || 0) - (Number(v.saldo) || 0);
     }
     setByBranch(Object.values(branchMap).sort((a, b) => b.total - a.total));
+
+    // Fetch photos from Supabase for the selected period
+    const dateFilter = scope === 'day' ? selectedDate : selectedDate.slice(0, 7);
+    supabase
+      .from('sale_eyeglasses')
+      .select('photo_url, frame_description, price, sales!inner(sale_number, created_at, seller_name, customer_first_name, customer_last_name, branches(name))')
+      .not('photo_url', 'is', null)
+      .neq('photo_url', '')
+      .order('created_at', { referencedTable: 'sales', ascending: false })
+      .limit(80)
+      .then(({ data: egData }) => {
+        const photoRows: PhotoEntry[] = [];
+        for (const eg of (egData ?? []) as any[]) {
+          const sale = eg.sales;
+          if (!sale) continue;
+          const saleDate: string = sale.created_at ?? '';
+          if (!saleDate.startsWith(dateFilter)) continue;
+          photoRows.push({
+            sale_number: sale.sale_number ?? '',
+            branch_name: sale.branches?.name ?? '',
+            seller_name: sale.seller_name ?? '',
+            created_at: saleDate,
+            photo_url: eg.photo_url,
+            frame_description: eg.frame_description ?? '',
+            customer_name: `${sale.customer_first_name ?? ''} ${sale.customer_last_name ?? ''}`.trim(),
+          });
+        }
+        // Also add localStorage photo entries
+        for (const v of ventas) {
+          for (const eg of (v.anteojos as any[] ?? [])) {
+            if (eg.photo_url) {
+              photoRows.push({
+                sale_number: `VTA-${v.id}`,
+                branch_name: v.sucursalVenta ?? '',
+                seller_name: v.vendedora ?? '',
+                created_at: v.fecha,
+                photo_url: eg.photo_url,
+                frame_description: eg.frame_description ?? '',
+                customer_name: `${v.cliente.nombre} ${v.cliente.apellido}`.trim(),
+              });
+            }
+          }
+        }
+        setPhotos(photoRows);
+      });
 
     setLoading(false);
   }, [selectedDate, scope]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -229,6 +338,47 @@ export default function ReportPage() {
           )}
         </div>
       </div>
+
+      {/* Photo gallery */}
+      {photos.length > 0 && (
+        <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
+          <div className="flex items-center justify-between px-5 py-4"
+            style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+            <div className="flex items-center gap-2">
+              <Camera size={14} className="text-gold-muted" />
+              <span className="text-xs font-light tracking-wider text-white">Fotos de armazones</span>
+              <span className="px-2 py-0.5 rounded-full text-xs font-light"
+                style={{ background: 'rgba(197,160,89,0.12)', color: '#C5A059' }}>
+                {photos.length}
+              </span>
+            </div>
+            {/* Branch filter */}
+            <select
+              value={photoBranch}
+              onChange={e => setPhotoBranch(e.target.value)}
+              className="bg-transparent text-xs outline-none px-2 py-1 rounded-lg"
+              style={{ border: '1px solid rgba(197,160,89,0.20)', color: 'rgba(255,255,255,0.6)' }}>
+              <option value="" style={{ background: '#111' }}>Todas las sucursales</option>
+              {[...new Set(photos.map(p => p.branch_name).filter(Boolean))].map(b => (
+                <option key={b} value={b} style={{ background: '#111' }}>{b}</option>
+              ))}
+            </select>
+          </div>
+          <div className="p-4 flex flex-wrap gap-3">
+            {photos
+              .filter(p => !photoBranch || p.branch_name === photoBranch)
+              .map((p, i) => (
+                <div key={i} className="flex flex-col items-center gap-1">
+                  <PhotoThumb entry={p} />
+                  <p className="text-center font-light"
+                    style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {p.customer_name || p.sale_number}
+                  </p>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
 
       {/* Printable footer note */}
       <div className="text-center pt-4"

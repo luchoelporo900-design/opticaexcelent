@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Plus, Check, X, Calendar, Search, ChevronDown, DollarSign, Phone } from 'lucide-react';
+import { RefreshCw, Plus, Check, X, Calendar, Search, ChevronDown, DollarSign, Phone, ZoomIn } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useBranch } from '../context/BranchContext';
@@ -44,6 +44,25 @@ const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
 
 function fmt(n: number) {
   return n.toLocaleString('es-PY', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+
+function normalize(s: string) {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+}
+
+function fuzzyMatch(text: string, query: string): boolean {
+  if (!query) return true;
+  const t = normalize(text);
+  const q = normalize(query);
+  if (t.includes(q)) return true;
+  if (q.length < 3) return false;
+  for (let i = 0; i <= t.length - q.length + 1; i++) {
+    const win = t.slice(i, i + q.length);
+    let diffs = 0;
+    for (let k = 0; k < win.length; k++) { if (win[k] !== q[k]) diffs++; }
+    if (diffs <= 1) return true;
+  }
+  return false;
 }
 
 export default function BalancesPage() {
@@ -207,12 +226,15 @@ export default function BalancesPage() {
 
   const filtered = rows.filter(r => {
     if (!searchText) return true;
-    const q = searchText.toLowerCase();
     const name = r.customers?.full_name || `${r.customer_first_name} ${r.customer_last_name}`;
+    const ci = r.customers?.ci || '';
+    const phone = r.customers?.phone || '';
     return (
-      name.toLowerCase().includes(q) ||
-      r.sale_number.toLowerCase().includes(q) ||
-      (r.seller_name ?? '').toLowerCase().includes(q)
+      fuzzyMatch(name, searchText) ||
+      fuzzyMatch(r.sale_number, searchText) ||
+      fuzzyMatch(r.seller_name ?? '', searchText) ||
+      fuzzyMatch(ci, searchText) ||
+      phone.includes(searchText.replace(/\D/g, ''))
     );
   });
 
