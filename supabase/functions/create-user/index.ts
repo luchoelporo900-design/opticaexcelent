@@ -19,13 +19,18 @@ Deno.serve(async (req: Request) => {
 
     const adminClient = createClient(supabaseUrl, serviceKey);
 
-    // Bootstrap check: if no profiles exist yet, skip auth requirement so the
-    // first admin account can be created without needing an existing session.
-    const { count: profileCount } = await adminClient
+    // Bootstrap check: allow unauthenticated creation when either:
+    // a) no profiles exist yet, OR
+    // b) the only existing profile is the auto-generated placeholder ("Administrador")
+    //    so the real first admin (Luis Martinez) can take over without needing a login.
+    const { data: existingProfiles } = await adminClient
       .from("profiles")
-      .select("id", { count: "exact", head: true });
+      .select("id, full_name");
 
-    const isBootstrap = (profileCount ?? 0) === 0;
+    const count = existingProfiles?.length ?? 0;
+    const isPlaceholderOnly =
+      count === 1 && existingProfiles![0].full_name === "Administrador";
+    const isBootstrap = count === 0 || isPlaceholderOnly;
 
     if (!isBootstrap) {
       const authHeader = req.headers.get("Authorization");
