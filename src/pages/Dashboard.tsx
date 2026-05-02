@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { TrendingUp, ShoppingCart, Users, FlaskConical, Clock, CheckCircle, AlertCircle, Building2, Trophy, Medal, X, DollarSign, MessageCircle, Plus, Minus, Banknote, CreditCard } from 'lucide-react';
 import { supabase, Sale, LabOrder } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import { getSales, saveSale } from '../lib/salesStorage';
+import { getSales, saveSale, getPaymentsForDate } from '../lib/salesStorage';
 
 const CURRENT_MONTH = new Date().toISOString().slice(0, 7);
 
@@ -67,7 +67,13 @@ export default function Dashboard() {
     const monthlySalesData = ventas.filter(v => (v.fecha || '').startsWith(monthStart));
 
     const totalFacturado = monthlySalesData.reduce((a, v) => a + (Number(v.total) || 0), 0);
-    const totalCobradoHoy = todaySalesData.reduce((a, v) => a + ((Number(v.total) || 0) - (Number(v.saldo) || 0)), 0);
+
+    // Use actual payment records (seña + abonos) for today's real cash collected
+    const allTodayPayments = getPaymentsForDate(today);
+    const todayPayments = isVendedor
+      ? allTodayPayments.filter(p => p.vendedora === profile?.full_name)
+      : allTodayPayments;
+    const totalCobradoHoy = todayPayments.reduce((a, p) => a + (Number(p.monto) || 0), 0);
     setTodayCash(totalCobradoHoy);
 
     // Branch aggregation (month)

@@ -383,47 +383,16 @@ export default function BalancesPage() {
   const load = useCallback(async () => {
     setLoading(true);
 
-    // Supabase sales with balance — vendedora only sees her own branch
-    let query = supabase
-      .from('sales')
-      .select('id, sale_number, created_at, total, deposit, balance, status, seller_name, customer_first_name, customer_last_name, estimated_delivery, delivered_at, delivery_type, customers(full_name, ci, phone), branches(name)')
-      .gt('balance', 0)
-      .not('status', 'eq', 'cancelado')
-      .order('created_at', { ascending: false });
+    // Branch stored as name slug in localStorage (e.g. 'centro')
+    const branchFilter = (profile?.branch_id || '').toLowerCase();
 
-    if (isVendedora && profile?.branch_id) {
-      query = query.eq('branch_id', profile.branch_id.toLowerCase());
-    }
-    const { data } = await query;
-
-    const saleIds = (data ?? []).map((r: any) => r.id);
-    const lastPayMap: Record<string, string> = {};
-    if (saleIds.length > 0) {
-      const { data: lastPays } = await supabase
-        .from('sale_payments')
-        .select('sale_id, paid_at')
-        .in('sale_id', saleIds)
-        .order('paid_at', { ascending: false });
-      (lastPays ?? []).forEach((p: any) => {
-        if (!lastPayMap[p.sale_id]) lastPayMap[p.sale_id] = p.paid_at;
-      });
-    }
-
-    const supabaseRows: BalanceRow[] = ((data ?? []) as any[]).map(r => ({
-      ...r,
-      isLocal: false,
-      last_payment_date: lastPayMap[r.id] ?? null,
-    }));
-
-    // localStorage sales with pending balance — vendedora only sees her own branch
+    // ── Step 1: localStorage immediately ──────────────────────────────────
     const localRows: BalanceRow[] = getSales()
       .filter(v => {
-        if ((Number(v.saldo) || 0) <= 0 || v.estadoTrabajo === 'cancelado') return false;
-        if (isVendedora && profile?.branch_id) {
-          const branchMatch =
-            (v.sucursalVenta || '').toLowerCase() === profile.branch_id.toLowerCase() ||
-            (v.sucursalCobro || '').toLowerCase() === profile.branch_id.toLowerCase();
-          return branchMatch;
+        if ((Number(v.saldo) || 0) <= 0 || v.estadoTrabajo === 'cancelado' || v.estadoTrabajo === 'entregado') return false;
+        if (isVendedora && branchFilter) {
+          return (v.sucursalVenta || '').toLowerCase() === branchFilter ||
+                 (v.sucursalCobro || '').toLowerCase() === branchFilter;
         }
         return true;
       })
@@ -451,11 +420,57 @@ export default function BalancesPage() {
         last_payment_date: undefined,
       }));
 
-    setRows([...supabaseRows, ...localRows]);
+    setRows(localRows);
     setLoading(false);
+
+    // ── Step 2: Supabase enrichment with 2-second timeout ─────────────────
+    try {
+      const race = (p: Promise<unknown>) => Promise.race([p, new Promise<null>(res => setTimeout(() => res(null), 2000))]);
+
+      let query = supabase
+        .from('sales')
+        .select('id, sale_number, created_at, total, deposit, balance, status, seller_name, customer_first_name, customer_last_name, estimated_delivery, delivered_at, delivery_type, customers(full_name, ci, phone), branches(name)')
+        .gt('balance', 0)
+        .not('status', 'eq', 'cancelado')
+        .order('created_at', { ascending: false });
+      if (isVendedora && profile?.branch_id) {
+        query = query.eq('branch_id', profile.branch_id.toLowerCase());
+      }
+
+      const result = await race(query);
+      const data = (result as any)?.data;
+
+      if (data && data.length > 0) {
+        const saleIds = data.map((r: any) => r.id);
+        const lastPayMap: Record<string, string> = {};
+        const lpResult = await race(
+          supabase.from('sale_payments').select('sale_id, paid_at').in('sale_id', saleIds).order('paid_at', { ascending: false })
+        );
+        ((lpResult as any)?.data ?? []).forEach((p: any) => {
+          if (!lastPayMap[p.sale_id]) lastPayMap[p.sale_id] = p.paid_at;
+        });
+
+        const supabaseRows: BalanceRow[] = (data as any[]).map(r => ({
+          ...r,
+          isLocal: false,
+          last_payment_date: lastPayMap[r.id] ?? null,
+        }));
+
+        // Merge: Supabase rows first, then local rows not already in Supabase
+        const sbIds = new Set(supabaseRows.map(r => r.id));
+        setRows([...supabaseRows, ...localRows.filter(r => !sbIds.has(r.id))]);
+      }
+    } catch { /* Supabase unavailable — local data already shown */ }
   }, [isVendedora, profile?.branch_id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load(); }, [load]);
+
+  // Reload when tab becomes visible
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') load(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [load]);
 
   async function registerPayment(row: BalanceRow) {
     const amt = parseFloat(payAmt);

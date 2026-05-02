@@ -1,5 +1,6 @@
 export const LS_KEY = 'optica_yolanda_ventas';
 export const LS_PAYMENTS_KEY = 'optica_yolanda_abonos';
+export const LS_EXPENSES_KEY = 'optica_yolanda_gastos';
 
 export type StoredSale = {
   id: number;
@@ -214,4 +215,36 @@ export function recordPayment(payment: StoredPayment): void {
 
 export function getPaymentsForDate(date: string): StoredPayment[] {
   return getPayments().filter(p => (p.fecha || '').startsWith(date));
+}
+
+// ── Expenses (egresos diarios) ─────────────────────────────────────────────
+
+export type StoredExpense = {
+  id: number;
+  fecha: string;           // ISO date string YYYY-MM-DD
+  descripcion: string;
+  categoria: string;
+  monto: number;           // always stored as number
+  metodo: string;
+  sucursal: string;
+  vendedora: string;
+};
+
+export function getExpenses(): StoredExpense[] {
+  try {
+    const raw = localStorage.getItem(LS_EXPENSES_KEY);
+    return raw ? (JSON.parse(raw) as StoredExpense[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveExpense(expense: StoredExpense): void {
+  const updated = [...getExpenses(), expense];
+  trySetItem(LS_EXPENSES_KEY, JSON.stringify(updated));
+  window.dispatchEvent(new CustomEvent('optica_ventas_updated'));
+}
+
+export function getExpensesForDate(date: string): StoredExpense[] {
+  return getExpenses().filter(e => (e.fecha || '') === date);
 }

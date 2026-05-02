@@ -7,7 +7,7 @@ import {
 import { supabase } from '../lib/supabase';
 import { useBranch } from '../context/BranchContext';
 import { useAuth } from '../context/AuthContext';
-import { getSales, getPaymentsForDate } from '../lib/salesStorage';
+import { getSales, getPaymentsForDate, saveExpense, getExpensesForDate } from '../lib/salesStorage';
 
 type PaymentMethod = 'efectivo' | 'transferencia' | 'tarjeta' | 'qr' | 'giro';
 
@@ -124,41 +124,34 @@ export default function CashPage() {
     if (selectedBranch && !expBranch) setExpBranch(selectedBranch);
   }, [selectedBranch, expBranch]);
 
+  function buildAndCommit(rows: PaymentRow[], expList: Expense[]) {
+    let agg = emptyAgg();
+    for (const r of rows) agg = addToAgg(agg, r.method, r.amount);
+    agg.expenses = expList.reduce((s, e) => s + Number(e.amount), 0);
+    setPayments(rows);
+    setExpenses(expList);
+    setSummary(agg);
+    const sellerMap: Record<string, SellerRow> = {};
+    for (const r of rows) {
+      const s = r.seller_name || 'Sin vendedor';
+      if (!sellerMap[s]) sellerMap[s] = { seller: s, efectivo: 0, transferencia: 0, tarjeta: 0, qr: 0, giro: 0, total: 0, count: 0 };
+      const m = r.method as PaymentMethod;
+      if (m in sellerMap[s]) (sellerMap[s] as any)[m] += r.amount;
+      sellerMap[s].total += r.amount;
+      sellerMap[s].count++;
+    }
+    setBySeller(Object.values(sellerMap).sort((a, b) => b.total - a.total));
+  }
+
   const load = useCallback(async () => {
     setLoading(true);
 
-    const dayStart = `${selectedDate}T00:00:00`;
-    const dayEnd   = `${selectedDate}T23:59:59`;
+    // Branch stored as name slug in localStorage (e.g. 'centro', 'azara')
+    const branchFilter = (selectedBranch || '').toLowerCase();
 
-    // ── Supabase payments ──────────────────────────────────────────────────
-    let supabaseRows: PaymentRow[] = [];
-    {
-      let pQuery = supabase
-        .from('sale_payments')
-        .select('id, amount, method, paid_at, reference, branches(name), sales(sale_number, seller_name, customers(full_name))')
-        .gte('paid_at', dayStart)
-        .lte('paid_at', dayEnd)
-        .order('paid_at', { ascending: false });
-
-      if (selectedBranch) pQuery = pQuery.eq('branch_id', selectedBranch);
-
-      const { data: pData } = await pQuery;
-      supabaseRows = (pData ?? []).map((p: any) => ({
-        id: p.id,
-        sale_number: p.sales?.sale_number ?? '',
-        customer_name: p.sales?.customers?.full_name ?? '',
-        amount: Number(p.amount),
-        method: p.method as PaymentMethod,
-        paid_at: p.paid_at,
-        seller_name: p.sales?.seller_name ?? '',
-        reference: p.reference ?? '',
-        branch_name: p.branches?.name ?? '',
-      }));
-    }
-
-    // ── localStorage payments (seña + abonos) ─────────────────────────────
+    // ── Step 1: Build from localStorage immediately ────────────────────────
     const localPayments = getPaymentsForDate(selectedDate).filter(p =>
-      !selectedBranch || p.sucursal === selectedBranch
+      !branchFilter || (p.sucursal || '').toLowerCase() === branchFilter
     );
     const localRows: PaymentRow[] = localPayments.map(p => ({
       id: String(p.id),
@@ -172,10 +165,9 @@ export default function CashPage() {
       branch_name: p.sucursal,
     }));
 
-    // Also include sales from localStorage that have no separate payment record yet
     const localSales = getSales().filter(v =>
       (v.fecha || '').startsWith(selectedDate) &&
-      (!selectedBranch || v.sucursalCobro === selectedBranch)
+      (!branchFilter || (v.sucursalCobro || '').toLowerCase() === branchFilter)
     );
     const recordedSaleIds = new Set(localPayments.map(p => p.saleId));
     const fallbackRows: PaymentRow[] = localSales
@@ -192,24 +184,61 @@ export default function CashPage() {
         branch_name: v.sucursalCobro,
       }));
 
-    const rows = [...supabaseRows, ...localRows, ...fallbackRows];
-    setPayments(rows);
+    const localExpenses = getExpensesForDate(selectedDate).filter(e =>
+      !branchFilter || (e.sucursal || '').toLowerCase() === branchFilter
+    );
+    const localExpList: Expense[] = localExpenses.map(e => ({
+      id: String(e.id),
+      description: e.descripcion,
+      category: e.categoria,
+      amount: Number(e.monto),
+      method: e.metodo,
+      expense_date: e.fecha,
+      branch_name: e.sucursal,
+    }));
 
-    // ── Aggregate totals ───────────────────────────────────────────────────
-    let agg = emptyAgg();
-    for (const r of rows) agg = addToAgg(agg, r.method, r.amount);
+    // Render local data right away — no waiting
+    buildAndCommit([...localRows, ...fallbackRows], localExpList);
+    setLoading(false);
 
-    // ── Expenses ──────────────────────────────────────────────────────────
-    let expList: Expense[] = [];
-    {
+    // ── Step 2: Enrich with Supabase (max 2 seconds, non-blocking) ─────────
+    try {
+      const TIMEOUT = 2000;
+      const dayStart = `${selectedDate}T00:00:00`;
+      const dayEnd   = `${selectedDate}T23:59:59`;
+      const race = (p: Promise<unknown>) => Promise.race([p, new Promise<null>(res => setTimeout(() => res(null), TIMEOUT))]);
+
+      let pQuery = supabase
+        .from('sale_payments')
+        .select('id, amount, method, paid_at, reference, branches(name), sales(sale_number, seller_name, customers(full_name))')
+        .gte('paid_at', dayStart).lte('paid_at', dayEnd)
+        .order('paid_at', { ascending: false });
+      if (selectedBranch) pQuery = pQuery.eq('branch_id', selectedBranch);
+      const pResult = await race(pQuery);
+      const pData = (pResult as any)?.data;
+
       let expQuery = supabase
         .from('expenses')
         .select('id, description, category, amount, method, expense_date, branches(name)')
         .eq('expense_date', selectedDate)
         .order('created_at', { ascending: false });
       if (selectedBranch) expQuery = expQuery.eq('branch_id', selectedBranch);
-      const { data: expData } = await expQuery;
-      expList = ((expData ?? []) as any[]).map(e => ({
+      const eResult = await race(expQuery);
+      const eData = (eResult as any)?.data;
+
+      const sbRows: PaymentRow[] = (pData ?? []).map((p: any) => ({
+        id: p.id,
+        sale_number: p.sales?.sale_number ?? '',
+        customer_name: p.sales?.customers?.full_name ?? '',
+        amount: Number(p.amount),
+        method: p.method as PaymentMethod,
+        paid_at: p.paid_at,
+        seller_name: p.sales?.seller_name ?? '',
+        reference: p.reference ?? '',
+        branch_name: p.branches?.name ?? '',
+      }));
+
+      const sbExp: Expense[] = (eData ?? []).map((e: any) => ({
         id: e.id,
         description: e.description,
         category: e.category ?? 'otros',
@@ -218,38 +247,28 @@ export default function CashPage() {
         expense_date: e.expense_date,
         branch_name: e.branches?.name ?? '',
       }));
-    }
-    setExpenses(expList);
-    agg.expenses = expList.reduce((s, e) => s + Number(e.amount), 0);
-    setSummary(agg);
 
-    // ── By seller ─────────────────────────────────────────────────────────
-    const sellerMap: Record<string, SellerRow> = {};
-    for (const r of rows) {
-      const s = r.seller_name || 'Sin vendedor';
-      if (!sellerMap[s]) sellerMap[s] = { seller: s, efectivo: 0, transferencia: 0, tarjeta: 0, qr: 0, giro: 0, total: 0, count: 0 };
-      const m = r.method as PaymentMethod;
-      if (m in sellerMap[s]) (sellerMap[s] as any)[m] += r.amount;
-      sellerMap[s].total += r.amount;
-      sellerMap[s].count++;
-    }
-    setBySeller(Object.values(sellerMap).sort((a, b) => b.total - a.total));
+      // Only update if Supabase returned something new
+      if (sbRows.length > 0 || sbExp.length > 0) {
+        const sbIds = new Set(sbRows.map(r => r.id));
+        const merged = [...sbRows, ...[...localRows, ...fallbackRows].filter(r => !sbIds.has(r.id))];
+        const sbExpIds = new Set(sbExp.map(e => e.id));
+        const mergedExp = [...sbExp, ...localExpList.filter(e => !sbExpIds.has(e.id))];
+        buildAndCommit(merged, mergedExp);
+      }
 
-    // ── Cash register close status ─────────────────────────────────────────
-    if (selectedBranch) {
-      const { data: cr } = await supabase
-        .from('cash_register')
-        .select('closed_at')
-        .eq('branch_id', selectedBranch)
-        .eq('register_date', selectedDate)
-        .maybeSingle();
-      setClosedAt(cr?.closed_at ?? null);
-    } else {
-      setClosedAt(null);
-    }
-
-    setLoading(false);
-  }, [selectedBranch, selectedDate]);
+      // Cash register close status
+      if (selectedBranch) {
+        const crResult = await race(
+          supabase.from('cash_register').select('closed_at')
+            .eq('branch_id', selectedBranch).eq('register_date', selectedDate).maybeSingle()
+        );
+        setClosedAt((crResult as any)?.data?.closed_at ?? null);
+      } else {
+        setClosedAt(null);
+      }
+    } catch { /* Supabase unavailable — local data already shown */ }
+  }, [selectedBranch, selectedDate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load(); }, [load]);
 
@@ -281,31 +300,42 @@ export default function CashPage() {
 
   async function addExpense() {
     const amt = parseFloat(expAmount);
-    const branchId = expBranch || selectedBranch || activeBranch?.id || '';
-    if (!amt || !expDesc.trim() || !branchId) return;
+    const branchName = expBranch || selectedBranch || activeBranch?.id || '';
+    if (!amt || !expDesc.trim() || !branchName) return;
     setSavingExp(true);
 
-    const { error } = await supabase.from('expenses').insert([{
-      branch_id: branchId,
-      amount: amt,
+    // Save to localStorage immediately — always works
+    saveExpense({
+      id: Date.now(),
+      fecha: selectedDate,
+      descripcion: expDesc.trim(),
+      categoria: expCategory,
+      monto: Number(amt),
+      metodo: expMethod,
+      sucursal: branchName,
+      vendedora: profile?.full_name || '',
+    });
+
+    // Also try Supabase (branch_id may be slug or UUID — best effort)
+    supabase.from('expenses').insert([{
+      branch_id: branchName,
+      amount: Number(amt),
       method: expMethod,
       description: expDesc.trim(),
       category: expCategory,
-      registered_by: profile?.id ?? null,
+      registered_by: null,
       expense_date: selectedDate,
-    }]);
+    }]).then(() => {}).catch(() => {});
 
-    if (!error) {
-      setExpDesc('');
-      setExpAmount('');
-      setExpCategory('otros');
-      setExpMethod('efectivo');
-      setShowAddExp(false);
-      setExpSuccess(true);
-      setTimeout(() => setExpSuccess(false), 4000);
-      load();
-    }
+    setExpDesc('');
+    setExpAmount('');
+    setExpCategory('otros');
+    setExpMethod('efectivo');
+    setShowAddExp(false);
+    setExpSuccess(true);
+    setTimeout(() => setExpSuccess(false), 4000);
     setSavingExp(false);
+    load();
   }
 
   // Vendedora only sees her own payments
