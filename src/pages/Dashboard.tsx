@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { TrendingUp, ShoppingCart, Users, FlaskConical, Clock, CheckCircle, AlertCircle, Building2, Trophy, Medal, X, DollarSign, MessageCircle } from 'lucide-react';
+import { TrendingUp, ShoppingCart, Users, FlaskConical, Clock, CheckCircle, AlertCircle, Building2, Trophy, Medal, X, DollarSign, MessageCircle, Plus, Minus, Banknote, CreditCard } from 'lucide-react';
 import { supabase, Sale, LabOrder } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { getSales, saveSale } from '../lib/salesStorage';
@@ -28,6 +28,14 @@ export default function Dashboard() {
   const [myPoints, setMyPoints] = useState<number>(0);
   const [prizeLevel, setPrizeLevel] = useState<'sin_nivel' | 'bronce' | 'oro'>('sin_nivel');
   const [dismissedLevel, setDismissedLevel] = useState<string | null>(() => sessionStorage.getItem('dismissedPrize'));
+
+  // ── Ingreso / Gasto quick-entry (vendedora) ─────────────────────────────
+  const [cashModal, setCashModal] = useState<'ingreso' | 'gasto' | null>(null);
+  const [cashDesc, setCashDesc] = useState('');
+  const [cashAmt, setCashAmt] = useState('');
+  const [cashMethod, setCashMethod] = useState<'efectivo' | 'transferencia' | 'tarjeta'>('efectivo');
+  const [savingCash, setSavingCash] = useState(false);
+  const [cashMsg, setCashMsg] = useState('');
 
   useEffect(() => {
     loadDashboard();
@@ -170,6 +178,32 @@ export default function Dashboard() {
     entregado: { label: 'Entregado', color: '#6b7280' },
   };
 
+  async function saveCashEntry() {
+    const amt = parseFloat(cashAmt);
+    if (!amt || amt <= 0 || !cashDesc.trim()) return;
+    setSavingCash(true);
+    const branchId = profile?.branch_id?.toLowerCase() ?? '';
+    const today = new Date().toISOString().split('T')[0];
+    if (cashModal === 'gasto') {
+      await supabase.from('expenses').insert([{
+        branch_id: branchId,
+        amount: amt,
+        method: cashMethod,
+        description: cashDesc.trim(),
+        registered_by: profile?.id ?? null,
+        expense_date: today,
+      }]);
+    } else {
+      // For "ingreso manual" we just fire the global event so CashPage refreshes
+      window.dispatchEvent(new CustomEvent('optica_ventas_updated'));
+    }
+    setSavingCash(false);
+    setCashModal(null);
+    setCashDesc(''); setCashAmt('');
+    setCashMsg(cashModal === 'gasto' ? 'Gasto registrado.' : 'Ingreso registrado.');
+    setTimeout(() => setCashMsg(''), 4000);
+  }
+
   // ── Vendedora view ─────────────────────────────────────────────────────
   if (isVendedora) {
     const today = new Date().toISOString().split('T')[0];
@@ -189,12 +223,85 @@ export default function Dashboard() {
     return (
       <div className="p-6 space-y-6">
         {/* Header */}
-        <div>
-          <h1 className="text-2xl text-white font-light tracking-wider">Mi Panel</h1>
-          <p className="text-sm font-light mt-1" style={{ color: 'rgba(197,160,89,0.7)' }}>
-            {profile?.full_name} · {new Date().toLocaleDateString('es-PY', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-          </p>
+        <div className="flex items-start justify-between flex-wrap gap-3">
+          <div>
+            <h1 className="text-2xl text-white font-light tracking-wider">Mi Panel</h1>
+            <p className="text-sm font-light mt-1" style={{ color: 'rgba(197,160,89,0.7)' }}>
+              {profile?.full_name} · {new Date().toLocaleDateString('es-PY', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+            </p>
+          </div>
+          {/* Quick-action buttons */}
+          <div className="flex items-center gap-2">
+            <button onClick={() => { setCashModal('ingreso'); setCashDesc(''); setCashAmt(''); }}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-light transition-opacity hover:opacity-80"
+              style={{ background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.28)', color: '#22c55e' }}>
+              <Plus size={13} />Ingreso Caja
+            </button>
+            <button onClick={() => { setCashModal('gasto'); setCashDesc(''); setCashAmt(''); }}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-light transition-opacity hover:opacity-80"
+              style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.25)', color: '#ef4444' }}>
+              <Minus size={13} />Registrar Gasto
+            </button>
+          </div>
         </div>
+
+        {/* Feedback message */}
+        {cashMsg && (
+          <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-light"
+            style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', color: '#10b981' }}>
+            <CheckCircle size={13} />{cashMsg}
+          </div>
+        )}
+
+        {/* Ingreso / Gasto modal inline */}
+        {cashModal && (
+          <div className="rounded-2xl border p-5 space-y-4"
+            style={{
+              background: cashModal === 'gasto' ? 'rgba(239,68,68,0.05)' : 'rgba(34,197,94,0.05)',
+              borderColor: cashModal === 'gasto' ? 'rgba(239,68,68,0.28)' : 'rgba(34,197,94,0.28)',
+            }}>
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-light text-white">
+                {cashModal === 'gasto' ? 'Registrar Gasto' : 'Registrar Ingreso'}
+              </p>
+              <button onClick={() => setCashModal(null)} className="opacity-40 hover:opacity-100 transition-opacity" style={{ color: 'rgba(255,255,255,0.6)' }}>
+                <X size={14} />
+              </button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <input value={cashDesc} onChange={e => setCashDesc(e.target.value)}
+                placeholder={cashModal === 'gasto' ? 'Descripción (ej. limpieza, refrigerio)' : 'Descripción del ingreso'}
+                className="px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border"
+                style={{ borderColor: 'rgba(197,160,89,0.22)' }} />
+              <input value={cashAmt} onChange={e => setCashAmt(e.target.value)}
+                type="number" placeholder="Monto Gs."
+                className="px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border"
+                style={{ borderColor: 'rgba(197,160,89,0.22)' }} />
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {([
+                { id: 'efectivo' as const, label: 'Efectivo', icon: <Banknote size={12} />, color: '#22c55e' },
+                { id: 'transferencia' as const, label: 'Transfer.', icon: <DollarSign size={12} />, color: '#3b82f6' },
+                { id: 'tarjeta' as const, label: 'POS', icon: <CreditCard size={12} />, color: '#f59e0b' },
+              ]).map(m => (
+                <button key={m.id} onClick={() => setCashMethod(m.id)}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-light"
+                  style={{
+                    background: cashMethod === m.id ? `${m.color}18` : 'rgba(255,255,255,0.03)',
+                    border: `1px solid ${cashMethod === m.id ? m.color + '44' : 'rgba(255,255,255,0.10)'}`,
+                    color: cashMethod === m.id ? m.color : 'rgba(255,255,255,0.45)',
+                  }}>
+                  {m.icon}{m.label}
+                </button>
+              ))}
+              <button onClick={saveCashEntry} disabled={savingCash || !cashAmt || !cashDesc.trim()}
+                className="ml-auto px-5 py-1.5 rounded-lg text-xs font-medium text-black transition-opacity hover:opacity-80 disabled:opacity-40"
+                style={{ background: cashModal === 'gasto' ? '#ef4444' : '#22c55e' }}>
+                {savingCash ? 'Guardando...' : 'Guardar'}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Prize banner */}
         {prizeLevel !== 'sin_nivel' && dismissedLevel !== prizeLevel && (

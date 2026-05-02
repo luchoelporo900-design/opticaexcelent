@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, Plus, X, Save, ChevronDown, ChevronUp, Glasses, Banknote, CreditCard, Smartphone, QrCode, Send, MapPin, Truck, Store, Package, User, FileText, Check, AlertCircle, Trash2, ShoppingBag, Hash, Clock, Building2, Camera, Image as ImageIcon, MessageCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import { saveSale as saveToStorage, getSales, StoredSale } from '../lib/salesStorage';
+import { saveSale as saveToStorage, getSales, compressImage } from '../lib/salesStorage';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type PaymentMethod = 'efectivo' | 'transferencia' | 'tarjeta' | 'qr' | 'giro';
@@ -1043,7 +1043,10 @@ function ReceiptUpload({ value, onChange }: { value: string; onChange: (v: strin
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = ev => onChange(ev.target?.result as string);
+    reader.onload = async ev => {
+      const compressed = await compressImage(ev.target?.result as string);
+      onChange(compressed);
+    };
     reader.readAsDataURL(file);
   }
 
@@ -1090,7 +1093,10 @@ function SimpleEyeglassCard({
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = ev => onUpdate({ photo_url: ev.target?.result as string });
+    reader.onload = async ev => {
+      const compressed = await compressImage(ev.target?.result as string);
+      onUpdate({ photo_url: compressed });
+    };
     reader.readAsDataURL(file);
   }
 
