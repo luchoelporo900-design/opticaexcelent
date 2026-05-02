@@ -8,13 +8,15 @@ export type Branch = {
   created_at: string;
 };
 
-// Sucursales fijas — sin base de datos
-const BRANCHES_FIJAS: Branch[] = [
-  { id: 'azara',    name: 'Azara',    address: '', phone: '', created_at: '' },
-  { id: 'centro',   name: 'Centro',   address: '', phone: '', created_at: '' },
-  { id: 'caacupe',  name: 'Caacupé',  address: '', phone: '', created_at: '' },
-  { id: 'fernando', name: 'Fernando', address: '', phone: '', created_at: '' },
-];
+export const SUCURSALES = ['Azara', 'Fernando', 'Caacupé', 'La Fina'];
+
+const BRANCHES_FIJAS: Branch[] = SUCURSALES.map(name => ({
+  id: name.toLowerCase().replace(/ /g, '_'),
+  name,
+  address: '',
+  phone: '',
+  created_at: '',
+}));
 
 type BranchContextType = {
   branches: Branch[];
@@ -26,7 +28,6 @@ const BranchContext = createContext<BranchContextType | undefined>(undefined);
 
 export function BranchProvider({ children }: { children: ReactNode }) {
   const [activeBranchId, setActiveBranchId] = useState<string>(BRANCHES_FIJAS[0].id);
-
   const activeBranch = BRANCHES_FIJAS.find(b => b.id === activeBranchId) ?? null;
 
   return (
