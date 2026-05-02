@@ -16,6 +16,8 @@ export type StoredSale = {
   estadoTrabajo: string;
   anteojos: unknown[];
   observaciones: string;
+  delivery_type?: 'retiro' | 'delivery' | 'encomienda';
+  delivered_at?: string;
 };
 
 // Represents any single cash movement (initial seña or subsequent abono)
@@ -151,6 +153,22 @@ export function updateSaleBalance(saleId: number, newBalance: number, newDeposit
   const sales = getSales();
   const updated = sales.map(s =>
     s.id === saleId ? { ...s, saldo: newBalance, sena: newDeposit } : s
+  );
+  localStorage.setItem(LS_KEY, JSON.stringify(updated));
+  window.dispatchEvent(new CustomEvent('optica_ventas_updated'));
+}
+
+// Close a sale: zero out balance, mark as entregado, record delivery type and timestamp
+export function closeSaleLocal(
+  saleId: number,
+  deliveryType: 'retiro' | 'delivery' | 'encomienda',
+): void {
+  const sales = getSales();
+  const updated = sales.map(s =>
+    s.id === saleId
+      ? { ...s, saldo: 0, sena: s.total, estadoTrabajo: 'entregado',
+          delivery_type: deliveryType, delivered_at: new Date().toISOString() }
+      : s
   );
   localStorage.setItem(LS_KEY, JSON.stringify(updated));
   window.dispatchEvent(new CustomEvent('optica_ventas_updated'));

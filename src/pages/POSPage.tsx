@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, Plus, X, Save, ChevronDown, ChevronUp, Glasses, Banknote, CreditCard, Smartphone, QrCode, Send, MapPin, Truck, Store, Package, User, FileText, Check, AlertCircle, Trash2, ShoppingBag, Hash, Clock, Building2, Camera, Image as ImageIcon, MessageCircle, Eye, Receipt } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import { saveSale as saveToStorage, getSales, getPayments, updateSaleBalance, recordPayment, compressImage } from '../lib/salesStorage';
+import { saveSale as saveToStorage, getSales, getPayments, updateSaleBalance, recordPayment, closeSaleLocal, compressImage } from '../lib/salesStorage';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type PaymentMethod = 'efectivo' | 'transferencia' | 'tarjeta' | 'qr' | 'giro';
@@ -41,6 +41,8 @@ type RecentSale = {
   seller_name: string; customer_first_name: string; customer_last_name: string;
   customers: { full_name: string; ci: string; phone?: string } | null;
   branches: { name: string } | null;
+  delivered_at?: string | null;
+  delivery_type?: 'retiro' | 'delivery' | 'encomienda' | null;
   _local?: boolean;
   _phone?: string;
 };
@@ -212,6 +214,17 @@ export default function POSPage() {
   const [xPayWarn,     setXPayWarn]     = useState(false);   // soft warning: receipt missing
   const [updStatus,    setUpdStatus]    = useState<string | null>(null);
 
+  // Close-sale (entrega final) state
+  type DeliveryMode = 'retiro' | 'delivery' | 'encomienda';
+  const [closeFor,       setCloseFor]       = useState<string | null>(null);
+  const [closeMethod,    setCloseMethod]    = useState<PaymentMethod>('efectivo');
+  const [closeAmt,       setCloseAmt]       = useState('');
+  const [closeRef,       setCloseRef]       = useState('');
+  const [closeReceipt,   setCloseReceipt]   = useState('');
+  const [closeReceiptWarn, setCloseReceiptWarn] = useState(false);
+  const [closeDelivery,  setCloseDelivery]  = useState<DeliveryMode>('retiro');
+  const [closingSale,    setClosingSale]    = useState(false);
+
   // ── Bootstrap ──────────────────────────────────────────────────────────────
   useEffect(() => {
     loadSales();
@@ -232,7 +245,7 @@ export default function POSPage() {
     try {
       const { data, error } = await supabase
         .from('sales')
-        .select('id,sale_number,created_at,total,deposit,balance,status,seller_name,customer_first_name,customer_last_name,customers(full_name,ci,phone),branches(name)')
+        .select('id,sale_number,created_at,total,deposit,balance,status,seller_name,customer_first_name,customer_last_name,delivered_at,delivery_type,customers(full_name,ci,phone),branches(name)')
         .order('created_at', { ascending: false })
         .limit(80);
 
@@ -254,6 +267,8 @@ export default function POSPage() {
           customer_last_name: v.cliente.apellido,
           customers: null,
           branches: v.sucursalEntrega ? { name: v.sucursalEntrega } : null,
+          delivered_at: v.delivered_at ?? null,
+          delivery_type: v.delivery_type ?? null,
           _local: true,
           _phone: v.cliente.telefono,
         }));
@@ -532,6 +547,68 @@ export default function POSPage() {
     }
 
     setAddPayFor(null); setXPayAmt(''); setXPayRef(''); setXPayReceipt(''); setXPayWarn(false); loadSales();
+  }
+
+  // ── Close sale: final payment + mark as entregado ──────────────────────────
+  async function closeSale(saleId: string, balance: number) {
+    const now = new Date().toISOString();
+    const nowDate = now.split('T')[0];
+
+    // Record final payment if there's a balance
+    const finalAmt = balance > 0 ? parseFloat(closeAmt) || 0 : 0;
+    setClosingSale(true);
+
+    if (saleId.startsWith('local-')) {
+      const numId = Number(saleId.replace('local-', ''));
+      const localSale = getSales().find(s => s.id === numId);
+      if (localSale) {
+        if (finalAmt > 0) {
+          recordPayment({
+            id: Date.now(),
+            saleId: numId,
+            fecha: now,
+            monto: finalAmt,
+            metodo: closeMethod,
+            sucursal: FIXED_BRANCHES[0].id,
+            vendedora: profile?.full_name ?? '',
+            cliente: `${localSale.cliente.nombre} ${localSale.cliente.apellido}`.trim(),
+            tipo: 'abono',
+            receipt_url: closeReceipt || undefined,
+          });
+        }
+        closeSaleLocal(numId, closeDelivery);
+      }
+    } else {
+      // Insert final payment record if balance > 0
+      if (finalAmt > 0) {
+        await supabase.from('sale_payments').insert([{
+          sale_id: saleId,
+          amount: finalAmt,
+          method: closeMethod,
+          branch_id: xPayBranch || FIXED_BRANCHES[0].id,
+          reference: closeRef || 'Pago final',
+          registered_by: profile?.id ?? null,
+          receipt_url: closeReceipt || null,
+        }]);
+      }
+      // Update sale: zero balance, status entregado, delivery info, timestamp
+      await supabase.from('sales').update({
+        status: 'entregado',
+        delivered_at: nowDate,
+        delivery_type: closeDelivery,
+      }).eq('id', saleId);
+      // Recalculate deposit from all payments
+      const { data: allPays } = await supabase.from('sale_payments').select('amount').eq('sale_id', saleId);
+      const tp = (allPays ?? []).reduce((s: number, p: any) => s + Number(p.amount), 0);
+      await supabase.from('sales').update({ deposit: tp, balance: 0 }).eq('id', saleId);
+    }
+
+    // Reset close-sale form
+    setCloseFor(null); setCloseAmt(''); setCloseRef('');
+    setCloseReceipt(''); setCloseReceiptWarn(false);
+    setCloseDelivery('retiro');
+    setClosingSale(false);
+    loadSales();
   }
 
   // ── Filtered sales list ────────────────────────────────────────────────────
@@ -1145,6 +1222,59 @@ export default function POSPage() {
                           )}
                         </div>
                       )}
+
+                      {/* ── CLOSE SALE: Entregar Lentes y Cobrar Saldo ─────── */}
+                      {sale.status !== 'entregado' && sale.status !== 'cancelado' && (
+                        <div className="border-t pt-3" style={{ borderColor: 'rgba(197,160,89,0.1)' }}>
+                          {closeFor === sale.id ? (
+                            <CloseSaleForm
+                              balance={Number(sale.balance)}
+                              closeAmt={closeAmt} setCloseAmt={setCloseAmt}
+                              closeMethod={closeMethod} setCloseMethod={setCloseMethod}
+                              closeRef={closeRef} setCloseRef={setCloseRef}
+                              closeReceipt={closeReceipt} setCloseReceipt={setCloseReceipt}
+                              closeReceiptWarn={closeReceiptWarn} setCloseReceiptWarn={setCloseReceiptWarn}
+                              closeDelivery={closeDelivery} setCloseDelivery={setCloseDelivery}
+                              closingSale={closingSale}
+                              onConfirm={() => closeSale(sale.id, Number(sale.balance))}
+                              onCancel={() => { setCloseFor(null); setCloseAmt(''); setCloseRef(''); setCloseReceipt(''); setCloseReceiptWarn(false); }}
+                            />
+                          ) : (
+                            <button
+                              onClick={e => { e.stopPropagation(); setCloseFor(sale.id); setAddPayFor(null); }}
+                              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium transition-all"
+                              style={{ background: 'rgba(34,197,94,0.10)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.30)' }}
+                              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(34,197,94,0.18)'; }}
+                              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(34,197,94,0.10)'; }}>
+                              <Package size={14} />
+                              Entregar Lentes y Cobrar Saldo
+                            </button>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Delivery info when already closed */}
+                      {sale.status === 'entregado' && (sale.delivery_type || sale.delivered_at) && (
+                        <div className="border-t pt-3 flex items-center gap-3 flex-wrap" style={{ borderColor: 'rgba(34,197,94,0.12)' }}>
+                          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl"
+                            style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.18)' }}>
+                            {sale.delivery_type === 'retiro' && <Store size={11} style={{ color: '#22c55e' }} />}
+                            {sale.delivery_type === 'delivery' && <Truck size={11} style={{ color: '#22c55e' }} />}
+                            {sale.delivery_type === 'encomienda' && <Package size={11} style={{ color: '#22c55e' }} />}
+                            <span className="text-xs font-light" style={{ color: '#22c55e' }}>
+                              {sale.delivery_type === 'retiro' && 'Retirado en local'}
+                              {sale.delivery_type === 'delivery' && 'Enviado por delivery'}
+                              {sale.delivery_type === 'encomienda' && 'Enviado por encomienda'}
+                            </span>
+                          </div>
+                          {sale.delivered_at && (
+                            <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.38)' }}>
+                              <Clock size={10} className="inline mr-1" />
+                              {new Date(sale.delivered_at).toLocaleDateString('es-PY', { day: '2-digit', month: 'long', year: 'numeric' })}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1377,6 +1507,183 @@ function SimpleEyeglassCard({
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── CloseSaleForm ──────────────────────────────────────────────────────────────
+type CloseSaleFormProps = {
+  balance: number;
+  closeAmt: string; setCloseAmt: (v: string) => void;
+  closeMethod: PaymentMethod; setCloseMethod: (v: PaymentMethod) => void;
+  closeRef: string; setCloseRef: (v: string) => void;
+  closeReceipt: string; setCloseReceipt: (v: string) => void;
+  closeReceiptWarn: boolean; setCloseReceiptWarn: (v: boolean) => void;
+  closeDelivery: 'retiro' | 'delivery' | 'encomienda';
+  setCloseDelivery: (v: 'retiro' | 'delivery' | 'encomienda') => void;
+  closingSale: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+};
+
+const DELIVERY_OPTIONS: { id: 'retiro' | 'delivery' | 'encomienda'; label: string; icon: React.ReactNode }[] = [
+  { id: 'retiro',     label: 'Retirado en local',   icon: <Store size={13} /> },
+  { id: 'delivery',  label: 'Delivery',             icon: <Truck size={13} /> },
+  { id: 'encomienda',label: 'Encomienda',           icon: <Package size={13} /> },
+];
+
+function CloseSaleForm({
+  balance, closeAmt, setCloseAmt, closeMethod, setCloseMethod,
+  closeRef, setCloseRef, closeReceipt, setCloseReceipt,
+  closeReceiptWarn, setCloseReceiptWarn, closeDelivery, setCloseDelivery,
+  closingSale, onConfirm, onCancel,
+}: CloseSaleFormProps) {
+  const hasPendingBalance = balance > 0;
+
+  return (
+    <div className="rounded-2xl overflow-hidden"
+      style={{ background: 'rgba(34,197,94,0.04)', border: '1px solid rgba(34,197,94,0.22)' }}>
+      {/* Header */}
+      <div className="px-4 py-3 flex items-center gap-2"
+        style={{ background: 'rgba(34,197,94,0.07)', borderBottom: '1px solid rgba(34,197,94,0.15)' }}>
+        <Package size={14} style={{ color: '#22c55e' }} />
+        <span className="text-sm font-light tracking-wide" style={{ color: '#22c55e' }}>Entregar Lentes y Cerrar Venta</span>
+      </div>
+
+      <div className="p-4 space-y-4">
+        {/* Final payment if balance > 0 */}
+        {hasPendingBalance && (
+          <div className="space-y-3 pb-3" style={{ borderBottom: '1px solid rgba(34,197,94,0.12)' }}>
+            <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(255,255,255,0.38)' }}>
+              Cobrar saldo pendiente — Gs. {fmt(balance)}
+            </p>
+            {/* Method */}
+            <div className="flex gap-1 flex-wrap">
+              {PAY_METHODS.map(m => (
+                <button key={m.id} onClick={() => setCloseMethod(m.id)}
+                  className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-light"
+                  style={{
+                    background: closeMethod === m.id ? `${m.color}18` : 'rgba(255,255,255,0.03)',
+                    border: `1px solid ${closeMethod === m.id ? m.color + '44' : 'rgba(255,255,255,0.07)'}`,
+                    color: closeMethod === m.id ? m.color : 'rgba(255,255,255,0.38)',
+                  }}>
+                  {m.icon}
+                </button>
+              ))}
+            </div>
+            <input value={closeAmt} onChange={e => setCloseAmt(e.target.value)}
+              type="number" placeholder={`Monto recibido (Gs. ${fmt(balance)})`}
+              className="w-full px-3 py-2 rounded-xl bg-transparent text-white text-xs outline-none border"
+              style={{ borderColor: 'rgba(34,197,94,0.25)' }} />
+            {(closeMethod === 'transferencia' || closeMethod === 'giro') && (
+              <input value={closeRef} onChange={e => setCloseRef(e.target.value)}
+                placeholder="Banco / referencia"
+                className="w-full px-3 py-2 rounded-xl bg-transparent text-white text-xs outline-none border"
+                style={{ borderColor: 'rgba(34,197,94,0.18)' }} />
+            )}
+          </div>
+        )}
+
+        {/* Comprobante — mandatory */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5">
+            <Receipt size={11} style={{ color: '#22c55e' }} />
+            <span className="text-xs font-light tracking-wide" style={{ color: 'rgba(34,197,94,0.8)' }}>
+              Comprobante de entrega / recibo
+            </span>
+            <span className="text-xs font-medium" style={{ color: '#f59e0b' }}>obligatorio</span>
+          </div>
+          <div className="rounded-xl overflow-hidden"
+            style={{ border: `1px solid ${closeReceiptWarn && !closeReceipt ? 'rgba(245,158,11,0.6)' : 'rgba(34,197,94,0.18)'}` }}>
+            {closeReceipt ? (
+              <div className="p-2 flex items-start gap-2">
+                <div className="relative inline-block shrink-0">
+                  <img src={closeReceipt} alt="comprobante" className="h-20 rounded-lg object-cover"
+                    style={{ border: '1px solid rgba(34,197,94,0.3)' }} />
+                  <button onClick={() => setCloseReceipt('')}
+                    className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center"
+                    style={{ background: '#ef4444' }}>
+                    <X size={8} color="#fff" />
+                  </button>
+                </div>
+                <div className="flex items-center gap-1.5 mt-1">
+                  <Check size={12} style={{ color: '#22c55e' }} />
+                  <span className="text-xs font-light" style={{ color: '#22c55e' }}>Comprobante cargado</span>
+                </div>
+              </div>
+            ) : (
+              <label className="flex items-center gap-2 px-4 py-3 cursor-pointer"
+                style={{ background: 'rgba(34,197,94,0.04)' }}>
+                <Camera size={13} style={{ color: 'rgba(34,197,94,0.6)' }} />
+                <span className="text-xs font-light" style={{ color: 'rgba(34,197,94,0.7)' }}>
+                  Subir foto del recibo / ticket de entrega
+                </span>
+                <input type="file" accept="image/*" className="hidden"
+                  onChange={async e => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = async ev => {
+                      const compressed = await compressImage(ev.target?.result as string);
+                      setCloseReceipt(compressed);
+                      setCloseReceiptWarn(false);
+                    };
+                    reader.readAsDataURL(file);
+                  }} />
+              </label>
+            )}
+          </div>
+          {closeReceiptWarn && !closeReceipt && (
+            <p className="text-xs font-light px-1" style={{ color: '#f59e0b' }}>
+              Se requiere foto del comprobante para cerrar la venta.
+            </p>
+          )}
+        </div>
+
+        {/* Delivery type */}
+        <div className="space-y-2">
+          <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(255,255,255,0.38)' }}>
+            Tipo de envío / retiro
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            {DELIVERY_OPTIONS.map(opt => (
+              <button key={opt.id} onClick={() => setCloseDelivery(opt.id)}
+                className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-light flex-1 justify-center"
+                style={{
+                  background: closeDelivery === opt.id ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.03)',
+                  border: `1px solid ${closeDelivery === opt.id ? 'rgba(34,197,94,0.45)' : 'rgba(255,255,255,0.07)'}`,
+                  color: closeDelivery === opt.id ? '#22c55e' : 'rgba(255,255,255,0.42)',
+                }}>
+                {opt.icon}{opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Action buttons */}
+        <div className="flex gap-2 pt-1">
+          <button
+            onClick={() => {
+              if (!closeReceipt) { setCloseReceiptWarn(true); return; }
+              onConfirm();
+            }}
+            disabled={closingSale || (hasPendingBalance && !closeAmt)}
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium"
+            style={{
+              background: (closingSale || (hasPendingBalance && !closeAmt)) ? 'rgba(34,197,94,0.08)' : '#22c55e',
+              color: (closingSale || (hasPendingBalance && !closeAmt)) ? 'rgba(34,197,94,0.4)' : '#000',
+              cursor: (closingSale || (hasPendingBalance && !closeAmt)) ? 'not-allowed' : 'pointer',
+            }}>
+            <Check size={15} />
+            {closingSale ? 'Guardando...' : 'Confirmar Entrega'}
+          </button>
+          <button onClick={onCancel}
+            className="px-4 py-3 rounded-xl text-xs font-light"
+            style={{ color: 'rgba(255,255,255,0.38)', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+            Cancelar
+          </button>
+        </div>
       </div>
     </div>
   );

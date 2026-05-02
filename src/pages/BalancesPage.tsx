@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Plus, Check, X, Calendar, Search, ChevronDown, DollarSign, Phone, ZoomIn, Camera, Receipt, Eye, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { RefreshCw, Plus, Check, X, Calendar, Search, ChevronDown, DollarSign, Phone, ZoomIn, Camera, Receipt, Eye, AlertCircle, Package, Truck, Store, Clock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useBranch } from '../context/BranchContext';
-import { getSales, getPayments, updateSaleBalance, recordPayment, compressImage } from '../lib/salesStorage';
+import { getSales, getPayments, updateSaleBalance, recordPayment, closeSaleLocal, compressImage } from '../lib/salesStorage';
 
 type PaymentMethod = 'efectivo' | 'transferencia' | 'tarjeta' | 'qr' | 'giro';
 
@@ -29,6 +29,7 @@ type BalanceRow = {
   customer_last_name: string;
   estimated_delivery: string | null;
   delivered_at: string | null;
+  delivery_type: 'retiro' | 'delivery' | 'encomienda' | null;
   customers: { full_name: string; ci: string; phone: string } | null;
   branches: { name: string } | null;
   last_payment_date?: string;
@@ -142,6 +143,172 @@ function RowPaymentHistory({ row, isAdmin }: { row: any; isAdmin: boolean }) {
   );
 }
 
+// ── BalCloseSaleForm ─────────────────────────────────────────────────────────
+type BalCloseSaleFormProps = {
+  balance: number;
+  closeAmt: string; setCloseAmt: (v: string) => void;
+  closeMethod: PaymentMethod; setCloseMethod: (v: PaymentMethod) => void;
+  closeRef: string; setCloseRef: (v: string) => void;
+  closeReceipt: string; setCloseReceipt: (v: string) => void;
+  closeReceiptWarn: boolean; setCloseReceiptWarn: (v: boolean) => void;
+  closeDelivery: 'retiro' | 'delivery' | 'encomienda';
+  setCloseDelivery: (v: 'retiro' | 'delivery' | 'encomienda') => void;
+  closingSale: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+};
+
+const BAL_DELIVERY_OPTIONS: { id: 'retiro' | 'delivery' | 'encomienda'; label: string; icon: React.ReactNode }[] = [
+  { id: 'retiro',     label: 'Retirado en local', icon: <Store size={13} /> },
+  { id: 'delivery',  label: 'Delivery',           icon: <Truck size={13} /> },
+  { id: 'encomienda',label: 'Encomienda',         icon: <Package size={13} /> },
+];
+
+function BalCloseSaleForm({
+  balance, closeAmt, setCloseAmt, closeMethod, setCloseMethod,
+  closeRef, setCloseRef, closeReceipt, setCloseReceipt,
+  closeReceiptWarn, setCloseReceiptWarn, closeDelivery, setCloseDelivery,
+  closingSale, onConfirm, onCancel,
+}: BalCloseSaleFormProps) {
+  const hasPendingBalance = balance > 0;
+  function fmtN(n: number) { return n.toLocaleString('es-PY', { minimumFractionDigits: 0, maximumFractionDigits: 0 }); }
+
+  return (
+    <div className="rounded-2xl overflow-hidden"
+      style={{ background: 'rgba(34,197,94,0.04)', border: '1px solid rgba(34,197,94,0.22)' }}>
+      <div className="px-4 py-3 flex items-center gap-2"
+        style={{ background: 'rgba(34,197,94,0.07)', borderBottom: '1px solid rgba(34,197,94,0.15)' }}>
+        <Package size={14} style={{ color: '#22c55e' }} />
+        <span className="text-sm font-light" style={{ color: '#22c55e' }}>Entregar Lentes y Cerrar Venta</span>
+      </div>
+      <div className="p-4 space-y-4">
+        {hasPendingBalance && (
+          <div className="space-y-3 pb-3" style={{ borderBottom: '1px solid rgba(34,197,94,0.12)' }}>
+            <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(255,255,255,0.38)' }}>
+              Cobrar saldo — Gs. {fmtN(balance)}
+            </p>
+            <div className="flex gap-1.5 flex-wrap">
+              {PAYMENT_METHODS.map(m => (
+                <button key={m.id} onClick={() => setCloseMethod(m.id)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-light"
+                  style={{
+                    background: closeMethod === m.id ? `${m.color}18` : 'rgba(255,255,255,0.03)',
+                    border: `1px solid ${closeMethod === m.id ? m.color + '44' : 'rgba(255,255,255,0.07)'}`,
+                    color: closeMethod === m.id ? m.color : 'rgba(255,255,255,0.38)',
+                  }}>
+                  {m.label}
+                </button>
+              ))}
+            </div>
+            <input value={closeAmt} onChange={e => setCloseAmt(e.target.value)}
+              type="number" placeholder={`Monto recibido (Gs. ${fmtN(balance)})`}
+              className="w-full px-3 py-2 rounded-lg bg-transparent text-white text-xs outline-none border"
+              style={{ borderColor: 'rgba(34,197,94,0.25)' }} />
+            {(closeMethod === 'transferencia' || closeMethod === 'giro') && (
+              <input value={closeRef} onChange={e => setCloseRef(e.target.value)}
+                placeholder="Banco / referencia"
+                className="w-full px-3 py-2 rounded-lg bg-transparent text-white text-xs outline-none border"
+                style={{ borderColor: 'rgba(34,197,94,0.18)' }} />
+            )}
+          </div>
+        )}
+
+        {/* Comprobante */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5">
+            <Receipt size={11} style={{ color: '#22c55e' }} />
+            <span className="text-xs font-light" style={{ color: 'rgba(34,197,94,0.8)' }}>Comprobante de entrega</span>
+            <span className="text-xs font-medium" style={{ color: '#f59e0b' }}>obligatorio</span>
+          </div>
+          <div className="rounded-xl overflow-hidden"
+            style={{ border: `1px solid ${closeReceiptWarn && !closeReceipt ? 'rgba(245,158,11,0.6)' : 'rgba(34,197,94,0.18)'}` }}>
+            {closeReceipt ? (
+              <div className="p-2 flex items-center gap-2">
+                <div className="relative shrink-0">
+                  <img src={closeReceipt} alt="comprobante" className="h-16 rounded-lg object-cover"
+                    style={{ border: '1px solid rgba(34,197,94,0.3)' }} />
+                  <button onClick={e => { e.stopPropagation(); setCloseReceipt(''); }}
+                    className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center"
+                    style={{ background: '#ef4444' }}>
+                    <X size={8} color="#fff" />
+                  </button>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Check size={12} style={{ color: '#22c55e' }} />
+                  <span className="text-xs font-light" style={{ color: '#22c55e' }}>Listo</span>
+                </div>
+              </div>
+            ) : (
+              <label className="flex items-center gap-2 px-4 py-3 cursor-pointer"
+                style={{ background: 'rgba(34,197,94,0.04)' }}
+                onClick={e => e.stopPropagation()}>
+                <Camera size={13} style={{ color: 'rgba(34,197,94,0.6)' }} />
+                <span className="text-xs font-light" style={{ color: 'rgba(34,197,94,0.7)' }}>
+                  Subir foto del recibo / ticket
+                </span>
+                <input type="file" accept="image/*" className="hidden"
+                  onChange={async e => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = async ev => {
+                      const compressed = await compressImage(ev.target?.result as string);
+                      setCloseReceipt(compressed);
+                      setCloseReceiptWarn(false);
+                    };
+                    reader.readAsDataURL(file);
+                  }} />
+              </label>
+            )}
+          </div>
+          {closeReceiptWarn && !closeReceipt && (
+            <p className="text-xs font-light" style={{ color: '#f59e0b' }}>
+              Se requiere foto del comprobante.
+            </p>
+          )}
+        </div>
+
+        {/* Delivery type */}
+        <div className="space-y-2">
+          <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(255,255,255,0.38)' }}>Tipo de envío</p>
+          <div className="flex gap-2">
+            {BAL_DELIVERY_OPTIONS.map(opt => (
+              <button key={opt.id} onClick={() => setCloseDelivery(opt.id)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-light flex-1 justify-center"
+                style={{
+                  background: closeDelivery === opt.id ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.03)',
+                  border: `1px solid ${closeDelivery === opt.id ? 'rgba(34,197,94,0.45)' : 'rgba(255,255,255,0.07)'}`,
+                  color: closeDelivery === opt.id ? '#22c55e' : 'rgba(255,255,255,0.42)',
+                }}>
+                {opt.icon}{opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            onClick={e => { e.stopPropagation(); onConfirm(); }}
+            disabled={closingSale || (hasPendingBalance && !closeAmt)}
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium"
+            style={{
+              background: (closingSale || (hasPendingBalance && !closeAmt)) ? 'rgba(34,197,94,0.08)' : '#22c55e',
+              color: (closingSale || (hasPendingBalance && !closeAmt)) ? 'rgba(34,197,94,0.4)' : '#000',
+              cursor: (closingSale || (hasPendingBalance && !closeAmt)) ? 'not-allowed' : 'pointer',
+            }}>
+            <Check size={14} />{closingSale ? 'Guardando...' : 'Confirmar Entrega'}
+          </button>
+          <button onClick={e => { e.stopPropagation(); onCancel(); }}
+            className="px-4 rounded-xl text-xs font-light"
+            style={{ color: 'rgba(255,255,255,0.38)', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+            Cancelar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function normalize(s: string) {
   return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 }
@@ -181,6 +348,17 @@ export default function BalancesPage() {
   const [savingPay,     setSavingPay]     = useState(false);
   const [paySuccess,    setPaySuccess]    = useState('');
 
+  // Close-sale state
+  type DeliveryMode = 'retiro' | 'delivery' | 'encomienda';
+  const [closeFor,         setCloseFor]         = useState<string | null>(null);
+  const [closeMethod,      setCloseMethod]      = useState<PaymentMethod>('efectivo');
+  const [closeAmt,         setCloseAmt]         = useState('');
+  const [closeRef,         setCloseRef]         = useState('');
+  const [closeReceipt,     setCloseReceipt]     = useState('');
+  const [closeReceiptWarn, setCloseReceiptWarn] = useState(false);
+  const [closeDelivery,    setCloseDelivery]    = useState<DeliveryMode>('retiro');
+  const [closingSale,      setClosingSale]      = useState(false);
+
   useEffect(() => {
     if (activeBranch && !payBranch) setPayBranch(activeBranch.id);
   }, [activeBranch, payBranch]);
@@ -193,7 +371,7 @@ export default function BalancesPage() {
     // Supabase sales with balance — vendedora only sees her own branch
     let query = supabase
       .from('sales')
-      .select('id, sale_number, created_at, total, deposit, balance, status, seller_name, customer_first_name, customer_last_name, estimated_delivery, delivered_at, customers(full_name, ci, phone), branches(name)')
+      .select('id, sale_number, created_at, total, deposit, balance, status, seller_name, customer_first_name, customer_last_name, estimated_delivery, delivered_at, delivery_type, customers(full_name, ci, phone), branches(name)')
       .gt('balance', 0)
       .not('status', 'eq', 'cancelado')
       .order('created_at', { ascending: false });
@@ -247,7 +425,8 @@ export default function BalancesPage() {
         customer_first_name: v.cliente.nombre,
         customer_last_name: v.cliente.apellido,
         estimated_delivery: null,
-        delivered_at: null,
+        delivered_at: v.delivered_at ?? null,
+        delivery_type: (v.delivery_type as any) ?? null,
         customers: {
           full_name: `${v.cliente.nombre} ${v.cliente.apellido}`.trim(),
           ci: v.cliente.ci,
@@ -323,6 +502,55 @@ export default function BalancesPage() {
     setPayReceiptWarn(false);
     setSavingPay(false);
     setTimeout(() => setPaySuccess(''), 5000);
+    load();
+  }
+
+  async function closeSale(row: BalanceRow) {
+    if (!closeReceipt) { setCloseReceiptWarn(true); return; }
+    const finalAmt = row.balance > 0 ? parseFloat(closeAmt) || 0 : 0;
+    setClosingSale(true);
+    const now = new Date().toISOString();
+    const nowDate = now.split('T')[0];
+    const branchId = activeBranch?.id || '';
+    const branchName = branches.find(b => b.id === branchId)?.name || branchId;
+    const clientName = row.customers?.full_name ||
+      [row.customer_first_name, row.customer_last_name].filter(Boolean).join(' ');
+
+    if (row.isLocal) {
+      if (finalAmt > 0) {
+        recordPayment({
+          id: Date.now(), saleId: Number(row.id), fecha: now, monto: finalAmt,
+          metodo: closeMethod, sucursal: branchName,
+          vendedora: row.seller_name || '', cliente: clientName,
+          tipo: 'abono', receipt_url: closeReceipt || undefined,
+        });
+      }
+      closeSaleLocal(Number(row.id), closeDelivery);
+    } else {
+      if (finalAmt > 0) {
+        await supabase.from('sale_payments').insert([{
+          sale_id: row.id, amount: finalAmt, method: closeMethod,
+          branch_id: branchId || null,
+          reference: closeRef || 'Pago final',
+          registered_by: profile?.id ?? null,
+          receipt_url: closeReceipt || null,
+        }]);
+      }
+      await supabase.from('sales').update({
+        status: 'entregado',
+        delivered_at: nowDate,
+        delivery_type: closeDelivery,
+        balance: 0,
+      }).eq('id', row.id);
+      if (finalAmt > 0) {
+        const { data: allPays } = await supabase.from('sale_payments').select('amount').eq('sale_id', row.id);
+        const tp = (allPays ?? []).reduce((s: number, p: any) => s + Number(p.amount), 0);
+        await supabase.from('sales').update({ deposit: tp }).eq('id', row.id);
+      }
+    }
+    setCloseFor(null); setCloseAmt(''); setCloseRef('');
+    setCloseReceipt(''); setCloseReceiptWarn(false);
+    setCloseDelivery('retiro'); setClosingSale(false);
     load();
   }
 
@@ -521,6 +749,31 @@ export default function BalancesPage() {
                         {/* Payment history (admin sees receipts) */}
                         <RowPaymentHistory row={row} isAdmin={profile?.role === 'admin'} />
 
+                        {/* Delivery info when already closed */}
+                        {row.status === 'entregado' && (row.delivery_type || row.delivered_at) && (
+                          <div className="flex items-center gap-3 flex-wrap px-1">
+                            {row.delivery_type && (
+                              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl"
+                                style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.18)' }}>
+                                {row.delivery_type === 'retiro' && <Store size={11} style={{ color: '#22c55e' }} />}
+                                {row.delivery_type === 'delivery' && <Truck size={11} style={{ color: '#22c55e' }} />}
+                                {row.delivery_type === 'encomienda' && <Package size={11} style={{ color: '#22c55e' }} />}
+                                <span className="text-xs font-light" style={{ color: '#22c55e' }}>
+                                  {row.delivery_type === 'retiro' && 'Retirado en local'}
+                                  {row.delivery_type === 'delivery' && 'Enviado por delivery'}
+                                  {row.delivery_type === 'encomienda' && 'Enviado por encomienda'}
+                                </span>
+                              </div>
+                            )}
+                            {row.delivered_at && (
+                              <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.38)' }}>
+                                <Clock size={10} className="inline mr-1" />
+                                {new Date(row.delivered_at).toLocaleDateString('es-PY', { day: '2-digit', month: 'long', year: 'numeric' })}
+                              </span>
+                            )}
+                          </div>
+                        )}
+
                         {/* Payment form */}
                         <div className="pt-3" style={{ borderTop: '1px solid rgba(197,160,89,0.10)' }}>
                           {isPayOpen ? (
@@ -681,6 +934,34 @@ export default function BalancesPage() {
                               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(197,160,89,0.10)'; }}>
                               <Plus size={12} />
                               Registrar Pago de Saldo
+                            </button>
+                          )}
+                        </div>
+
+                        {/* ── Close sale button ──────────────────────────── */}
+                        <div className="pt-3" style={{ borderTop: '1px solid rgba(34,197,94,0.10)' }}>
+                          {closeFor === row.id ? (
+                            <BalCloseSaleForm
+                              balance={Number(row.balance)}
+                              closeAmt={closeAmt} setCloseAmt={setCloseAmt}
+                              closeMethod={closeMethod} setCloseMethod={setCloseMethod}
+                              closeRef={closeRef} setCloseRef={setCloseRef}
+                              closeReceipt={closeReceipt} setCloseReceipt={setCloseReceipt}
+                              closeReceiptWarn={closeReceiptWarn} setCloseReceiptWarn={setCloseReceiptWarn}
+                              closeDelivery={closeDelivery} setCloseDelivery={setCloseDelivery}
+                              closingSale={closingSale}
+                              onConfirm={() => closeSale(row)}
+                              onCancel={() => { setCloseFor(null); setCloseAmt(''); setCloseRef(''); setCloseReceipt(''); setCloseReceiptWarn(false); }}
+                            />
+                          ) : (
+                            <button
+                              onClick={e => { e.stopPropagation(); setCloseFor(row.id); setAddPayFor(null); }}
+                              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium transition-all"
+                              style={{ background: 'rgba(34,197,94,0.10)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.30)' }}
+                              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(34,197,94,0.18)'; }}
+                              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(34,197,94,0.10)'; }}>
+                              <Package size={14} />
+                              Entregar Lentes y Cobrar Saldo
                             </button>
                           )}
                         </div>
