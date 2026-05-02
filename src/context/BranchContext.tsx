@@ -1,5 +1,20 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { supabase, Branch } from '../lib/supabase';
+import { createContext, useContext, useState, ReactNode } from 'react';
+
+export type Branch = {
+  id: string;
+  name: string;
+  address: string;
+  phone: string;
+  created_at: string;
+};
+
+// Sucursales fijas — sin base de datos
+const BRANCHES_FIJAS: Branch[] = [
+  { id: 'azara',    name: 'Azara',    address: '', phone: '', created_at: '' },
+  { id: 'centro',   name: 'Centro',   address: '', phone: '', created_at: '' },
+  { id: 'caacupe',  name: 'Caacupé',  address: '', phone: '', created_at: '' },
+  { id: 'fernando', name: 'Fernando', address: '', phone: '', created_at: '' },
+];
 
 type BranchContextType = {
   branches: Branch[];
@@ -10,22 +25,12 @@ type BranchContextType = {
 const BranchContext = createContext<BranchContextType | undefined>(undefined);
 
 export function BranchProvider({ children }: { children: ReactNode }) {
-  const [branches, setBranches] = useState<Branch[]>([]);
-  const [activeBranchId, setActiveBranchId] = useState<string>('');
+  const [activeBranchId, setActiveBranchId] = useState<string>(BRANCHES_FIJAS[0].id);
 
-  useEffect(() => {
-    supabase.from('branches').select('*').order('name').then(({ data }) => {
-      if (data && data.length > 0) {
-        setBranches(data);
-        setActiveBranchId(prev => prev || data[0].id);
-      }
-    });
-  }, []);
-
-  const activeBranch = branches.find(b => b.id === activeBranchId) ?? null;
+  const activeBranch = BRANCHES_FIJAS.find(b => b.id === activeBranchId) ?? null;
 
   return (
-    <BranchContext.Provider value={{ branches, activeBranch, setActiveBranchId }}>
+    <BranchContext.Provider value={{ branches: BRANCHES_FIJAS, activeBranch, setActiveBranchId }}>
       {children}
     </BranchContext.Provider>
   );
