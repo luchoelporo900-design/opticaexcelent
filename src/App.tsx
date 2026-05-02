@@ -33,9 +33,11 @@ function AppContent() {
     }
   }, [profile?.branch_id, branches.length]);
 
-  // Redirect non-admins away from settings if they somehow land there
+  const ADMIN_ONLY_PAGES: Page[] = ['settings', 'reports', 'branches', 'balances', 'commissions', 'cash'];
+
+  // Redirect non-admins away from restricted pages
   useEffect(() => {
-    if (page === 'settings' && profile && !isAdmin) setPage('dashboard');
+    if (profile && !isAdmin && ADMIN_ONLY_PAGES.includes(page)) setPage('dashboard');
   }, [profile, page, isAdmin]);
 
   if (loading) {

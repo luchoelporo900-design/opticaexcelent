@@ -83,7 +83,7 @@ export default function Sidebar({ current, onChange }: Props) {
       </div>
 
       {/* ── Branch selector ──────────────────────────────────── */}
-      {!collapsed && branches.length > 0 && (
+      {!collapsed && branches.length > 0 && profile?.role !== 'vendedora' && (
         <div className="px-3 pt-3 pb-2 soft-border-bottom animate-fade-in">
           <p className="section-label px-1 mb-1.5">Sede activa</p>
           <div className="relative">
@@ -226,8 +226,12 @@ export default function Sidebar({ current, onChange }: Props) {
       {/* ── Navigation ───────────────────────────────────────── */}
       <nav className="flex-1 py-4 px-2 space-y-0.5 overflow-y-auto">
         {navItems.filter(item => {
-          // Settings is admin/gerente only
-          if (item.id === 'settings') return profile?.role === 'admin' || profile?.role === 'gerente';
+          const isAdmin = profile?.role === 'admin' || profile?.role === 'gerente';
+          const isVendedora = profile?.role === 'vendedora';
+          // Admin-only pages
+          if (['settings', 'reports', 'branches', 'balances', 'commissions', 'cash'].includes(item.id)) return isAdmin;
+          // Vendedora sees: dashboard, pos, customers only
+          if (isVendedora) return ['dashboard', 'pos', 'customers'].includes(item.id);
           return true;
         }).map(item => {
           const active = current === item.id;

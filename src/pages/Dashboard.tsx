@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { TrendingUp, ShoppingCart, Users, FlaskConical, Clock, CheckCircle, AlertCircle, Building2, Trophy, Medal, X, DollarSign } from 'lucide-react';
+import { TrendingUp, ShoppingCart, Users, FlaskConical, Clock, CheckCircle, AlertCircle, Building2, Trophy, Medal, X, DollarSign, MessageCircle } from 'lucide-react';
 import { supabase, Sale, LabOrder } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { getSales, saveSale } from '../lib/salesStorage';
@@ -145,6 +145,8 @@ export default function Dashboard() {
     }
   }
 
+  const isVendedora = profile?.role === 'vendedora';
+
   const statCards = [
     { label: 'Ventas del Mes', value: `Gs. ${stats.monthlySales.toLocaleString()}`, icon: <TrendingUp size={20} />, sub: `${stats.todaySales} hoy` },
     { label: 'Cobrado Hoy', value: `Gs. ${todayCash.toLocaleString()}`, icon: <DollarSign size={20} />, sub: 'Todos los métodos' },
@@ -167,6 +169,146 @@ export default function Dashboard() {
     listo: { label: 'Listo', color: '#10b981' },
     entregado: { label: 'Entregado', color: '#6b7280' },
   };
+
+  // ── Vendedora view ─────────────────────────────────────────────────────
+  if (isVendedora) {
+    const today = new Date().toISOString().split('T')[0];
+    const myTodaySales = recentSales.filter(s => (s.created_at || '').startsWith(today));
+    const myTodayTotal = myTodaySales.reduce((a, s) => a + (Number(s.total) || 0), 0);
+
+    return (
+      <div className="p-6 space-y-6">
+        {/* Header */}
+        <div>
+          <h1 className="text-2xl text-white font-light tracking-wider">Mi Panel</h1>
+          <p className="text-sm font-light mt-1" style={{ color: 'rgba(197,160,89,0.7)' }}>
+            {profile?.full_name} · {new Date().toLocaleDateString('es-PY', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+          </p>
+        </div>
+
+        {/* Prize banner */}
+        {prizeLevel !== 'sin_nivel' && dismissedLevel !== prizeLevel && (
+          <div className="relative rounded-2xl border p-5 overflow-hidden"
+            style={{
+              background: prizeLevel === 'oro'
+                ? 'linear-gradient(135deg, rgba(197,160,89,0.12), rgba(139,105,20,0.08))'
+                : 'linear-gradient(135deg, rgba(205,127,50,0.12), rgba(205,127,50,0.05))',
+              borderColor: prizeLevel === 'oro' ? 'rgba(197,160,89,0.5)' : 'rgba(205,127,50,0.5)',
+            }}>
+            <button
+              onClick={() => { setDismissedLevel(prizeLevel); sessionStorage.setItem('dismissedPrize', prizeLevel); }}
+              className="absolute top-3 right-3 opacity-40 hover:opacity-100 transition-opacity"
+              style={{ color: 'rgba(255,255,255,0.6)' }}>
+              <X size={14} />
+            </button>
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-full flex items-center justify-center shrink-0"
+                style={{ background: prizeLevel === 'oro' ? 'rgba(197,160,89,0.2)' : 'rgba(205,127,50,0.2)', border: `2px solid ${prizeLevel === 'oro' ? '#C5A059' : '#cd7f32'}` }}>
+                {prizeLevel === 'oro' ? <Trophy size={22} style={{ color: '#C5A059' }} /> : <Medal size={22} style={{ color: '#cd7f32' }} />}
+              </div>
+              <div>
+                <p className="text-white font-medium text-sm tracking-wide">
+                  {prizeLevel === 'oro' ? `Felicitaciones, ${profile?.full_name?.split(' ')[0]}!` : `Excelente trabajo, ${profile?.full_name?.split(' ')[0]}!`}
+                </p>
+                <p className="text-xs font-light mt-0.5" style={{ color: prizeLevel === 'oro' ? 'rgba(197,160,89,0.9)' : 'rgba(205,127,50,0.9)' }}>
+                  {prizeLevel === 'oro'
+                    ? `Nivel Oro — ${myPoints.toFixed(1)} puntos este mes. Premio mayor desbloqueado!`
+                    : `Nivel Bronce — ${myPoints.toFixed(1)} puntos. A 2 puntos del Nivel Oro!`}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* My today stats */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {[
+            { label: 'Mis Ventas Hoy', value: myTodaySales.length.toString(), icon: <ShoppingCart size={18} />, sub: 'registradas hoy' },
+            { label: 'Total Facturado Hoy', value: `Gs. ${myTodayTotal.toLocaleString()}`, icon: <TrendingUp size={18} />, sub: 'mis ventas' },
+            { label: 'Puntos del Mes', value: myPoints > 0 ? myPoints.toFixed(1) : '—', icon: <Trophy size={18} />, sub: prizeLevel !== 'sin_nivel' ? prizeLevel : 'sin nivel aún' },
+          ].map((card, i) => (
+            <div key={i} className="stat-card p-5">
+              <div className="absolute top-0 right-0 w-20 h-20 rounded-full -translate-y-6 translate-x-6 pointer-events-none"
+                style={{ background: 'radial-gradient(circle, rgba(197,160,89,0.13) 0%, transparent 70%)' }} />
+              <div className="flex items-start justify-between relative">
+                <div>
+                  <p className="section-label">{card.label}</p>
+                  <p className="text-2xl text-white font-light mt-1.5">{card.value}</p>
+                  <p className="text-xs mt-1 text-gold-muted capitalize">{card.sub}</p>
+                </div>
+                <div className="p-2.5 rounded-xl" style={{ background: 'rgba(197,160,89,0.10)', color: '#C5A059' }}>
+                  {card.icon}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* My today sales table */}
+        <div className="premium-card overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4 soft-border-bottom">
+            <h2 className="text-white text-sm font-light tracking-wider">Mis Ventas de Hoy</h2>
+            <ShoppingCart size={16} className="text-gold gold-glow-sm" />
+          </div>
+          {loading ? (
+            <div className="p-5 space-y-3">{[...Array(3)].map((_, i) => <div key={i} className="h-8 rounded shimmer" />)}</div>
+          ) : myTodaySales.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-state-icon"><ShoppingCart size={22} /></div>
+              <p className="text-sm font-light">Aún no registraste ventas hoy</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="soft-border-bottom">
+                    {['N° Venta', 'Cliente', 'Teléfono', 'Total', 'Estado'].map(h => (
+                      <th key={h} className="px-4 py-3 text-left section-label">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {myTodaySales.map(sale => {
+                    const sc = statusConfig[sale.status] || statusConfig.pendiente;
+                    const phone = (sale as any).customers?.ci || '';
+                    const clientName = (sale as any).customers?.full_name || '-';
+                    const waLink = phone
+                      ? `https://wa.me/595${phone.replace(/\D/g, '')}?text=Hola%20${encodeURIComponent(clientName)}%2C%20le%20contactamos%20de%20%C3%93ptica%20Yolanda.`
+                      : null;
+                    return (
+                      <tr key={sale.id} className="table-row">
+                        <td className="px-4 py-3 font-mono text-gold">{sale.sale_number}</td>
+                        <td className="px-4 py-3 text-white font-light">{clientName}</td>
+                        <td className="px-4 py-3 font-light" style={{ color: 'rgba(255,255,255,0.48)' }}>
+                          {waLink ? (
+                            <a href={waLink} target="_blank" rel="noreferrer"
+                              className="flex items-center gap-1.5 transition-colors"
+                              style={{ color: '#25D366' }}
+                              onMouseEnter={e => (e.currentTarget.style.opacity = '0.75')}
+                              onMouseLeave={e => (e.currentTarget.style.opacity = '1')}>
+                              <MessageCircle size={13} />
+                              {phone}
+                            </a>
+                          ) : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-white font-light">Gs. {Number(sale.total).toLocaleString()}</td>
+                        <td className="px-4 py-3">
+                          <span className="status-badge" style={{ background: `${sc.color}1e`, color: sc.color }}>
+                            {sc.icon}{sc.label}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+  // ── End vendedora view ──────────────────────────────────────────────────
 
   return (
     <div className="p-6 space-y-6">
