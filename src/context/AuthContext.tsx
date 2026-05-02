@@ -1,24 +1,21 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 
-// ============================================================
-// TIPOS — misma estructura que antes para no romper otras páginas
-// ============================================================
-export type UserRole = 'admin' | 'vendedora';
+export type UserRole = 'admin' | 'vendedora' | 'laboratorio' | 'gerente';
 
 export interface Profile {
   id: string;
   full_name: string;
   role: UserRole;
-  branch_id: string | null;  // nombre de sucursal o null
+  branch_id: string | null;
   avatar_url: string;
   created_at: string;
   email: string;
-  password: string; // guardado en localStorage (app interna, sin internet)
+  password: string;
 }
 
 type AuthContextType = {
   user: Profile | null;
-  session: Profile | null; // alias de user, para compatibilidad
+  session: Profile | null;
   profile: Profile | null;
   loading: boolean;
   devMode: boolean;
@@ -27,10 +24,7 @@ type AuthContextType = {
   enterDevMode: () => void;
 };
 
-// ============================================================
-// LOCALSTORAGE HELPERS
-// ============================================================
-const USERS_KEY = 'optica_users';
+const USERS_KEY   = 'optica_users';
 const SESSION_KEY = 'optica_session';
 
 export const getStoredUsers = (): Profile[] => {
@@ -55,9 +49,6 @@ const clearStoredSession = () => {
   localStorage.removeItem(SESSION_KEY);
 };
 
-// ============================================================
-// CONTEXTO
-// ============================================================
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -68,8 +59,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const session = getStoredSession();
     if (session) {
-      // Verificar que el usuario sigue existiendo
-      const all = getStoredUsers();
+      const all   = getStoredUsers();
       const valid = all.find(u => u.id === session.id);
       if (valid) setProfile(valid);
       else clearStoredSession();
@@ -78,13 +68,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   async function signIn(email: string, password: string): Promise<{ error: Error | null }> {
-    const all = getStoredUsers();
-    const found = all.find(
-      u => u.email.toLowerCase() === email.toLowerCase() && u.password === password
-    );
-    if (!found) {
-      return { error: new Error('Correo o contraseña incorrectos.') };
-    }
+    const all   = getStoredUsers();
+    const found = all.find(u => u.email.toLowerCase() === email.toLowerCase() && u.password === password);
+    if (!found) return { error: new Error('Correo o contraseña incorrectos.') };
     saveStoredSession(found);
     setProfile(found);
     return { error: null };
@@ -98,14 +84,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   function enterDevMode() {
     const devProfile: Profile = {
-      id: 'dev-mode-id',
-      full_name: 'Modo Desarrollo',
-      role: 'admin',
-      branch_id: 'Centro',
-      avatar_url: '',
-      created_at: new Date().toISOString(),
-      email: 'dev@optica.com',
-      password: '',
+      id: 'dev-mode-id', full_name: 'Modo Desarrollo', role: 'admin',
+      branch_id: 'La Fina', avatar_url: '', created_at: new Date().toISOString(),
+      email: 'dev@optica.com', password: '',
     };
     setDevMode(true);
     setProfile(devProfile);
@@ -113,16 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{
-      user: profile,
-      session: profile, // alias para compatibilidad
-      profile,
-      loading,
-      devMode,
-      signIn,
-      signOut,
-      enterDevMode,
-    }}>
+    <AuthContext.Provider value={{ user: profile, session: profile, profile, loading, devMode, signIn, signOut, enterDevMode }}>
       {children}
     </AuthContext.Provider>
   );
