@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Plus, X, Save, ChevronDown, ChevronUp, Glasses, Banknote, CreditCard, Smartphone, QrCode, Send, MapPin, Truck, Store, Package, User, FileText, Check, AlertCircle, Trash2, ShoppingBag, Hash, Clock, Building2, Camera, Image as ImageIcon, MessageCircle } from 'lucide-react';
+import { Search, Plus, X, Save, ChevronDown, ChevronUp, Glasses, Banknote, CreditCard, Smartphone, QrCode, Send, MapPin, Truck, Store, Package, User, FileText, Check, AlertCircle, Trash2, ShoppingBag, Hash, Clock, Building2, Camera, Image as ImageIcon, MessageCircle, Eye, Receipt } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { saveSale as saveToStorage, getSales, getPayments, updateSaleBalance, recordPayment, compressImage } from '../lib/salesStorage';
@@ -203,12 +203,14 @@ export default function POSPage() {
   const [listSearch,  setListSearch]  = useState('');
 
   // Add payment for existing sale
-  const [addPayFor,   setAddPayFor]   = useState<string | null>(null);
-  const [xPayAmt,     setXPayAmt]     = useState('');
-  const [xPayMethod,  setXPayMethod]  = useState<PaymentMethod>('efectivo');
-  const [xPayBranch,  setXPayBranch]  = useState('');
-  const [xPayRef,     setXPayRef]     = useState('');
-  const [updStatus,   setUpdStatus]   = useState<string | null>(null);
+  const [addPayFor,    setAddPayFor]    = useState<string | null>(null);
+  const [xPayAmt,      setXPayAmt]      = useState('');
+  const [xPayMethod,   setXPayMethod]   = useState<PaymentMethod>('efectivo');
+  const [xPayBranch,   setXPayBranch]   = useState('');
+  const [xPayRef,      setXPayRef]      = useState('');
+  const [xPayReceipt,  setXPayReceipt]  = useState('');
+  const [xPayWarn,     setXPayWarn]     = useState(false);   // soft warning: receipt missing
+  const [updStatus,    setUpdStatus]    = useState<string | null>(null);
 
   // ── Bootstrap ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -508,8 +510,8 @@ export default function POSPage() {
           vendedora: profile?.full_name ?? '',
           cliente: `${localSale.cliente.nombre} ${localSale.cliente.apellido}`.trim(),
           tipo: 'abono',
+          receipt_url: xPayReceipt || undefined,
         });
-        // Optimistic update in UI
         setSales(prev => prev.map(s =>
           s.id === saleId
             ? { ...s, deposit: newDeposit, balance: newBalance }
@@ -521,6 +523,7 @@ export default function POSPage() {
         sale_id: saleId, amount: amt, method: xPayMethod,
         branch_id: xPayBranch || FIXED_BRANCHES[0].id, reference: xPayRef,
         registered_by: profile?.id ?? null,
+        receipt_url: xPayReceipt || null,
       }]);
       const { data: allPays } = await supabase.from('sale_payments').select('amount').eq('sale_id', saleId);
       const tp = (allPays ?? []).reduce((s: number, p: any) => s + Number(p.amount), 0);
@@ -528,7 +531,7 @@ export default function POSPage() {
       if (sr) await supabase.from('sales').update({ deposit: tp, balance: Math.max(0, Number(sr.total) - tp) }).eq('id', saleId);
     }
 
-    setAddPayFor(null); setXPayAmt(''); setXPayRef(''); loadSales();
+    setAddPayFor(null); setXPayAmt(''); setXPayRef(''); setXPayReceipt(''); setXPayWarn(false); loadSales();
   }
 
   // ── Filtered sales list ────────────────────────────────────────────────────
@@ -1007,7 +1010,7 @@ export default function POSPage() {
                         </div>
                       )}
 
-                      <PaymentHistory saleId={sale.id} isLocal={sale._local} />
+                      <PaymentHistory saleId={sale.id} isLocal={sale._local} isAdmin={profile?.role === 'admin'} />
 
                       {Number(sale.balance) > 0 && (
                         <div className="border-t pt-3 space-y-2" style={{ borderColor: 'rgba(197,160,89,0.1)' }}>
@@ -1015,7 +1018,8 @@ export default function POSPage() {
                             Registrar pago
                           </p>
                           {addPayFor === sale.id ? (
-                            <div className="space-y-2">
+                            <div className="space-y-2.5">
+                              {/* Method */}
                               <div className="flex gap-1 flex-wrap">
                                 {PAY_METHODS.map(m => (
                                   <button key={m.id} onClick={() => setXPayMethod(m.id)}
@@ -1029,8 +1033,9 @@ export default function POSPage() {
                                   </button>
                                 ))}
                               </div>
+                              {/* Amount + Branch */}
                               <div className="flex gap-2">
-                                <input value={xPayAmt} onChange={e => setXPayAmt(e.target.value)}
+                                <input value={xPayAmt} onChange={e => { setXPayAmt(e.target.value); setXPayWarn(false); }}
                                   type="number" placeholder={`Saldo: Gs. ${fmt(Number(sale.balance))}`}
                                   className="flex-1 px-3 py-2 rounded-xl bg-transparent text-white text-xs outline-none border"
                                   style={{ borderColor: 'rgba(197,160,89,0.2)' }} />
@@ -1040,19 +1045,99 @@ export default function POSPage() {
                                   {FIXED_BRANCHES.map(b => <option key={b.id} value={b.id} style={{ background: '#111' }}>{b.name}</option>)}
                                 </select>
                               </div>
+                              {/* Reference for wire/giro */}
+                              {(xPayMethod === 'transferencia' || xPayMethod === 'giro') && (
+                                <input value={xPayRef} onChange={e => setXPayRef(e.target.value)}
+                                  placeholder="Banco / referencia"
+                                  className="w-full px-3 py-2 rounded-xl bg-transparent text-white text-xs outline-none border"
+                                  style={{ borderColor: 'rgba(197,160,89,0.18)' }} />
+                              )}
+                              {/* Comprobante upload */}
+                              <div className="rounded-xl p-2.5 space-y-2"
+                                style={{ background: 'rgba(197,160,89,0.04)', border: `1px solid ${xPayWarn && !xPayReceipt ? 'rgba(245,158,11,0.55)' : 'rgba(197,160,89,0.12)'}` }}>
+                                <div className="flex items-center gap-1.5">
+                                  <Receipt size={11} style={{ color: '#C5A059' }} />
+                                  <span className="text-xs font-light tracking-wide" style={{ color: 'rgba(197,160,89,0.8)' }}>
+                                    Comprobante de Pago
+                                  </span>
+                                  {xPayMethod === 'efectivo'
+                                    ? <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.28)' }}>(opcional)</span>
+                                    : <span className="text-xs font-light" style={{ color: '#f59e0b' }}>recomendado</span>
+                                  }
+                                </div>
+                                {xPayReceipt ? (
+                                  <div className="relative inline-block">
+                                    <img src={xPayReceipt} alt="comprobante" className="h-20 rounded-lg object-cover"
+                                      style={{ border: '1px solid rgba(197,160,89,0.3)' }} />
+                                    <button onClick={() => setXPayReceipt('')}
+                                      className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center"
+                                      style={{ background: '#ef4444' }}>
+                                      <X size={8} color="#fff" />
+                                    </button>
+                                    <div className="mt-1 flex items-center gap-1">
+                                      <Check size={10} style={{ color: '#22c55e' }} />
+                                      <span className="text-xs font-light" style={{ color: '#22c55e' }}>Comprobante listo</span>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <label className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-light cursor-pointer"
+                                    style={{ background: 'rgba(197,160,89,0.07)', border: '1px dashed rgba(197,160,89,0.3)', color: 'rgba(197,160,89,0.7)' }}>
+                                    <Camera size={12} />
+                                    Subir foto del ticket / transferencia
+                                    <input type="file" accept="image/*" className="hidden"
+                                      onChange={async e => {
+                                        const file = e.target.files?.[0];
+                                        if (!file) return;
+                                        const reader = new FileReader();
+                                        reader.onload = async ev => {
+                                          const compressed = await compressImage(ev.target?.result as string);
+                                          setXPayReceipt(compressed);
+                                          setXPayWarn(false);
+                                        };
+                                        reader.readAsDataURL(file);
+                                      }} />
+                                  </label>
+                                )}
+                              </div>
+                              {/* Warning if receipt missing and non-cash */}
+                              {xPayWarn && !xPayReceipt && (
+                                <div className="flex items-start gap-2 px-3 py-2 rounded-lg"
+                                  style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)' }}>
+                                  <AlertCircle size={12} style={{ color: '#f59e0b', marginTop: 1, flexShrink: 0 }} />
+                                  <div>
+                                    <p className="text-xs font-medium" style={{ color: '#f59e0b' }}>Sin comprobante</p>
+                                    <p className="text-xs font-light mt-0.5" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                                      El administrador podrá auditar este pago. ¿Confirmar sin foto?
+                                    </p>
+                                    <button onClick={() => registerXPay(sale.id)}
+                                      className="mt-1.5 px-2.5 py-1 rounded text-xs font-medium"
+                                      style={{ background: 'rgba(245,158,11,0.2)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.4)' }}>
+                                      Sí, guardar igual
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                              {/* Action buttons */}
                               <div className="flex gap-2">
-                                <button onClick={() => registerXPay(sale.id)}
+                                <button
+                                  onClick={() => {
+                                    if (!xPayReceipt && xPayMethod !== 'efectivo') {
+                                      setXPayWarn(true);
+                                      return;
+                                    }
+                                    registerXPay(sale.id);
+                                  }}
                                   className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs text-black font-medium"
                                   style={{ background: '#C5A059' }}>
-                                  <Check size={11} />Guardar
+                                  <Check size={11} />Guardar abono
                                 </button>
-                                <button onClick={() => { setAddPayFor(null); setXPayAmt(''); }}
+                                <button onClick={() => { setAddPayFor(null); setXPayAmt(''); setXPayReceipt(''); setXPayWarn(false); }}
                                   className="px-3 py-2 rounded-lg text-xs font-light"
                                   style={{ color: 'rgba(255,255,255,0.38)' }}>Cancelar</button>
                               </div>
                             </div>
                           ) : (
-                            <button onClick={e => { e.stopPropagation(); setAddPayFor(sale.id); setXPayBranch(FIXED_BRANCHES[0].id); }}
+                            <button onClick={e => { e.stopPropagation(); setAddPayFor(sale.id); setXPayBranch(FIXED_BRANCHES[0].id); setXPayWarn(false); }}
                               className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-light"
                               style={{ background: 'rgba(197,160,89,0.08)', color: '#C5A059', border: '1px solid rgba(197,160,89,0.22)' }}>
                               <Plus size={11} />Cliente viene a pagar saldo
@@ -1297,15 +1382,42 @@ function SimpleEyeglassCard({
   );
 }
 
+// ── ReceiptLightbox ─────────────────────────────────────────────────────────────
+function ReceiptLightbox({ url, onClose }: { url: string; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[300] flex items-center justify-center p-6"
+      style={{ background: 'rgba(0,0,0,0.94)' }}
+      onClick={onClose}>
+      <div className="relative max-w-lg w-full" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-2 mb-3">
+          <Receipt size={14} style={{ color: '#C5A059' }} />
+          <span className="text-sm font-light tracking-wider" style={{ color: '#C5A059' }}>Comprobante de Pago</span>
+          <span className="ml-1 text-xs px-2 py-0.5 rounded-full"
+            style={{ background: 'rgba(197,160,89,0.15)', color: '#C5A059', border: '1px solid rgba(197,160,89,0.3)' }}>
+            Solo Admin
+          </span>
+        </div>
+        <img src={url} alt="comprobante de pago" className="w-full rounded-2xl"
+          style={{ border: '1px solid rgba(197,160,89,0.3)', maxHeight: '75vh', objectFit: 'contain' }} />
+        <button onClick={onClose}
+          className="absolute top-8 right-3 p-2 rounded-full"
+          style={{ background: 'rgba(0,0,0,0.7)', color: 'rgba(255,255,255,0.7)' }}>
+          <X size={16} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── PaymentHistory ─────────────────────────────────────────────────────────────
-function PaymentHistory({ saleId, isLocal }: { saleId: string; isLocal?: boolean }) {
-  type PayRow = { id: string; amount: number; method: string; paid_at: string; reference: string; branches: { name: string } | null };
+function PaymentHistory({ saleId, isLocal, isAdmin }: { saleId: string; isLocal?: boolean; isAdmin?: boolean }) {
+  type PayRow = { id: string; amount: number; method: string; paid_at: string; reference: string; receipt_url?: string; branches: { name: string } | null };
   const [payments, setPayments] = useState<PayRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [viewReceipt, setViewReceipt] = useState<string | null>(null);
 
   function reload() {
     if (isLocal) {
-      // Pull from localStorage payments keyed by saleId number
       const numId = Number(saleId.replace('local-', ''));
       const rows: PayRow[] = getPayments()
         .filter((p: any) => p.saleId === numId)
@@ -1316,12 +1428,13 @@ function PaymentHistory({ saleId, isLocal }: { saleId: string; isLocal?: boolean
           method: p.metodo,
           paid_at: p.fecha,
           reference: p.tipo === 'abono' ? 'Abono' : 'Seña inicial',
+          receipt_url: p.receipt_url ?? undefined,
           branches: p.sucursal ? { name: p.sucursal } : null,
         }));
       setPayments(rows);
       setLoading(false);
     } else {
-      supabase.from('sale_payments').select('id,amount,method,paid_at,reference,branches(name)')
+      supabase.from('sale_payments').select('id,amount,method,paid_at,reference,receipt_url,branches(name)')
         .eq('sale_id', saleId).order('paid_at')
         .then(({ data }) => { setPayments((data ?? []) as any); setLoading(false); });
     }
@@ -1336,34 +1449,54 @@ function PaymentHistory({ saleId, isLocal }: { saleId: string; isLocal?: boolean
 
   const total = payments.reduce((s, p) => s + Number(p.amount), 0);
   return (
-    <div className="space-y-1.5">
-      <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.45)' }}>
-        Historial de abonos
-      </p>
-      {payments.map((p, i) => {
-        const mc = PAY_METHODS.find(m => m.id === p.method)?.color ?? '#C5A059';
-        const dt = new Date(p.paid_at);
-        return (
-          <div key={p.id} className="flex items-center gap-2 text-xs font-light">
-            <span className="shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-xs font-medium text-black"
-              style={{ background: mc, fontSize: 9 }}>{i + 1}</span>
-            <span className="px-2 py-0.5 rounded-full shrink-0" style={{ background: `${mc}18`, color: mc }}>{p.method}</span>
-            <span className="text-white font-medium">Gs. {Number(p.amount).toLocaleString()}</span>
-            {p.reference && <span style={{ color: 'rgba(255,255,255,0.38)' }}>{p.reference}</span>}
-            <span className="ml-auto shrink-0 text-right" style={{ color: 'rgba(255,255,255,0.28)' }}>
-              {dt.toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' })}
-              {' '}
-              <span style={{ color: 'rgba(255,255,255,0.18)' }}>
-                {dt.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
+    <>
+      {viewReceipt && <ReceiptLightbox url={viewReceipt} onClose={() => setViewReceipt(null)} />}
+      <div className="space-y-1.5">
+        <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.45)' }}>
+          Historial de abonos
+        </p>
+        {payments.map((p, i) => {
+          const mc = PAY_METHODS.find(m => m.id === p.method)?.color ?? '#C5A059';
+          const dt = new Date(p.paid_at);
+          return (
+            <div key={p.id} className="flex items-center gap-2 text-xs font-light">
+              <span className="shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-xs font-medium text-black"
+                style={{ background: mc, fontSize: 9 }}>{i + 1}</span>
+              <span className="px-2 py-0.5 rounded-full shrink-0" style={{ background: `${mc}18`, color: mc }}>{p.method}</span>
+              <span className="text-white font-medium">Gs. {Number(p.amount).toLocaleString()}</span>
+              {p.reference && <span style={{ color: 'rgba(255,255,255,0.38)' }}>{p.reference}</span>}
+              {/* Admin-only comprobante viewer */}
+              {isAdmin && p.receipt_url && (
+                <button
+                  onClick={() => setViewReceipt(p.receipt_url!)}
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-xs font-light shrink-0"
+                  style={{ background: 'rgba(197,160,89,0.10)', color: '#C5A059', border: '1px solid rgba(197,160,89,0.28)' }}
+                  title="Ver comprobante">
+                  <Eye size={10} />
+                  <span>Ver ticket</span>
+                </button>
+              )}
+              {isAdmin && !p.receipt_url && p.method !== 'efectivo' && (
+                <span className="shrink-0 px-1.5 py-0.5 rounded-md text-xs font-light"
+                  style={{ background: 'rgba(245,158,11,0.08)', color: 'rgba(245,158,11,0.6)', border: '1px solid rgba(245,158,11,0.2)' }}>
+                  Sin ticket
+                </span>
+              )}
+              <span className="ml-auto shrink-0 text-right" style={{ color: 'rgba(255,255,255,0.28)' }}>
+                {dt.toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' })}
+                {' '}
+                <span style={{ color: 'rgba(255,255,255,0.18)' }}>
+                  {dt.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
+                </span>
               </span>
-            </span>
-          </div>
-        );
-      })}
-      <div className="flex justify-between pt-1.5 border-t text-xs font-light" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
-        <span style={{ color: 'rgba(255,255,255,0.35)' }}>Total abonado</span>
-        <span style={{ color: '#10b981' }}>Gs. {total.toLocaleString()}</span>
+            </div>
+          );
+        })}
+        <div className="flex justify-between pt-1.5 border-t text-xs font-light" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+          <span style={{ color: 'rgba(255,255,255,0.35)' }}>Total abonado</span>
+          <span style={{ color: '#10b981' }}>Gs. {total.toLocaleString()}</span>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

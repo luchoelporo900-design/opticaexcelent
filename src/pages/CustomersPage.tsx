@@ -2,10 +2,11 @@ import { useEffect, useState, useCallback } from 'react';
 import {
   Search, UserPlus, MessageCircle, X, Clock, ZoomIn,
   AlertCircle, CheckCircle, ChevronDown, ChevronUp,
-  Glasses, FlaskConical, Phone,
+  Glasses, FlaskConical, Phone, Eye, Receipt,
 } from 'lucide-react';
 import { supabase, Customer } from '../lib/supabase';
 import { getSales, getPayments } from '../lib/salesStorage';
+import { useAuth } from '../context/AuthContext';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -26,6 +27,7 @@ type SalePaymentEntry = {
   method: string;
   tipo: 'sena' | 'abono';
   reference?: string;
+  receipt_url?: string;
 };
 
 type SaleEntry = {
@@ -140,10 +142,36 @@ function PhotoThumb({ url, alt }: { url: string; alt: string }) {
   );
 }
 
+// ── Receipt lightbox ──────────────────────────────────────────────────────────
+function ReceiptLightbox({ url, onClose }: { url: string; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[300] flex items-center justify-center p-6"
+      style={{ background: 'rgba(0,0,0,0.94)' }} onClick={onClose}>
+      <div className="relative max-w-lg w-full" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-2 mb-3">
+          <Receipt size={14} style={{ color: '#C5A059' }} />
+          <span className="text-sm font-light tracking-wider" style={{ color: '#C5A059' }}>Comprobante de Pago</span>
+          <span className="ml-1 text-xs px-2 py-0.5 rounded-full"
+            style={{ background: 'rgba(197,160,89,0.15)', color: '#C5A059', border: '1px solid rgba(197,160,89,0.3)' }}>
+            Solo Admin
+          </span>
+        </div>
+        <img src={url} alt="comprobante" className="w-full rounded-2xl"
+          style={{ border: '1px solid rgba(197,160,89,0.3)', maxHeight: '75vh', objectFit: 'contain' }} />
+        <button onClick={onClose} className="absolute top-8 right-3 p-2 rounded-full"
+          style={{ background: 'rgba(0,0,0,0.7)', color: 'rgba(255,255,255,0.7)' }}>
+          <X size={16} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Sale card in timeline ──────────────────────────────────────────────────
 
-function SaleCard({ sale }: { sale: SaleEntry }) {
+function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
   const [expanded, setExpanded] = useState(false);
+  const [viewReceipt, setViewReceipt] = useState<string | null>(null);
   const sc = STATUS_CFG[sale.status] ?? STATUS_CFG.pendiente;
   const hasPending = Number(sale.balance) > 0;
 
@@ -282,46 +310,63 @@ function SaleCard({ sale }: { sale: SaleEntry }) {
 
           {/* Payment detail timeline */}
           {sale.payments.length > 0 && (
-            <div className="rounded-xl overflow-hidden"
-              style={{ border: '1px solid rgba(197,160,89,0.10)', background: 'rgba(197,160,89,0.02)' }}>
-              <div className="px-3 py-2 border-b flex items-center gap-2"
-                style={{ borderColor: 'rgba(197,160,89,0.08)' }}>
-                <span className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.55)' }}>
-                  Detalle de pagos
-                </span>
-              </div>
-              <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
-                {sale.payments.map((p, i) => {
-                  const isSeña = p.tipo === 'sena';
-                  const color = isSeña ? '#22c55e' : '#3b82f6';
-                  const dt = new Date(p.paid_at);
-                  const dateStr = dt.toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit', year: '2-digit' });
-                  const timeStr = dt.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' });
-                  const totalPaidUpToNow = sale.payments.slice(0, i + 1).reduce((s, px) => s + px.amount, 0);
-                  const remaining = Math.max(0, sale.total - totalPaidUpToNow);
-                  return (
-                    <div key={p.id} className="flex items-center gap-2 px-3 py-2 text-xs font-light">
-                      <span className="shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-black font-medium"
-                        style={{ background: color, fontSize: 9 }}>{i + 1}</span>
-                      <span className="shrink-0 px-1.5 py-0.5 rounded-full"
-                        style={{ background: `${color}18`, color }}>{isSeña ? 'Seña' : 'Abono'}</span>
-                      <span className="text-white font-medium">Gs. {fmt(p.amount)}</span>
-                      <span style={{ color: 'rgba(255,255,255,0.38)' }}>{p.method}</span>
-                      <span className="ml-auto shrink-0 text-right space-x-1" style={{ color: 'rgba(255,255,255,0.30)' }}>
-                        {dateStr}
-                        <span style={{ color: 'rgba(255,255,255,0.18)' }}> {timeStr}</span>
-                      </span>
-                      {remaining > 0 && i === sale.payments.length - 1 && (
-                        <span className="shrink-0 px-1.5 py-0.5 rounded-full text-xs"
-                          style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)' }}>
-                          resta {fmt(remaining)}
+            <>
+              {viewReceipt && <ReceiptLightbox url={viewReceipt} onClose={() => setViewReceipt(null)} />}
+              <div className="rounded-xl overflow-hidden"
+                style={{ border: '1px solid rgba(197,160,89,0.10)', background: 'rgba(197,160,89,0.02)' }}>
+                <div className="px-3 py-2 border-b flex items-center gap-2"
+                  style={{ borderColor: 'rgba(197,160,89,0.08)' }}>
+                  <span className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.55)' }}>
+                    Detalle de pagos
+                  </span>
+                </div>
+                <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+                  {sale.payments.map((p, i) => {
+                    const isSeña = p.tipo === 'sena';
+                    const color = isSeña ? '#22c55e' : '#3b82f6';
+                    const dt = new Date(p.paid_at);
+                    const dateStr = dt.toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit', year: '2-digit' });
+                    const timeStr = dt.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' });
+                    const totalPaidUpToNow = sale.payments.slice(0, i + 1).reduce((s, px) => s + px.amount, 0);
+                    const remaining = Math.max(0, sale.total - totalPaidUpToNow);
+                    return (
+                      <div key={p.id} className="flex items-center gap-2 px-3 py-2 text-xs font-light flex-wrap">
+                        <span className="shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-black font-medium"
+                          style={{ background: color, fontSize: 9 }}>{i + 1}</span>
+                        <span className="shrink-0 px-1.5 py-0.5 rounded-full"
+                          style={{ background: `${color}18`, color }}>{isSeña ? 'Seña' : 'Abono'}</span>
+                        <span className="text-white font-medium">Gs. {fmt(p.amount)}</span>
+                        <span style={{ color: 'rgba(255,255,255,0.38)' }}>{p.method}</span>
+                        {/* Admin comprobante viewer */}
+                        {isAdmin && (p as any).receipt_url && (
+                          <button onClick={() => setViewReceipt((p as any).receipt_url)}
+                            className="flex items-center gap-1 px-1.5 py-0.5 rounded-md shrink-0"
+                            style={{ background: 'rgba(197,160,89,0.10)', color: '#C5A059', border: '1px solid rgba(197,160,89,0.28)' }}>
+                            <Eye size={9} /><span>Ver ticket</span>
+                          </button>
+                        )}
+                        {isAdmin && !(p as any).receipt_url && p.method !== 'efectivo' && (
+                          <span className="shrink-0 px-1.5 py-0.5 rounded-md"
+                            style={{ background: 'rgba(245,158,11,0.08)', color: 'rgba(245,158,11,0.6)', border: '1px solid rgba(245,158,11,0.2)' }}>
+                            Sin ticket
+                          </span>
+                        )}
+                        <span className="ml-auto shrink-0 text-right" style={{ color: 'rgba(255,255,255,0.30)' }}>
+                          {dateStr}
+                          <span style={{ color: 'rgba(255,255,255,0.18)' }}> {timeStr}</span>
                         </span>
-                      )}
-                    </div>
-                  );
-                })}
+                        {remaining > 0 && i === sale.payments.length - 1 && (
+                          <span className="shrink-0 px-1.5 py-0.5 rounded-full text-xs"
+                            style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)' }}>
+                            resta {fmt(remaining)}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            </>
           )}
 
           {sale.notes && (
@@ -338,7 +383,7 @@ function SaleCard({ sale }: { sale: SaleEntry }) {
 
 // ── Client history modal ───────────────────────────────────────────────────
 
-function ClientFicha({ history, onClose }: { history: ClientHistory; onClose: () => void }) {
+function ClientFicha({ history, onClose, isAdmin }: { history: ClientHistory; onClose: () => void; isAdmin?: boolean }) {
   const { customer, sales } = history;
   const totalSpent    = sales.reduce((s, v) => s + Number(v.total), 0);
   const totalPending  = sales.reduce((s, v) => s + Number(v.balance), 0);
@@ -431,7 +476,7 @@ function ClientFicha({ history, onClose }: { history: ClientHistory; onClose: ()
               {/* Vertical timeline line */}
               <div className="absolute left-[23px] top-4 bottom-4 w-px"
                 style={{ background: 'linear-gradient(to bottom, rgba(197,160,89,0.3), rgba(197,160,89,0.05))' }} />
-              {sales.map(sale => <SaleCard key={sale.id} sale={sale} />)}
+              {sales.map(sale => <SaleCard key={sale.id} sale={sale} isAdmin={isAdmin} />)}
             </div>
           )}
         </div>
@@ -448,6 +493,7 @@ type Props = {
 };
 
 export default function CustomersPage({ initialSearch = '', onSearchConsumed }: Props) {
+  const { profile } = useAuth();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading,   setLoading]   = useState(true);
   const [search,    setSearch]    = useState('');
@@ -539,7 +585,7 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
           .order('sort_order'),
         supabase
           .from('sale_payments')
-          .select('id, amount, method, paid_at, reference')
+          .select('id, amount, method, paid_at, reference, receipt_url')
           .eq('sale_id', s.id)
           .order('paid_at'),
       ]);
@@ -563,6 +609,7 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
             method: p.method ?? '',
             tipo: i === 0 ? 'sena' : 'abono',
             reference: p.reference ?? undefined,
+            receipt_url: p.receipt_url ?? undefined,
           });
         });
       }
@@ -610,6 +657,7 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
             method: p.metodo,
             tipo: p.tipo,
             reference: p.tipo === 'abono' ? 'Abono' : 'Seña inicial',
+            receipt_url: p.receipt_url ?? undefined,
           }));
         // If no payments recorded, synthesize seña row
         if (salePayments.length === 0 && Number(v.sena) > 0) {
@@ -775,6 +823,7 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
         <ClientFicha
           history={loadingFicha ? { ...history, sales: [] } : history}
           onClose={() => setHistory(null)}
+          isAdmin={profile?.role === 'admin'}
         />
       )}
 

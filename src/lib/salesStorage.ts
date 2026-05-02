@@ -29,6 +29,7 @@ export type StoredPayment = {
   vendedora: string;
   cliente: string;
   tipo: 'sena' | 'abono';
+  receipt_url?: string;  // compressed base64 comprobante photo
 };
 
 export type SalesSummary = {

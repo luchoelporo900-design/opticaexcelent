@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Plus, Check, X, Calendar, Search, ChevronDown, DollarSign, Phone, ZoomIn } from 'lucide-react';
+import { RefreshCw, Plus, Check, X, Calendar, Search, ChevronDown, DollarSign, Phone, ZoomIn, Camera, Receipt, Eye, AlertCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useBranch } from '../context/BranchContext';
-import { getSales, updateSaleBalance, recordPayment } from '../lib/salesStorage';
+import { getSales, getPayments, updateSaleBalance, recordPayment, compressImage } from '../lib/salesStorage';
 
 type PaymentMethod = 'efectivo' | 'transferencia' | 'tarjeta' | 'qr' | 'giro';
 
@@ -46,6 +46,102 @@ function fmt(n: number) {
   return n.toLocaleString('es-PY', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
 
+// ── Receipt lightbox ─────────────────────────────────────────────────────────
+function ReceiptLightbox({ url, onClose }: { url: string; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[300] flex items-center justify-center p-6"
+      style={{ background: 'rgba(0,0,0,0.94)' }} onClick={onClose}>
+      <div className="relative max-w-lg w-full" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-2 mb-3">
+          <Receipt size={14} style={{ color: '#C5A059' }} />
+          <span className="text-sm font-light tracking-wider" style={{ color: '#C5A059' }}>Comprobante de Pago</span>
+          <span className="ml-1 text-xs px-2 py-0.5 rounded-full"
+            style={{ background: 'rgba(197,160,89,0.15)', color: '#C5A059', border: '1px solid rgba(197,160,89,0.3)' }}>
+            Solo Admin
+          </span>
+        </div>
+        <img src={url} alt="comprobante" className="w-full rounded-2xl"
+          style={{ border: '1px solid rgba(197,160,89,0.3)', maxHeight: '75vh', objectFit: 'contain' }} />
+        <button onClick={onClose} className="absolute top-8 right-3 p-2 rounded-full"
+          style={{ background: 'rgba(0,0,0,0.7)', color: 'rgba(255,255,255,0.7)' }}>
+          <X size={16} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Mini payment history for expanded row ─────────────────────────────────────
+function RowPaymentHistory({ row, isAdmin }: { row: any; isAdmin: boolean }) {
+  type HPay = { id: string; amount: number; method: string; paid_at: string; receipt_url?: string };
+  const [pays, setPays] = useState<HPay[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [viewReceipt, setViewReceipt] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (row.isLocal) {
+      const items: HPay[] = getPayments()
+        .filter((p: any) => p.saleId === Number(row.id))
+        .sort((a: any, b: any) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime())
+        .map((p: any) => ({
+          id: String(p.id), amount: p.monto, method: p.metodo, paid_at: p.fecha,
+          receipt_url: p.receipt_url,
+        }));
+      setPays(items); setLoading(false);
+    } else {
+      supabase.from('sale_payments')
+        .select('id,amount,method,paid_at,receipt_url')
+        .eq('sale_id', row.id).order('paid_at')
+        .then(({ data }) => { setPays((data ?? []) as any); setLoading(false); });
+    }
+  }, [row.id, row.isLocal]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (loading || pays.length === 0) return null;
+
+  return (
+    <>
+      {viewReceipt && <ReceiptLightbox url={viewReceipt} onClose={() => setViewReceipt(null)} />}
+      <div className="rounded-xl overflow-hidden"
+        style={{ border: '1px solid rgba(197,160,89,0.10)', background: 'rgba(197,160,89,0.02)' }}>
+        <p className="px-3 py-2 text-xs font-light tracking-widest uppercase border-b"
+          style={{ color: 'rgba(197,160,89,0.55)', borderColor: 'rgba(197,160,89,0.08)' }}>
+          Historial de abonos
+        </p>
+        <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+          {pays.map((p, i) => {
+            const dt = new Date(p.paid_at);
+            return (
+              <div key={p.id} className="flex items-center gap-2 px-3 py-2 text-xs font-light">
+                <span className="w-4 h-4 rounded-full flex items-center justify-center text-black shrink-0"
+                  style={{ background: '#C5A059', fontSize: 9 }}>{i + 1}</span>
+                <span className="text-white">Gs. {Number(p.amount).toLocaleString()}</span>
+                <span style={{ color: 'rgba(255,255,255,0.38)' }}>{p.method}</span>
+                {isAdmin && p.receipt_url && (
+                  <button onClick={() => setViewReceipt(p.receipt_url!)}
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded-md"
+                    style={{ background: 'rgba(197,160,89,0.10)', color: '#C5A059', border: '1px solid rgba(197,160,89,0.28)' }}>
+                    <Eye size={9} /><span>Ver ticket</span>
+                  </button>
+                )}
+                {isAdmin && !p.receipt_url && p.method !== 'efectivo' && (
+                  <span className="px-1.5 py-0.5 rounded-md"
+                    style={{ background: 'rgba(245,158,11,0.08)', color: 'rgba(245,158,11,0.6)', border: '1px solid rgba(245,158,11,0.2)' }}>
+                    Sin ticket
+                  </span>
+                )}
+                <span className="ml-auto" style={{ color: 'rgba(255,255,255,0.28)' }}>
+                  {dt.toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' })}
+                  {' '}<span style={{ color: 'rgba(255,255,255,0.18)' }}>{dt.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}</span>
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </>
+  );
+}
+
 function normalize(s: string) {
   return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 }
@@ -75,13 +171,15 @@ export default function BalancesPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   // Payment form state
-  const [addPayFor,  setAddPayFor]  = useState<string | null>(null);
-  const [payAmt,     setPayAmt]     = useState('');
-  const [payMethod,  setPayMethod]  = useState<PaymentMethod>('efectivo');
-  const [payBranch,  setPayBranch]  = useState('');
-  const [payRef,     setPayRef]     = useState('');
-  const [savingPay,  setSavingPay]  = useState(false);
-  const [paySuccess, setPaySuccess] = useState('');
+  const [addPayFor,     setAddPayFor]     = useState<string | null>(null);
+  const [payAmt,        setPayAmt]        = useState('');
+  const [payMethod,     setPayMethod]     = useState<PaymentMethod>('efectivo');
+  const [payBranch,     setPayBranch]     = useState('');
+  const [payRef,        setPayRef]        = useState('');
+  const [payReceipt,    setPayReceipt]    = useState('');
+  const [payReceiptWarn,setPayReceiptWarn]= useState(false);
+  const [savingPay,     setSavingPay]     = useState(false);
+  const [paySuccess,    setPaySuccess]    = useState('');
 
   useEffect(() => {
     if (activeBranch && !payBranch) setPayBranch(activeBranch.id);
@@ -193,6 +291,7 @@ export default function BalancesPage() {
         vendedora: row.seller_name || '',
         cliente: clientName,
         tipo: 'abono',
+        receipt_url: payReceipt || undefined,
       });
     } else {
       // Supabase sale
@@ -203,6 +302,7 @@ export default function BalancesPage() {
         branch_id: branchId || null,
         reference: payRef || null,
         registered_by: profile?.id ?? null,
+        receipt_url: payReceipt || null,
       }]);
       const { data: allPays } = await supabase.from('sale_payments').select('amount').eq('sale_id', row.id);
       const totalPaid = (allPays || []).reduce((s: number, p: any) => s + Number(p.amount), 0);
@@ -219,6 +319,8 @@ export default function BalancesPage() {
     setAddPayFor(null);
     setPayAmt('');
     setPayRef('');
+    setPayReceipt('');
+    setPayReceiptWarn(false);
     setSavingPay(false);
     setTimeout(() => setPaySuccess(''), 5000);
     load();
@@ -416,6 +518,9 @@ export default function BalancesPage() {
                           </p>
                         )}
 
+                        {/* Payment history (admin sees receipts) */}
+                        <RowPaymentHistory row={row} isAdmin={profile?.role === 'admin'} />
+
                         {/* Payment form */}
                         <div className="pt-3" style={{ borderTop: '1px solid rgba(197,160,89,0.10)' }}>
                           {isPayOpen ? (
@@ -456,14 +561,90 @@ export default function BalancesPage() {
 
                               {(payMethod === 'transferencia' || payMethod === 'giro') && (
                                 <input value={payRef} onChange={e => setPayRef(e.target.value)}
-                                  placeholder="Banco / referencia / comprobante"
+                                  placeholder="Banco / referencia"
                                   className="w-full px-3 py-1.5 rounded-lg bg-transparent text-white text-xs outline-none border"
                                   style={{ borderColor: 'rgba(197,160,89,0.14)' }} />
                               )}
 
+                              {/* Comprobante upload */}
+                              <div className="rounded-xl p-2.5 space-y-2"
+                                style={{ background: 'rgba(197,160,89,0.04)', border: `1px solid ${payReceiptWarn && !payReceipt ? 'rgba(245,158,11,0.55)' : 'rgba(197,160,89,0.12)'}` }}>
+                                <div className="flex items-center gap-1.5">
+                                  <Receipt size={11} style={{ color: '#C5A059' }} />
+                                  <span className="text-xs font-light" style={{ color: 'rgba(197,160,89,0.8)' }}>
+                                    Comprobante de Pago
+                                  </span>
+                                  {payMethod === 'efectivo'
+                                    ? <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.28)' }}>(opcional)</span>
+                                    : <span className="text-xs font-light" style={{ color: '#f59e0b' }}>recomendado</span>
+                                  }
+                                </div>
+                                {payReceipt ? (
+                                  <div className="relative inline-block">
+                                    <img src={payReceipt} alt="comprobante" className="h-20 rounded-lg object-cover"
+                                      style={{ border: '1px solid rgba(197,160,89,0.3)' }} />
+                                    <button onClick={e => { e.stopPropagation(); setPayReceipt(''); }}
+                                      className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center"
+                                      style={{ background: '#ef4444' }}>
+                                      <X size={8} color="#fff" />
+                                    </button>
+                                    <div className="mt-1 flex items-center gap-1">
+                                      <Check size={10} style={{ color: '#22c55e' }} />
+                                      <span className="text-xs font-light" style={{ color: '#22c55e' }}>Comprobante listo</span>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <label className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-light cursor-pointer"
+                                    style={{ background: 'rgba(197,160,89,0.07)', border: '1px dashed rgba(197,160,89,0.3)', color: 'rgba(197,160,89,0.7)' }}
+                                    onClick={e => e.stopPropagation()}>
+                                    <Camera size={12} />
+                                    Subir foto del ticket / transferencia
+                                    <input type="file" accept="image/*" className="hidden"
+                                      onChange={async e => {
+                                        const file = e.target.files?.[0];
+                                        if (!file) return;
+                                        const reader = new FileReader();
+                                        reader.onload = async ev => {
+                                          const compressed = await compressImage(ev.target?.result as string);
+                                          setPayReceipt(compressed);
+                                          setPayReceiptWarn(false);
+                                        };
+                                        reader.readAsDataURL(file);
+                                      }} />
+                                  </label>
+                                )}
+                              </div>
+
+                              {/* Missing receipt warning with force-confirm */}
+                              {payReceiptWarn && !payReceipt && (
+                                <div className="flex items-start gap-2 px-3 py-2 rounded-lg"
+                                  style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)' }}>
+                                  <AlertCircle size={12} style={{ color: '#f59e0b', marginTop: 1, flexShrink: 0 }} />
+                                  <div>
+                                    <p className="text-xs font-medium" style={{ color: '#f59e0b' }}>Sin comprobante</p>
+                                    <p className="text-xs font-light mt-0.5" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                                      El administrador podrá auditar este pago. ¿Confirmar sin foto?
+                                    </p>
+                                    <button
+                                      onClick={e => { e.stopPropagation(); registerPayment(row); }}
+                                      className="mt-1.5 px-2.5 py-1 rounded text-xs font-medium"
+                                      style={{ background: 'rgba(245,158,11,0.2)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.4)' }}>
+                                      Sí, guardar igual
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+
                               <div className="flex gap-2">
                                 <button
-                                  onClick={e => { e.stopPropagation(); registerPayment(row); }}
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    if (!payReceipt && payMethod !== 'efectivo') {
+                                      setPayReceiptWarn(true);
+                                      return;
+                                    }
+                                    registerPayment(row);
+                                  }}
                                   disabled={savingPay || !payAmt}
                                   className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium"
                                   style={{
@@ -475,7 +656,7 @@ export default function BalancesPage() {
                                   {savingPay ? 'Guardando...' : 'Confirmar pago'}
                                 </button>
                                 <button
-                                  onClick={e => { e.stopPropagation(); setAddPayFor(null); setPayAmt(''); setPayRef(''); }}
+                                  onClick={e => { e.stopPropagation(); setAddPayFor(null); setPayAmt(''); setPayRef(''); setPayReceipt(''); setPayReceiptWarn(false); }}
                                   className="px-4 py-2 rounded-lg text-xs font-light"
                                   style={{ color: 'rgba(255,255,255,0.4)' }}>
                                   <X size={12} className="inline mr-1" />Cancelar
