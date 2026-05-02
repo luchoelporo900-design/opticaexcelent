@@ -68,13 +68,23 @@ export default function Dashboard() {
 
     const totalFacturado = monthlySalesData.reduce((a, v) => a + (Number(v.total) || 0), 0);
 
-    // Use actual payment records (seña + abonos) for today's real cash collected
+    // Sum real cash from payment records (séña + abonos)
     const allTodayPayments = getPaymentsForDate(today);
     const todayPayments = isVendedor
       ? allTodayPayments.filter(p => p.vendedora === profile?.full_name)
       : allTodayPayments;
-    const totalCobradoHoy = todayPayments.reduce((a, p) => a + (Number(p.monto) || 0), 0);
-    setTodayCash(totalCobradoHoy);
+    const fromPaymentRecords = todayPayments.reduce((a, p) => a + (Number(p.monto) || 0), 0);
+
+    // Fallback: today's sales with NO payment record — use (total - saldo) as paid amount
+    const recordedIds = new Set(allTodayPayments.map(p => p.saleId));
+    const fallbackPaid = todaySalesData
+      .filter(v => !recordedIds.has(v.id))
+      .reduce((a, v) => {
+        const paid = Math.max(0, (Number(v.total) || 0) - (Number(v.saldo) || 0));
+        return a + paid;
+      }, 0);
+
+    setTodayCash(fromPaymentRecords + fallbackPaid);
 
     // Branch aggregation (month)
     const bMap: Record<string, { name: string; count: number; total: number }> = {};

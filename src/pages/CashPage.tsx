@@ -169,20 +169,26 @@ export default function CashPage() {
       (v.fecha || '').startsWith(selectedDate) &&
       (!branchFilter || (v.sucursalCobro || '').toLowerCase() === branchFilter)
     );
+    // Sales that have NO payment record in LS_PAYMENTS_KEY get a synthetic row.
+    // Use (total - saldo) as the real paid amount — never sena alone, which
+    // doesn't grow when abonos are added.
     const recordedSaleIds = new Set(localPayments.map(p => p.saleId));
     const fallbackRows: PaymentRow[] = localSales
       .filter(v => !recordedSaleIds.has(v.id))
-      .map(v => ({
-        id: `ls-${v.id}`,
-        sale_number: `VTA-${v.id}`,
-        customer_name: `${v.cliente.nombre} ${v.cliente.apellido}`.trim(),
-        amount: Number(v.sena) > 0 ? Number(v.sena) : Number(v.total),
-        method: v.metodoPago as PaymentMethod,
-        paid_at: v.fecha,
-        seller_name: v.vendedora,
-        reference: '',
-        branch_name: v.sucursalCobro,
-      }));
+      .map(v => {
+        const paid = Math.max(0, (Number(v.total) || 0) - (Number(v.saldo) || 0));
+        return {
+          id: `ls-${v.id}`,
+          sale_number: `VTA-${v.id}`,
+          customer_name: `${v.cliente.nombre} ${v.cliente.apellido}`.trim(),
+          amount: paid > 0 ? paid : (Number(v.sena) || 0),
+          method: v.metodoPago as PaymentMethod,
+          paid_at: v.fecha,
+          seller_name: v.vendedora,
+          reference: '',
+          branch_name: v.sucursalCobro,
+        };
+      });
 
     const localExpenses = getExpensesForDate(selectedDate).filter(e =>
       !branchFilter || (e.sucursal || '').toLowerCase() === branchFilter
@@ -358,12 +364,14 @@ export default function CashPage() {
   // Efectivo neto = efectivo cobrado - todos los egresos (gastos salen de caja física)
   const efectivoNeto = visibleSummary.efectivo - visibleSummary.expenses;
 
-  // Total pendiente = suma de saldos de ventas no entregadas/canceladas del día filtrado
+  // Total pendiente = suma de saldos de TODAS las ventas activas (no entregadas/canceladas),
+  // filtrado por sucursal si hay una seleccionada. No depende de la fecha seleccionada.
   const totalPendiente = getSales()
     .filter(v => {
       if ((Number(v.saldo) || 0) <= 0) return false;
       if (v.estadoTrabajo === 'entregado' || v.estadoTrabajo === 'cancelado') return false;
-      if (selectedBranch && (v.sucursalCobro || '').toLowerCase() !== selectedBranch) return false;
+      const branch = (v.sucursalCobro || v.sucursalVenta || '').toLowerCase();
+      if (selectedBranch && branch !== selectedBranch) return false;
       return true;
     })
     .reduce((s, v) => s + (Number(v.saldo) || 0), 0);
