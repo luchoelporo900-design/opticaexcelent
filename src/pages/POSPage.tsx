@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Plus, X, Save, ChevronDown, ChevronUp, Glasses, Banknote, CreditCard, Smartphone, QrCode, Send, MapPin, Truck, Store, Package, User, FileText, Check, AlertCircle, Trash2, ShoppingBag, Hash, Clock, Building2, Camera, Image as ImageIcon } from 'lucide-react';
+import { Search, Plus, X, Save, ChevronDown, ChevronUp, Glasses, Banknote, CreditCard, Smartphone, QrCode, Send, MapPin, Truck, Store, Package, User, FileText, Check, AlertCircle, Trash2, ShoppingBag, Hash, Clock, Building2, Camera, Image as ImageIcon, MessageCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { saveSale as saveToStorage } from '../lib/salesStorage';
@@ -822,6 +822,12 @@ export default function POSPage() {
               const name = sale.customers?.full_name
                 || [sale.customer_first_name, sale.customer_last_name].filter(Boolean).join(' ')
                 || '—';
+              const clientPhone = sale.customers?.ci ?? '';
+              const branchName = sale.branches?.name ?? '';
+              const waMsg = `Hola ${name}, te saludamos de Óptica Yolanda. Te avisamos que tus lentes ya están listos en la sucursal de ${branchName}. ¡Te esperamos!`;
+              const waLink = clientPhone
+                ? `https://wa.me/595${clientPhone.replace(/\D/g, '')}?text=${encodeURIComponent(waMsg)}`
+                : null;
               return (
                 <div key={sale.id}>
                   <div
@@ -851,10 +857,21 @@ export default function POSPage() {
                         transform: isExp ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s',
                       }} />
                     </div>
-                    <p className="text-sm text-white font-light truncate">{name}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm text-white font-light truncate flex-1">{name}</p>
+                      {waLink && (
+                        <a href={waLink} target="_blank" rel="noreferrer"
+                          onClick={e => e.stopPropagation()}
+                          title="Enviar WhatsApp"
+                          className="shrink-0 flex items-center justify-center w-6 h-6 rounded-full transition-opacity hover:opacity-75"
+                          style={{ background: 'rgba(37,211,102,0.15)', color: '#25D366' }}>
+                          <MessageCircle size={12} />
+                        </a>
+                      )}
+                    </div>
                     <div className="flex items-center justify-between mt-1">
                       <p className="text-xs font-light truncate" style={{ color: 'rgba(255,255,255,0.32)' }}>
-                        {sale.seller_name || '—'} · {sale.branches?.name ?? ''}
+                        {sale.seller_name || '—'} · {branchName}
                       </p>
                       <div className="text-right shrink-0 ml-2">
                         <p className="text-xs text-white font-light">Gs. {fmt(Number(sale.total))}</p>

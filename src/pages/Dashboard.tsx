@@ -173,8 +173,18 @@ export default function Dashboard() {
   // ── Vendedora view ─────────────────────────────────────────────────────
   if (isVendedora) {
     const today = new Date().toISOString().split('T')[0];
-    const myTodaySales = recentSales.filter(s => (s.created_at || '').startsWith(today));
-    const myTodayTotal = myTodaySales.reduce((a, s) => a + (Number(s.total) || 0), 0);
+    const allMySales = getSales().filter(v => v.vendedora === profile?.full_name);
+    const myTodaySales = allMySales.filter(v => (v.fecha || '').startsWith(today));
+    const myTodayTotal = myTodaySales.reduce((a, v) => a + (Number(v.total) || 0), 0);
+    const myPending = allMySales.filter(v =>
+      v.estadoTrabajo === 'pendiente' || v.estadoTrabajo === 'en_laboratorio'
+    ).sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+
+    function buildWaLink(clientName: string, phone: string, branchName: string) {
+      if (!phone) return null;
+      const msg = `Hola ${clientName}, te saludamos de Óptica Yolanda. Te avisamos que tus lentes ya están listos en la sucursal de ${branchName}. ¡Te esperamos!`;
+      return `https://wa.me/595${phone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`;
+    }
 
     return (
       <div className="p-6 space-y-6">
@@ -220,12 +230,12 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* My today stats */}
+        {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {[
             { label: 'Mis Ventas Hoy', value: myTodaySales.length.toString(), icon: <ShoppingCart size={18} />, sub: 'registradas hoy' },
             { label: 'Total Facturado Hoy', value: `Gs. ${myTodayTotal.toLocaleString()}`, icon: <TrendingUp size={18} />, sub: 'mis ventas' },
-            { label: 'Puntos del Mes', value: myPoints > 0 ? myPoints.toFixed(1) : '—', icon: <Trophy size={18} />, sub: prizeLevel !== 'sin_nivel' ? prizeLevel : 'sin nivel aún' },
+            { label: 'Pendientes de Entrega', value: myPending.length.toString(), icon: <Clock size={18} />, sub: 'en taller o pendiente' },
           ].map((card, i) => (
             <div key={i} className="stat-card p-5">
               <div className="absolute top-0 right-0 w-20 h-20 rounded-full -translate-y-6 translate-x-6 pointer-events-none"
@@ -242,6 +252,65 @@ export default function Dashboard() {
               </div>
             </div>
           ))}
+        </div>
+
+        {/* Pendientes de Entrega */}
+        <div className="premium-card overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4 soft-border-bottom">
+            <div>
+              <h2 className="text-white text-sm font-light tracking-wider">Pendientes de Entrega</h2>
+              <p className="text-xs font-light mt-0.5" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                Estado: En Taller o Pendiente — clic en WhatsApp para avisar al cliente
+              </p>
+            </div>
+            <Clock size={16} className="text-gold gold-glow-sm" />
+          </div>
+          {myPending.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-state-icon"><Clock size={22} /></div>
+              <p className="text-sm font-light">Sin pendientes de entrega</p>
+            </div>
+          ) : (
+            <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+              {myPending.map(v => {
+                const clientName = `${v.cliente.nombre} ${v.cliente.apellido}`.trim() || '—';
+                const phone = v.cliente.telefono || '';
+                const waLink = buildWaLink(clientName, phone, v.sucursalEntrega);
+                const statusColor = v.estadoTrabajo === 'en_laboratorio' ? '#3b82f6' : '#f59e0b';
+                const statusLabel = v.estadoTrabajo === 'en_laboratorio' ? 'En Taller' : 'Pendiente';
+                return (
+                  <div key={v.id} className="flex items-center gap-3 px-5 py-3.5"
+                    style={{ transition: 'background 0.15s' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(197,160,89,0.03)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm text-white font-light truncate">{clientName}</p>
+                        <span className="text-xs px-2 py-0.5 rounded-full shrink-0 font-light"
+                          style={{ background: `${statusColor}18`, color: statusColor }}>
+                          {statusLabel}
+                        </span>
+                      </div>
+                      <p className="text-xs font-light mt-0.5" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                        {new Date(v.fecha).toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' })} · {v.sucursalEntrega} · Gs. {Number(v.total).toLocaleString()}
+                      </p>
+                    </div>
+                    {waLink ? (
+                      <a href={waLink} target="_blank" rel="noreferrer"
+                        title={`Avisar a ${clientName} por WhatsApp`}
+                        className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-light transition-opacity hover:opacity-75"
+                        style={{ background: 'rgba(37,211,102,0.12)', color: '#25D366', border: '1px solid rgba(37,211,102,0.25)' }}>
+                        <MessageCircle size={12} />
+                        WhatsApp
+                      </a>
+                    ) : (
+                      <span className="text-xs font-light shrink-0" style={{ color: 'rgba(255,255,255,0.22)' }}>Sin teléfono</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* My today sales table */}
@@ -262,36 +331,32 @@ export default function Dashboard() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="soft-border-bottom">
-                    {['N° Venta', 'Cliente', 'Teléfono', 'Total', 'Estado'].map(h => (
+                    {['N° Venta', 'Cliente', 'WhatsApp', 'Total', 'Estado'].map(h => (
                       <th key={h} className="px-4 py-3 text-left section-label">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {myTodaySales.map(sale => {
-                    const sc = statusConfig[sale.status] || statusConfig.pendiente;
-                    const phone = (sale as any).customers?.ci || '';
-                    const clientName = (sale as any).customers?.full_name || '-';
-                    const waLink = phone
-                      ? `https://wa.me/595${phone.replace(/\D/g, '')}?text=Hola%20${encodeURIComponent(clientName)}%2C%20le%20contactamos%20de%20%C3%93ptica%20Yolanda.`
-                      : null;
+                  {myTodaySales.map(v => {
+                    const sc = statusConfig[v.estadoTrabajo] || statusConfig.pendiente;
+                    const clientName = `${v.cliente.nombre} ${v.cliente.apellido}`.trim() || '—';
+                    const phone = v.cliente.telefono || '';
+                    const waLink = buildWaLink(clientName, phone, v.sucursalEntrega);
                     return (
-                      <tr key={sale.id} className="table-row">
-                        <td className="px-4 py-3 font-mono text-gold">{sale.sale_number}</td>
+                      <tr key={v.id} className="table-row">
+                        <td className="px-4 py-3 font-mono text-gold">VTA-{v.id}</td>
                         <td className="px-4 py-3 text-white font-light">{clientName}</td>
-                        <td className="px-4 py-3 font-light" style={{ color: 'rgba(255,255,255,0.48)' }}>
+                        <td className="px-4 py-3">
                           {waLink ? (
                             <a href={waLink} target="_blank" rel="noreferrer"
-                              className="flex items-center gap-1.5 transition-colors"
-                              style={{ color: '#25D366' }}
-                              onMouseEnter={e => (e.currentTarget.style.opacity = '0.75')}
-                              onMouseLeave={e => (e.currentTarget.style.opacity = '1')}>
+                              className="flex items-center gap-1.5 transition-opacity hover:opacity-75"
+                              style={{ color: '#25D366' }}>
                               <MessageCircle size={13} />
                               {phone}
                             </a>
-                          ) : '—'}
+                          ) : <span style={{ color: 'rgba(255,255,255,0.28)' }}>—</span>}
                         </td>
-                        <td className="px-4 py-3 text-white font-light">Gs. {Number(sale.total).toLocaleString()}</td>
+                        <td className="px-4 py-3 text-white font-light">Gs. {Number(v.total).toLocaleString()}</td>
                         <td className="px-4 py-3">
                           <span className="status-badge" style={{ background: `${sc.color}1e`, color: sc.color }}>
                             {sc.icon}{sc.label}
@@ -533,6 +598,88 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Pendientes de Entrega — all branches for admin */}
+      {(() => {
+        const allSales = getSales();
+        const pendingSales = allSales
+          .filter(v => v.estadoTrabajo === 'pendiente' || v.estadoTrabajo === 'en_laboratorio')
+          .sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime())
+          .slice(0, 20);
+
+        function buildWaLinkAdmin(clientName: string, phone: string, branchName: string) {
+          if (!phone) return null;
+          const msg = `Hola ${clientName}, te saludamos de Óptica Yolanda. Te avisamos que tus lentes ya están listos en la sucursal de ${branchName}. ¡Te esperamos!`;
+          return `https://wa.me/595${phone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`;
+        }
+
+        return (
+          <div className="premium-card overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 soft-border-bottom">
+              <div>
+                <h2 className="text-white text-sm font-light tracking-wider">Pendientes de Entrega</h2>
+                <p className="text-xs font-light mt-0.5" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                  Todas las sucursales — En Taller o Pendiente
+                </p>
+              </div>
+              <Clock size={16} className="text-gold gold-glow-sm" />
+            </div>
+            {pendingSales.length === 0 ? (
+              <div className="empty-state">
+                <div className="empty-state-icon"><Clock size={22} /></div>
+                <p className="text-sm font-light">Sin pendientes de entrega</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="soft-border-bottom">
+                      {['Cliente', 'Vendedora', 'Sucursal', 'Fecha', 'Total', 'Estado', 'WhatsApp'].map(h => (
+                        <th key={h} className="px-4 py-3 text-left section-label">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendingSales.map(v => {
+                      const clientName = `${v.cliente.nombre} ${v.cliente.apellido}`.trim() || '—';
+                      const phone = v.cliente.telefono || '';
+                      const waLink = buildWaLinkAdmin(clientName, phone, v.sucursalEntrega);
+                      const statusColor = v.estadoTrabajo === 'en_laboratorio' ? '#3b82f6' : '#f59e0b';
+                      const statusLabel = v.estadoTrabajo === 'en_laboratorio' ? 'En Taller' : 'Pendiente';
+                      return (
+                        <tr key={v.id} className="table-row">
+                          <td className="px-4 py-3 text-white font-light">{clientName}</td>
+                          <td className="px-4 py-3 font-light" style={{ color: 'rgba(255,255,255,0.48)' }}>{v.vendedora}</td>
+                          <td className="px-4 py-3 font-light" style={{ color: 'rgba(255,255,255,0.48)' }}>{v.sucursalEntrega}</td>
+                          <td className="px-4 py-3 font-light" style={{ color: 'rgba(255,255,255,0.48)' }}>
+                            {new Date(v.fecha).toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' })}
+                          </td>
+                          <td className="px-4 py-3 text-white font-light">Gs. {Number(v.total).toLocaleString()}</td>
+                          <td className="px-4 py-3">
+                            <span className="status-badge" style={{ background: `${statusColor}18`, color: statusColor }}>
+                              {statusLabel}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            {waLink ? (
+                              <a href={waLink} target="_blank" rel="noreferrer"
+                                className="flex items-center gap-1 transition-opacity hover:opacity-75"
+                                style={{ color: '#25D366' }}>
+                                <MessageCircle size={13} />
+                                Avisar
+                              </a>
+                            ) : <span style={{ color: 'rgba(255,255,255,0.22)' }}>—</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
