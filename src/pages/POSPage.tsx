@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Plus, X, Save, ChevronDown, ChevronUp, Glasses, Banknote, CreditCard, Smartphone, QrCode, Send, MapPin, Truck, Store, Package, User, FileText, Check, AlertCircle, Trash2, ShoppingBag, Hash, Clock, Building2, Camera, Image as ImageIcon, MessageCircle, Eye, Receipt } from 'lucide-react';
+import { Search, Plus, X, Save, ChevronDown, ChevronUp, Glasses, Banknote, CreditCard, Smartphone, QrCode, Send, MapPin, Truck, Store, Package, User, FileText, Check, AlertCircle, Trash2, ShoppingBag, Hash, Clock, Building2, Camera, Image as ImageIcon, MessageCircle, Eye, Receipt, ZoomIn } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { saveSale as saveToStorage, getSales, getPayments, updateSaleBalance, recordPayment, closeSaleLocal, compressImage } from '../lib/salesStorage';
@@ -1766,36 +1766,50 @@ function PaymentHistory({ saleId, isLocal, isAdmin }: { saleId: string; isLocal?
           const mc = PAY_METHODS.find(m => m.id === p.method)?.color ?? '#C5A059';
           const dt = new Date(p.paid_at);
           return (
-            <div key={p.id} className="flex items-center gap-2 text-xs font-light">
-              <span className="shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-xs font-medium text-black"
-                style={{ background: mc, fontSize: 9 }}>{i + 1}</span>
-              <span className="px-2 py-0.5 rounded-full shrink-0" style={{ background: `${mc}18`, color: mc }}>{p.method}</span>
-              <span className="text-white font-medium">Gs. {Number(p.amount).toLocaleString()}</span>
-              {p.reference && <span style={{ color: 'rgba(255,255,255,0.38)' }}>{p.reference}</span>}
-              {/* Admin-only comprobante viewer */}
-              {isAdmin && p.receipt_url && (
-                <button
-                  onClick={() => setViewReceipt(p.receipt_url!)}
-                  className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-xs font-light shrink-0"
-                  style={{ background: 'rgba(197,160,89,0.10)', color: '#C5A059', border: '1px solid rgba(197,160,89,0.28)' }}
-                  title="Ver comprobante">
-                  <Eye size={10} />
-                  <span>Ver ticket</span>
-                </button>
-              )}
-              {isAdmin && !p.receipt_url && p.method !== 'efectivo' && (
-                <span className="shrink-0 px-1.5 py-0.5 rounded-md text-xs font-light"
-                  style={{ background: 'rgba(245,158,11,0.08)', color: 'rgba(245,158,11,0.6)', border: '1px solid rgba(245,158,11,0.2)' }}>
-                  Sin ticket
+            <div key={p.id} className="rounded-xl overflow-hidden"
+              style={{ border: '1px solid rgba(255,255,255,0.05)', background: 'rgba(255,255,255,0.015)' }}>
+              {/* Payment row */}
+              <div className="flex items-center gap-2 px-3 py-2 text-xs font-light">
+                <span className="shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-xs font-medium text-black"
+                  style={{ background: mc, fontSize: 9 }}>{i + 1}</span>
+                <span className="px-2 py-0.5 rounded-full shrink-0" style={{ background: `${mc}18`, color: mc }}>{p.method}</span>
+                <span className="text-white font-medium">Gs. {Number(p.amount).toLocaleString()}</span>
+                {p.reference && <span className="truncate" style={{ color: 'rgba(255,255,255,0.38)' }}>{p.reference}</span>}
+                <span className="ml-auto shrink-0 text-right" style={{ color: 'rgba(255,255,255,0.28)' }}>
+                  {dt.toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' })}
+                  {' '}
+                  <span style={{ color: 'rgba(255,255,255,0.18)' }}>
+                    {dt.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
+                  </span>
                 </span>
+              </div>
+              {/* Admin comprobante thumbnail row */}
+              {isAdmin && (
+                <div className="px-3 pb-2 flex items-center gap-2"
+                  style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+                  <Receipt size={9} style={{ color: 'rgba(197,160,89,0.45)', flexShrink: 0 }} />
+                  <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.28)', fontSize: 10 }}>
+                    Comprobante de pago:
+                  </span>
+                  {p.receipt_url ? (
+                    <button onClick={() => setViewReceipt(p.receipt_url!)}
+                      className="relative group rounded-lg overflow-hidden shrink-0"
+                      style={{ width: 44, height: 44, border: '1px solid rgba(197,160,89,0.30)' }}
+                      title="Ver comprobante de pago">
+                      <img src={p.receipt_url} alt="comprobante pago" className="w-full h-full object-cover" />
+                      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        style={{ background: 'rgba(0,0,0,0.6)' }}>
+                        <ZoomIn size={12} style={{ color: '#C5A059' }} />
+                      </div>
+                    </button>
+                  ) : (
+                    <span className="text-xs font-light px-2 py-0.5 rounded-md"
+                      style={{ background: p.method !== 'efectivo' ? 'rgba(245,158,11,0.08)' : 'rgba(255,255,255,0.03)', color: p.method !== 'efectivo' ? 'rgba(245,158,11,0.55)' : 'rgba(255,255,255,0.2)', border: `1px solid ${p.method !== 'efectivo' ? 'rgba(245,158,11,0.18)' : 'rgba(255,255,255,0.06)'}` }}>
+                      {p.method !== 'efectivo' ? 'Sin comprobante' : 'Efectivo — sin foto'}
+                    </span>
+                  )}
+                </div>
               )}
-              <span className="ml-auto shrink-0 text-right" style={{ color: 'rgba(255,255,255,0.28)' }}>
-                {dt.toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' })}
-                {' '}
-                <span style={{ color: 'rgba(255,255,255,0.18)' }}>
-                  {dt.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
-                </span>
-              </span>
             </div>
           );
         })}

@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import {
   Search, UserPlus, MessageCircle, X, Clock, ZoomIn,
   AlertCircle, CheckCircle, ChevronDown, ChevronUp,
-  Glasses, FlaskConical, Phone, Eye, Receipt,
+  Glasses, FlaskConical, Phone, Eye, Receipt, Camera,
 } from 'lucide-react';
 import { supabase, Customer } from '../lib/supabase';
 import { getSales, getPayments } from '../lib/salesStorage';
@@ -245,9 +245,15 @@ function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
       {expanded && (
         <div className="px-4 pb-4 pt-3 space-y-4">
 
-          {/* Eyeglasses */}
+          {/* Eyeglasses — Foto del Armazón / Receta */}
           {sale.eyeglasses.length > 0 && (
             <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Glasses size={11} style={{ color: '#C5A059' }} />
+                <span className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.55)' }}>
+                  Foto del Armazón / Receta
+                </span>
+              </div>
               {sale.eyeglasses.map((eg, idx) => (
                 <div key={eg.id} className="rounded-xl p-3 space-y-2"
                   style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.10)' }}>
@@ -308,17 +314,27 @@ function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
             ))}
           </div>
 
-          {/* Payment detail timeline */}
+          {/* Payment detail timeline + Fotos de Pagos / Transferencias */}
           {sale.payments.length > 0 && (
             <>
               {viewReceipt && <ReceiptLightbox url={viewReceipt} onClose={() => setViewReceipt(null)} />}
               <div className="rounded-xl overflow-hidden"
                 style={{ border: '1px solid rgba(197,160,89,0.10)', background: 'rgba(197,160,89,0.02)' }}>
-                <div className="px-3 py-2 border-b flex items-center gap-2"
+                {/* Header with two labels */}
+                <div className="px-3 py-2 border-b flex items-center justify-between gap-2"
                   style={{ borderColor: 'rgba(197,160,89,0.08)' }}>
-                  <span className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.55)' }}>
-                    Detalle de pagos
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <Receipt size={10} style={{ color: 'rgba(197,160,89,0.55)' }} />
+                    <span className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.55)' }}>
+                      Detalle de pagos
+                    </span>
+                  </div>
+                  {isAdmin && sale.payments.some(p => (p as any).receipt_url) && (
+                    <div className="flex items-center gap-1">
+                      <Camera size={9} style={{ color: 'rgba(197,160,89,0.45)' }} />
+                      <span style={{ color: 'rgba(197,160,89,0.45)', fontSize: 9 }}>Fotos de transferencias visibles</span>
+                    </div>
+                  )}
                 </div>
                 <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
                   {sale.payments.map((p, i) => {
@@ -329,37 +345,55 @@ function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
                     const timeStr = dt.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' });
                     const totalPaidUpToNow = sale.payments.slice(0, i + 1).reduce((s, px) => s + px.amount, 0);
                     const remaining = Math.max(0, sale.total - totalPaidUpToNow);
+                    const receipt = (p as any).receipt_url as string | undefined;
                     return (
-                      <div key={p.id} className="flex items-center gap-2 px-3 py-2 text-xs font-light flex-wrap">
-                        <span className="shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-black font-medium"
-                          style={{ background: color, fontSize: 9 }}>{i + 1}</span>
-                        <span className="shrink-0 px-1.5 py-0.5 rounded-full"
-                          style={{ background: `${color}18`, color }}>{isSeña ? 'Seña' : 'Abono'}</span>
-                        <span className="text-white font-medium">Gs. {fmt(p.amount)}</span>
-                        <span style={{ color: 'rgba(255,255,255,0.38)' }}>{p.method}</span>
-                        {/* Admin comprobante viewer */}
-                        {isAdmin && (p as any).receipt_url && (
-                          <button onClick={() => setViewReceipt((p as any).receipt_url)}
-                            className="flex items-center gap-1 px-1.5 py-0.5 rounded-md shrink-0"
-                            style={{ background: 'rgba(197,160,89,0.10)', color: '#C5A059', border: '1px solid rgba(197,160,89,0.28)' }}>
-                            <Eye size={9} /><span>Ver ticket</span>
-                          </button>
-                        )}
-                        {isAdmin && !(p as any).receipt_url && p.method !== 'efectivo' && (
-                          <span className="shrink-0 px-1.5 py-0.5 rounded-md"
-                            style={{ background: 'rgba(245,158,11,0.08)', color: 'rgba(245,158,11,0.6)', border: '1px solid rgba(245,158,11,0.2)' }}>
-                            Sin ticket
+                      <div key={p.id}>
+                        {/* Amount row */}
+                        <div className="flex items-center gap-2 px-3 py-2 text-xs font-light flex-wrap">
+                          <span className="shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-black font-medium"
+                            style={{ background: color, fontSize: 9 }}>{i + 1}</span>
+                          <span className="shrink-0 px-1.5 py-0.5 rounded-full"
+                            style={{ background: `${color}18`, color }}>{isSeña ? 'Seña' : 'Abono'}</span>
+                          <span className="text-white font-medium">Gs. {fmt(p.amount)}</span>
+                          <span style={{ color: 'rgba(255,255,255,0.38)' }}>{p.method}</span>
+                          <span className="ml-auto shrink-0 text-right" style={{ color: 'rgba(255,255,255,0.30)' }}>
+                            {dateStr}
+                            <span style={{ color: 'rgba(255,255,255,0.18)' }}> {timeStr}</span>
                           </span>
-                        )}
-                        <span className="ml-auto shrink-0 text-right" style={{ color: 'rgba(255,255,255,0.30)' }}>
-                          {dateStr}
-                          <span style={{ color: 'rgba(255,255,255,0.18)' }}> {timeStr}</span>
-                        </span>
-                        {remaining > 0 && i === sale.payments.length - 1 && (
-                          <span className="shrink-0 px-1.5 py-0.5 rounded-full text-xs"
-                            style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)' }}>
-                            resta {fmt(remaining)}
-                          </span>
+                          {remaining > 0 && i === sale.payments.length - 1 && (
+                            <span className="shrink-0 px-1.5 py-0.5 rounded-full text-xs"
+                              style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)' }}>
+                              resta {fmt(remaining)}
+                            </span>
+                          )}
+                        </div>
+                        {/* Admin comprobante thumbnail row */}
+                        {isAdmin && (
+                          <div className="px-3 pb-2.5 flex items-center gap-2"
+                            style={{ borderTop: '1px solid rgba(255,255,255,0.03)' }}>
+                            <Receipt size={9} style={{ color: 'rgba(197,160,89,0.4)', flexShrink: 0 }} />
+                            <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 10 }}>
+                              Comprobante de pago:
+                            </span>
+                            {receipt ? (
+                              <button
+                                onClick={() => setViewReceipt(receipt)}
+                                className="relative group rounded-lg overflow-hidden shrink-0"
+                                style={{ width: 48, height: 48, border: '1px solid rgba(197,160,89,0.35)' }}
+                                title="Ver comprobante de pago / transferencia">
+                                <img src={receipt} alt="comprobante pago" className="w-full h-full object-cover" />
+                                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                  style={{ background: 'rgba(0,0,0,0.6)' }}>
+                                  <ZoomIn size={14} style={{ color: '#C5A059' }} />
+                                </div>
+                              </button>
+                            ) : (
+                              <span className="text-xs font-light px-2 py-0.5 rounded-md"
+                                style={{ background: p.method !== 'efectivo' ? 'rgba(245,158,11,0.08)' : 'rgba(255,255,255,0.03)', color: p.method !== 'efectivo' ? 'rgba(245,158,11,0.5)' : 'rgba(255,255,255,0.18)', border: `1px solid ${p.method !== 'efectivo' ? 'rgba(245,158,11,0.18)' : 'rgba(255,255,255,0.05)'}` }}>
+                                {p.method !== 'efectivo' ? 'Sin comprobante' : 'Efectivo — sin foto'}
+                              </span>
+                            )}
+                          </div>
                         )}
                       </div>
                     );
