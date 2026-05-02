@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, Plus, X, Save, ChevronDown, ChevronUp, Glasses, Banknote, CreditCard, Smartphone, QrCode, Send, MapPin, Truck, Store, Package, User, FileText, Check, AlertCircle, Trash2, ShoppingBag, Hash, Clock, Building2, Camera, Image as ImageIcon, MessageCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import { saveSale as saveToStorage } from '../lib/salesStorage';
+import { saveSale as saveToStorage, getSales, StoredSale } from '../lib/salesStorage';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type PaymentMethod = 'efectivo' | 'transferencia' | 'tarjeta' | 'qr' | 'giro';
@@ -39,8 +39,10 @@ type RecentSale = {
   id: string; sale_number: string; created_at: string;
   total: number; deposit: number; balance: number; status: SaleStatus;
   seller_name: string; customer_first_name: string; customer_last_name: string;
-  customers: { full_name: string; ci: string } | null;
+  customers: { full_name: string; ci: string; phone?: string } | null;
   branches: { name: string } | null;
+  _local?: boolean;
+  _phone?: string;
 };
 
 // ── Fixed branches (names match BranchContext + localStorage) ─────────────────
@@ -225,13 +227,47 @@ export default function POSPage() {
 
   const loadSales = useCallback(async () => {
     setLoadingSales(true);
-    const { data } = await supabase
-      .from('sales')
-      .select('id,sale_number,created_at,total,deposit,balance,status,seller_name,customer_first_name,customer_last_name,customers(full_name,ci),branches(name)')
-      .order('created_at', { ascending: false })
-      .limit(80);
-    setSales((data ?? []) as RecentSale[]);
-    setLoadingSales(false);
+    try {
+      const { data, error } = await supabase
+        .from('sales')
+        .select('id,sale_number,created_at,total,deposit,balance,status,seller_name,customer_first_name,customer_last_name,customers(full_name,ci,phone),branches(name)')
+        .order('created_at', { ascending: false })
+        .limit(80);
+
+      const remoteIds = new Set((data ?? []).map((s: any) => s.sale_number));
+      // Build local rows for sales not yet synced to Supabase
+      const localRows: RecentSale[] = getSales()
+        .filter(v => !remoteIds.has(`VTA-${v.id}`))
+        .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime())
+        .map(v => ({
+          id: `local-${v.id}`,
+          sale_number: `VTA-${v.id}`,
+          created_at: v.fecha,
+          total: v.total,
+          deposit: v.sena,
+          balance: v.saldo,
+          status: (v.estadoTrabajo as SaleStatus) ?? 'pendiente',
+          seller_name: v.vendedora,
+          customer_first_name: v.cliente.nombre,
+          customer_last_name: v.cliente.apellido,
+          customers: null,
+          branches: v.sucursalEntrega ? { name: v.sucursalEntrega } : null,
+          _local: true,
+          _phone: v.cliente.telefono,
+        }));
+
+      if (error) {
+        setSales(localRows);
+      } else {
+        const remoteRows = (data as RecentSale[]).map(s => ({
+          ...s,
+          _phone: (s.customers as any)?.phone ?? '',
+        }));
+        setSales([...localRows, ...remoteRows]);
+      }
+    } finally {
+      setLoadingSales(false);
+    }
   }, []);
 
 
@@ -426,15 +462,27 @@ export default function POSPage() {
     setChannel('local'); setDelType('retiro');
     setDelAddress(''); setDelRef(''); setDelPhone('');
     setShipCo(''); setShipCity(''); setShipRec(''); setShipPhone(''); setShipTrack('');
+    setSaveErr('');
+    // Re-apply branch defaults from user profile so next sale is ready immediately
+    if (profile?.branch_id) {
+      const bid = profile.branch_id.toLowerCase();
+      setSaleBranch(bid); setDelBranch(bid); setPayBranch(bid);
+    }
   }
 
-  // ── Update status for existing sale ───────────────────────────────────────
-  async function updateSaleStatus(saleId: string, s: SaleStatus) {
+  // ── Update status for existing sale — optimistic local update ─────────────
+  function updateSaleStatus(saleId: string, s: SaleStatus) {
+    // Update local state immediately so UI responds without waiting
+    setSales(prev => prev.map(sale =>
+      sale.id === saleId ? { ...sale, status: s } : sale
+    ));
+    // Skip Supabase for local-only rows
+    if (saleId.startsWith('local-')) return;
     setUpdStatus(saleId);
     const upd: Record<string, unknown> = { status: s };
     if (s === 'entregado') upd.delivered_at = new Date().toISOString().split('T')[0];
-    await supabase.from('sales').update(upd).eq('id', saleId);
-    setUpdStatus(null); loadSales();
+    supabase.from('sales').update(upd).eq('id', saleId)
+      .then(() => setUpdStatus(null));
   }
 
   // ── Extra payment on existing sale ────────────────────────────────────────
@@ -822,7 +870,7 @@ export default function POSPage() {
               const name = sale.customers?.full_name
                 || [sale.customer_first_name, sale.customer_last_name].filter(Boolean).join(' ')
                 || '—';
-              const clientPhone = sale.customers?.ci ?? '';
+              const clientPhone = sale._phone ?? '';
               const branchName = sale.branches?.name ?? '';
               const waMsg = `Hola ${name}, te saludamos de Óptica Yolanda. Te avisamos que tus lentes ya están listos en la sucursal de ${branchName}. ¡Te esperamos!`;
               const waLink = clientPhone
@@ -884,8 +932,34 @@ export default function POSPage() {
 
                   {isExp && (
                     <div className="px-4 pb-4 space-y-3" style={{ background: 'rgba(197,160,89,0.02)' }}>
-                      <PaymentHistory saleId={sale.id} />
-                      {Number(sale.balance) > 0 && (
+
+                      {/* Local-only notice */}
+                      {sale._local && (
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-light"
+                          style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', color: '#f59e0b' }}>
+                          <AlertCircle size={12} />
+                          Guardada localmente — pendiente de sincronización con la nube
+                        </div>
+                      )}
+
+                      {/* WhatsApp action inside panel */}
+                      {waLink && (
+                        <div className="border-t pt-3" style={{ borderColor: 'rgba(197,160,89,0.1)' }}>
+                          <p className="text-xs font-light tracking-widest uppercase mb-2" style={{ color: 'rgba(197,160,89,0.55)' }}>
+                            Avisar al cliente
+                          </p>
+                          <a href={waLink} target="_blank" rel="noreferrer"
+                            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-light transition-opacity hover:opacity-75"
+                            style={{ background: 'rgba(37,211,102,0.10)', color: '#25D366', border: '1px solid rgba(37,211,102,0.25)' }}>
+                            <MessageCircle size={13} />
+                            Enviar WhatsApp a {name}
+                          </a>
+                        </div>
+                      )}
+
+                      {!sale._local && <PaymentHistory saleId={sale.id} />}
+
+                      {Number(sale.balance) > 0 && !sale._local && (
                         <div className="border-t pt-3 space-y-2" style={{ borderColor: 'rgba(197,160,89,0.1)' }}>
                           <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.55)' }}>
                             Registrar pago
