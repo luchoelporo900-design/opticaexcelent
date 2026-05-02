@@ -225,7 +225,11 @@ export default function Sidebar({ current, onChange }: Props) {
 
       {/* ── Navigation ───────────────────────────────────────── */}
       <nav className="flex-1 py-4 px-2 space-y-0.5 overflow-y-auto">
-        {navItems.map(item => {
+        {navItems.filter(item => {
+          // Settings is admin/gerente only
+          if (item.id === 'settings') return profile?.role === 'admin' || profile?.role === 'gerente';
+          return true;
+        }).map(item => {
           const active = current === item.id;
           return (
             <button

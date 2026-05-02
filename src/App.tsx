@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { BranchProvider } from './context/BranchContext';
+import { BranchProvider, useBranch } from './context/BranchContext';
 import LoginPage from './pages/LoginPage';
 import Sidebar from './components/Sidebar';
 import Dashboard from './pages/Dashboard';
@@ -19,9 +19,24 @@ import BalancesPage from './pages/BalancesPage';
 type Page = 'dashboard' | 'pos' | 'customers' | 'lab' | 'simulator' | 'branches' | 'crm' | 'settings' | 'commissions' | 'cash' | 'reports' | 'balances';
 
 function AppContent() {
-  const { user, loading, devMode } = useAuth();
+  const { user, loading, devMode, profile } = useAuth();
   const [page, setPage] = useState<Page>('dashboard');
   const [sidebarSearch, setSidebarSearch] = useState('');
+
+  const { setActiveBranchId, branches } = useBranch();
+  const isAdmin = profile?.role === 'admin' || profile?.role === 'gerente';
+
+  // Auto-set active branch to the user's assigned branch when profile loads
+  useEffect(() => {
+    if (profile?.branch_id && branches.length > 0) {
+      setActiveBranchId(profile.branch_id);
+    }
+  }, [profile?.branch_id, branches.length]);
+
+  // Redirect non-admins away from settings if they somehow land there
+  useEffect(() => {
+    if (page === 'settings' && profile && !isAdmin) setPage('dashboard');
+  }, [profile, page, isAdmin]);
 
   if (loading) {
     return (
