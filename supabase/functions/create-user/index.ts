@@ -19,18 +19,19 @@ Deno.serve(async (req: Request) => {
 
     const adminClient = createClient(supabaseUrl, serviceKey);
 
-    // Bootstrap check: allow unauthenticated creation when either:
-    // a) no profiles exist yet, OR
-    // b) the only existing profile is the auto-generated placeholder ("Administrador")
-    //    so the real first admin (Luis Martinez) can take over without needing a login.
+    // Bootstrap detection:
+    // - 0 profiles → true bootstrap
+    // - 1 profile with full_name "Administrador" → placeholder created by migration,
+    //   allow the real first admin to register (will repurpose that auth account)
     const { data: existingProfiles } = await adminClient
       .from("profiles")
       .select("id, full_name");
 
     const count = existingProfiles?.length ?? 0;
-    const isPlaceholderOnly =
-      count === 1 && existingProfiles![0].full_name === "Administrador";
-    const isBootstrap = count === 0 || isPlaceholderOnly;
+    const placeholderProfile = count === 1 && existingProfiles![0].full_name === "Administrador"
+      ? existingProfiles![0]
+      : null;
+    const isBootstrap = count === 0 || placeholderProfile !== null;
 
     if (!isBootstrap) {
       const authHeader = req.headers.get("Authorization");
@@ -62,19 +63,38 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-    });
+    let userId: string;
 
-    if (authError) {
-      return new Response(JSON.stringify({ error: authError.message }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    if (placeholderProfile) {
+      // Repurpose the placeholder auth account: update its email + password + profile
+      // instead of creating a duplicate auth entry.
+      const placeholderId = placeholderProfile.id;
+
+      const { error: updateAuthError } = await adminClient.auth.admin.updateUserById(
+        placeholderId,
+        { email, password, email_confirm: true }
+      );
+      if (updateAuthError) {
+        return new Response(JSON.stringify({ error: updateAuthError.message }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      userId = placeholderId;
+    } else {
+      // Normal creation path
+      const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
       });
+      if (authError) {
+        return new Response(JSON.stringify({ error: authError.message }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      userId = authData.user.id;
     }
-
-    const userId = authData.user.id;
 
     const { error: profileError } = await adminClient.from("profiles").upsert({
       id: userId,
