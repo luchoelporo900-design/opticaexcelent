@@ -370,10 +370,59 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
     }
   }, [initialSearch]);
 
-  async function load() {
+  async function load(q?: string) {
     setLoading(true);
-    const { data } = await supabase.from('customers').select('*').order('created_at', { ascending: false });
-    setCustomers(data || []);
+
+    // Build Supabase query — use server-side search when query provided
+    let query = supabase.from('customers').select('*').order('created_at', { ascending: false });
+    if (q && q.trim().length >= 2) {
+      query = query.or(
+        `full_name.ilike.%${q.trim()}%,ci.ilike.%${q.trim()}%,phone.ilike.%${q.trim()}%`
+      );
+    }
+    const { data: remoteData } = await query.limit(200);
+    const remoteIds = new Set((remoteData ?? []).map((c: any) => c.id));
+
+    // Merge local-only customers from localStorage sales (not yet in Supabase)
+    const localCustomers: Customer[] = [];
+    const seen = new Set<string>();
+    for (const sale of getSales()) {
+      const key = `${sale.cliente.nombre} ${sale.cliente.apellido}`.trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      const fullName = `${sale.cliente.nombre} ${sale.cliente.apellido}`.trim();
+      // Only add if not already in Supabase results
+      const alreadyInRemote = (remoteData ?? []).some(
+        (c: any) =>
+          (c.full_name ?? '').toLowerCase() === key ||
+          (sale.cliente.ci && c.ci === sale.cliente.ci) ||
+          (sale.cliente.telefono && c.phone === sale.cliente.telefono)
+      );
+      if (alreadyInRemote) continue;
+      // Apply local filter too
+      if (q && q.trim().length >= 2) {
+        const lq = q.trim().toLowerCase();
+        if (
+          !fullName.toLowerCase().includes(lq) &&
+          !(sale.cliente.ci || '').includes(lq) &&
+          !(sale.cliente.telefono || '').includes(lq)
+        ) continue;
+      }
+      localCustomers.push({
+        id: `local-${key.replace(/\s+/g, '-')}`,
+        full_name: fullName,
+        ci: sale.cliente.ci || null,
+        phone: sale.cliente.telefono || null,
+        whatsapp: sale.cliente.telefono || null,
+        email: null,
+        address: null,
+        branch_id: sale.sucursalVenta || null,
+        notes: null,
+        created_at: sale.fecha,
+      } as any);
+    }
+
+    setCustomers([...localCustomers, ...(remoteData ?? []).filter((c: any) => !remoteIds.has(c.id) ? false : true)]);
     setLoading(false);
   }
 
@@ -458,10 +507,17 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
     setLoadingFicha(false);
   }, []);
 
+  // Debounce Supabase re-query on search change
+  useEffect(() => {
+    const t = setTimeout(() => load(search), 280);
+    return () => clearTimeout(t);
+  }, [search]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Client-side filter as immediate feedback while query is in-flight
   const filtered = customers.filter(c =>
     !search ||
-    c.full_name.toLowerCase().includes(search.toLowerCase()) ||
-    (c.ci || '').includes(search) ||
+    (c.full_name || '').toLowerCase().includes(search.toLowerCase()) ||
+    (c.ci || '').toLowerCase().includes(search.toLowerCase()) ||
     (c.phone || '').includes(search)
   );
 

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, Plus, X, Save, ChevronDown, ChevronUp, Glasses, Banknote, CreditCard, Smartphone, QrCode, Send, MapPin, Truck, Store, Package, User, FileText, Check, AlertCircle, Trash2, ShoppingBag, Hash, Clock, Building2, Camera, Image as ImageIcon, MessageCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import { saveSale as saveToStorage, getSales, compressImage } from '../lib/salesStorage';
+import { saveSale as saveToStorage, getSales, getPayments, updateSaleBalance, recordPayment, compressImage } from '../lib/salesStorage';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type PaymentMethod = 'efectivo' | 'transferencia' | 'tarjeta' | 'qr' | 'giro';
@@ -489,15 +489,45 @@ export default function POSPage() {
   async function registerXPay(saleId: string) {
     const amt = parseFloat(xPayAmt);
     if (!amt || amt <= 0) return;
-    await supabase.from('sale_payments').insert([{
-      sale_id: saleId, amount: amt, method: xPayMethod,
-      branch_id: xPayBranch || FIXED_BRANCHES[0].id, reference: xPayRef,
-      registered_by: profile?.id ?? null,
-    }]);
-    const { data: allPays } = await supabase.from('sale_payments').select('amount').eq('sale_id', saleId);
-    const tp = (allPays ?? []).reduce((s: number, p: any) => s + Number(p.amount), 0);
-    const { data: sr } = await supabase.from('sales').select('total').eq('id', saleId).maybeSingle();
-    if (sr) await supabase.from('sales').update({ deposit: tp, balance: Math.max(0, Number(sr.total) - tp) }).eq('id', saleId);
+
+    if (saleId.startsWith('local-')) {
+      // Local sale — update localStorage balance and record abono
+      const numId = Number(saleId.replace('local-', ''));
+      const localSale = getSales().find(s => s.id === numId);
+      if (localSale) {
+        const newDeposit = localSale.sena + amt;
+        const newBalance = Math.max(0, localSale.total - newDeposit);
+        updateSaleBalance(numId, newBalance, newDeposit);
+        recordPayment({
+          id: Date.now(),
+          saleId: numId,
+          fecha: new Date().toISOString(),
+          monto: amt,
+          metodo: xPayMethod,
+          sucursal: xPayBranch || FIXED_BRANCHES[0].id,
+          vendedora: profile?.full_name ?? '',
+          cliente: `${localSale.cliente.nombre} ${localSale.cliente.apellido}`.trim(),
+          tipo: 'abono',
+        });
+        // Optimistic update in UI
+        setSales(prev => prev.map(s =>
+          s.id === saleId
+            ? { ...s, deposit: newDeposit, balance: newBalance }
+            : s
+        ));
+      }
+    } else {
+      await supabase.from('sale_payments').insert([{
+        sale_id: saleId, amount: amt, method: xPayMethod,
+        branch_id: xPayBranch || FIXED_BRANCHES[0].id, reference: xPayRef,
+        registered_by: profile?.id ?? null,
+      }]);
+      const { data: allPays } = await supabase.from('sale_payments').select('amount').eq('sale_id', saleId);
+      const tp = (allPays ?? []).reduce((s: number, p: any) => s + Number(p.amount), 0);
+      const { data: sr } = await supabase.from('sales').select('total').eq('id', saleId).maybeSingle();
+      if (sr) await supabase.from('sales').update({ deposit: tp, balance: Math.max(0, Number(sr.total) - tp) }).eq('id', saleId);
+    }
+
     setAddPayFor(null); setXPayAmt(''); setXPayRef(''); loadSales();
   }
 
@@ -724,7 +754,7 @@ export default function POSPage() {
               )}
             </div>
 
-            {/* Total / Seña / Saldo */}
+            {/* Total / Monto Entregado / Saldo */}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <FieldLabel>Total venta <span style={{ color: '#C5A059' }}>*</span></FieldLabel>
@@ -736,9 +766,16 @@ export default function POSPage() {
                 />
               </div>
               <div>
-                <FieldLabel>Seña <span style={{ color: 'rgba(255,255,255,0.28)' }}>(opcional)</span></FieldLabel>
+                <FieldLabel>Monto Entregado <span style={{ color: 'rgba(255,255,255,0.28)' }}>(seña)</span></FieldLabel>
                 <input
-                  type="number" value={saleDeposit} onChange={e => setSaleDeposit(e.target.value)}
+                  type="number" value={saleDeposit} onChange={e => {
+                    setSaleDeposit(e.target.value);
+                    // Auto-set status: if balance will remain, force "pendiente"
+                    const total = parseFloat(saleTotal) || 0;
+                    const dep   = parseFloat(e.target.value) || 0;
+                    if (dep < total && dep >= 0) setStatus('pendiente');
+                    else if (dep >= total && total > 0) setStatus(prev => prev === 'pendiente' ? 'pendiente' : prev);
+                  }}
                   placeholder="0"
                   className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border text-right"
                   style={{ borderColor: 'rgba(197,160,89,0.22)' }}
@@ -751,9 +788,9 @@ export default function POSPage() {
               style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.20)' }}>
               <div className="grid grid-cols-3 divide-x" style={{ borderColor: 'rgba(197,160,89,0.14)' }}>
                 {[
-                  { label: 'TOTAL', value: fmt(totalNum), color: '#C5A059' },
-                  { label: 'SEÑA',  value: fmt(depositNum), color: '#10b981' },
-                  { label: 'SALDO', value: fmt(balanceNum), color: balanceNum > 0 ? '#f59e0b' : '#6b7280' },
+                  { label: 'TOTAL',    value: fmt(totalNum),   color: '#C5A059' },
+                  { label: 'ENTREGADO', value: fmt(depositNum), color: '#10b981' },
+                  { label: 'SALDO PEND.', value: fmt(balanceNum), color: balanceNum > 0 ? '#f59e0b' : '#6b7280' },
                 ].map(item => (
                   <div key={item.label} className="flex flex-col items-center py-4 px-3"
                     style={{ borderColor: 'rgba(197,160,89,0.14)' }}>
@@ -766,6 +803,15 @@ export default function POSPage() {
                   </div>
                 ))}
               </div>
+              {balanceNum > 0 && (
+                <div className="px-4 py-2 flex items-center gap-2 border-t"
+                  style={{ borderColor: 'rgba(245,158,11,0.2)', background: 'rgba(245,158,11,0.04)' }}>
+                  <AlertCircle size={12} style={{ color: '#f59e0b', flexShrink: 0 }} />
+                  <p className="text-xs font-light" style={{ color: '#f59e0b' }}>
+                    El cliente tiene un saldo pendiente de Gs. {fmt(balanceNum)} — estado se registrará como Pendiente.
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Comprobante de pago */}
@@ -888,6 +934,10 @@ export default function POSPage() {
                       <span className="text-xs font-mono" style={{ color: '#C5A059' }}>{sale.sale_number}</span>
                       <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.28)' }}>
                         {new Date(sale.created_at).toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' })}
+                        {' '}
+                        <span style={{ color: 'rgba(255,255,255,0.18)' }}>
+                          {new Date(sale.created_at).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
                       </span>
                       <select
                         value={sale.status}
@@ -957,9 +1007,9 @@ export default function POSPage() {
                         </div>
                       )}
 
-                      {!sale._local && <PaymentHistory saleId={sale.id} />}
+                      <PaymentHistory saleId={sale.id} isLocal={sale._local} />
 
-                      {Number(sale.balance) > 0 && !sale._local && (
+                      {Number(sale.balance) > 0 && (
                         <div className="border-t pt-3 space-y-2" style={{ borderColor: 'rgba(197,160,89,0.1)' }}>
                           <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.55)' }}>
                             Registrar pago
@@ -1248,37 +1298,70 @@ function SimpleEyeglassCard({
 }
 
 // ── PaymentHistory ─────────────────────────────────────────────────────────────
-function PaymentHistory({ saleId }: { saleId: string }) {
-  const [payments, setPayments] = useState<{ id: string; amount: number; method: string; paid_at: string; reference: string; branches: { name: string } | null }[]>([]);
+function PaymentHistory({ saleId, isLocal }: { saleId: string; isLocal?: boolean }) {
+  type PayRow = { id: string; amount: number; method: string; paid_at: string; reference: string; branches: { name: string } | null };
+  const [payments, setPayments] = useState<PayRow[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    supabase.from('sale_payments').select('id,amount,method,paid_at,reference,branches(name)')
-      .eq('sale_id', saleId).order('paid_at')
-      .then(({ data }) => { setPayments((data ?? []) as any); setLoading(false); });
-  }, [saleId]);
+  function reload() {
+    if (isLocal) {
+      // Pull from localStorage payments keyed by saleId number
+      const numId = Number(saleId.replace('local-', ''));
+      const rows: PayRow[] = getPayments()
+        .filter((p: any) => p.saleId === numId)
+        .sort((a: any, b: any) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime())
+        .map((p: any) => ({
+          id: String(p.id),
+          amount: p.monto,
+          method: p.metodo,
+          paid_at: p.fecha,
+          reference: p.tipo === 'abono' ? 'Abono' : 'Seña inicial',
+          branches: p.sucursal ? { name: p.sucursal } : null,
+        }));
+      setPayments(rows);
+      setLoading(false);
+    } else {
+      supabase.from('sale_payments').select('id,amount,method,paid_at,reference,branches(name)')
+        .eq('sale_id', saleId).order('paid_at')
+        .then(({ data }) => { setPayments((data ?? []) as any); setLoading(false); });
+    }
+  }
+
+  useEffect(() => { reload(); }, [saleId, isLocal]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) return <div className="h-4 w-20 rounded shimmer" />;
-  if (payments.length === 0) return <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.28)' }}>Sin pagos registrados</p>;
+  if (payments.length === 0) return (
+    <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.28)' }}>Sin pagos registrados</p>
+  );
 
   const total = payments.reduce((s, p) => s + Number(p.amount), 0);
   return (
     <div className="space-y-1.5">
-      <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.45)' }}>Historial de pagos</p>
-      {payments.map(p => {
+      <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.45)' }}>
+        Historial de abonos
+      </p>
+      {payments.map((p, i) => {
         const mc = PAY_METHODS.find(m => m.id === p.method)?.color ?? '#C5A059';
+        const dt = new Date(p.paid_at);
         return (
           <div key={p.id} className="flex items-center gap-2 text-xs font-light">
+            <span className="shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-xs font-medium text-black"
+              style={{ background: mc, fontSize: 9 }}>{i + 1}</span>
             <span className="px-2 py-0.5 rounded-full shrink-0" style={{ background: `${mc}18`, color: mc }}>{p.method}</span>
-            <span className="text-white">Gs. {Number(p.amount).toLocaleString()}</span>
-            <span style={{ color: 'rgba(255,255,255,0.3)' }}>{p.branches?.name ?? '—'}</span>
-            {p.reference && <span style={{ color: 'rgba(255,255,255,0.28)' }}>{p.reference}</span>}
-            <span className="ml-auto" style={{ color: 'rgba(255,255,255,0.28)' }}>{new Date(p.paid_at).toLocaleDateString('es-PY')}</span>
+            <span className="text-white font-medium">Gs. {Number(p.amount).toLocaleString()}</span>
+            {p.reference && <span style={{ color: 'rgba(255,255,255,0.38)' }}>{p.reference}</span>}
+            <span className="ml-auto shrink-0 text-right" style={{ color: 'rgba(255,255,255,0.28)' }}>
+              {dt.toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' })}
+              {' '}
+              <span style={{ color: 'rgba(255,255,255,0.18)' }}>
+                {dt.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            </span>
           </div>
         );
       })}
       <div className="flex justify-between pt-1.5 border-t text-xs font-light" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
-        <span style={{ color: 'rgba(255,255,255,0.35)' }}>Total pagado</span>
+        <span style={{ color: 'rgba(255,255,255,0.35)' }}>Total abonado</span>
         <span style={{ color: '#10b981' }}>Gs. {total.toLocaleString()}</span>
       </div>
     </div>
