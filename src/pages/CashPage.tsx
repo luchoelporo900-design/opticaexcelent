@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   DollarSign, Banknote, CreditCard, ArrowRightLeft, RefreshCw,
   CheckCircle, TrendingUp, Calendar, QrCode, Send, Minus, Plus, X,
-  User, Lock, Unlock, Tag, MapPin,
+  User, Lock, Unlock, Tag, MapPin, Clock,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useBranch } from '../context/BranchContext';
@@ -344,16 +344,29 @@ export default function CashPage() {
     : payments;
   const filtered = methodFilter === 'all' ? visiblePayments : visiblePayments.filter(p => p.method === methodFilter);
 
-  // Recompute summary for vendedora's filtered view
-  const visibleSummary: DailySummary = isVendedora
-    ? (() => {
-        let agg = emptyAgg();
-        for (const r of visiblePayments) agg = addToAgg(agg, r.method, r.amount);
-        agg.expenses = summary.expenses;
-        return agg;
-      })()
-    : summary;
+  // Recompute summary directly from visible rows and current expenses list
+  const visibleSummary: DailySummary = (() => {
+    let agg = emptyAgg();
+    for (const r of visiblePayments) agg = addToAgg(agg, r.method, r.amount);
+    agg.expenses = expenses.reduce((s, e) => s + Number(e.amount), 0);
+    return agg;
+  })();
+
+  // Net = total ingresos - egresos
   const netTotal = visibleSummary.total - visibleSummary.expenses;
+
+  // Efectivo neto = efectivo cobrado - todos los egresos (gastos salen de caja física)
+  const efectivoNeto = visibleSummary.efectivo - visibleSummary.expenses;
+
+  // Total pendiente = suma de saldos de ventas no entregadas/canceladas del día filtrado
+  const totalPendiente = getSales()
+    .filter(v => {
+      if ((Number(v.saldo) || 0) <= 0) return false;
+      if (v.estadoTrabajo === 'entregado' || v.estadoTrabajo === 'cancelado') return false;
+      if (selectedBranch && (v.sucursalCobro || '').toLowerCase() !== selectedBranch) return false;
+      return true;
+    })
+    .reduce((s, v) => s + (Number(v.saldo) || 0), 0);
 
   // Effective branch for expense form
   const expFormBranch = expBranch || selectedBranch || activeBranch?.id || '';
@@ -421,7 +434,7 @@ export default function CashPage() {
       </div>
 
       {/* Net totals */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="rounded-xl p-5" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(197,160,89,0.20)' }}>
           <p className="text-xs font-light mb-2 flex items-center gap-1.5" style={{ color: 'rgba(255,255,255,0.44)' }}>
             <DollarSign size={11} />{isVendedora ? 'Mis cobros de hoy' : 'Total cobrado'}
@@ -436,6 +449,13 @@ export default function CashPage() {
           <p className="text-2xl font-light" style={{ color: '#ef4444' }}>{fmt(visibleSummary.expenses)}</p>
           <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.24)' }}>{expenses.length} gastos</p>
         </div>
+        <div className="rounded-xl p-5" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(59,130,246,0.20)' }}>
+          <p className="text-xs font-light mb-2 flex items-center gap-1.5" style={{ color: 'rgba(255,255,255,0.44)' }}>
+            <Banknote size={11} />Efectivo neto
+          </p>
+          <p className="text-2xl font-light" style={{ color: efectivoNeto >= 0 ? '#22c55e' : '#ef4444' }}>{fmt(efectivoNeto)}</p>
+          <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.24)' }}>Efectivo — Gastos · Gs.</p>
+        </div>
         <div className="rounded-xl p-5"
           style={{ background: netTotal >= 0 ? 'rgba(34,197,94,0.04)' : 'rgba(239,68,68,0.04)', border: `1px solid ${netTotal >= 0 ? 'rgba(34,197,94,0.22)' : 'rgba(239,68,68,0.22)'}` }}>
           <p className="text-xs font-light mb-2" style={{ color: 'rgba(255,255,255,0.44)' }}>Total en Caja</p>
@@ -443,6 +463,19 @@ export default function CashPage() {
           <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.24)' }}>Cobros — Gastos · Gs.</p>
         </div>
       </div>
+
+      {/* Pending balance summary */}
+      {totalPendiente > 0 && (
+        <div className="flex items-center justify-between px-5 py-3.5 rounded-xl"
+          style={{ background: 'rgba(245,158,11,0.04)', border: '1px solid rgba(245,158,11,0.20)' }}>
+          <p className="text-xs font-light flex items-center gap-1.5" style={{ color: 'rgba(255,255,255,0.55)' }}>
+            <Clock size={12} style={{ color: '#f59e0b' }} />
+            Total Pendiente de cobro
+            <span className="text-xs" style={{ color: 'rgba(255,255,255,0.30)' }}>(saldo de ventas no entregadas)</span>
+          </p>
+          <p className="text-lg font-light" style={{ color: '#f59e0b' }}>Gs. {fmt(totalPendiente)}</p>
+        </div>
+      )}
 
       {/* By seller breakdown — admin only */}
       {isAdmin && bySeller.length > 0 && (
