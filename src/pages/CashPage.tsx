@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   DollarSign, Banknote, CreditCard, ArrowRightLeft, RefreshCw,
   CheckCircle, TrendingUp, Calendar, QrCode, Send, Minus, Plus, X,
-  User, Lock, Unlock,
+  User, Lock, Unlock, Tag, MapPin,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useBranch } from '../context/BranchContext';
@@ -37,9 +37,11 @@ type PaymentRow = {
 type Expense = {
   id: string;
   description: string;
+  category: string;
   amount: number;
   method: string;
   expense_date: string;
+  branch_name?: string;
 };
 
 type SellerRow = { seller: string; efectivo: number; transferencia: number; tarjeta: number; qr: number; giro: number; total: number; count: number };
@@ -50,6 +52,17 @@ const METHODS: { id: PaymentMethod; label: string; icon: React.ReactNode; color:
   { id: 'tarjeta',       label: 'POS',          icon: <CreditCard     size={16} />, color: '#f59e0b' },
   { id: 'qr',            label: 'QR',           icon: <QrCode         size={16} />, color: '#C5A059' },
   { id: 'giro',          label: 'Giro',         icon: <Send           size={16} />, color: '#a78bfa' },
+];
+
+const EXPENSE_CATEGORIES: { id: string; label: string }[] = [
+  { id: 'alquiler',    label: 'Alquiler' },
+  { id: 'servicios',   label: 'Servicios' },
+  { id: 'insumos',     label: 'Insumos' },
+  { id: 'comisiones',  label: 'Comisiones' },
+  { id: 'limpieza',    label: 'Limpieza' },
+  { id: 'transporte',  label: 'Transporte' },
+  { id: 'reparacion',  label: 'Reparación' },
+  { id: 'otros',       label: 'Otros' },
 ];
 
 function fmt(n: number) {
@@ -85,11 +98,14 @@ export default function CashPage() {
   const [methodFilter,   setMethodFilter]   = useState<string>('all');
 
   // Expense entry
-  const [showAddExp, setShowAddExp] = useState(false);
-  const [expDesc,    setExpDesc]    = useState('');
-  const [expAmount,  setExpAmount]  = useState('');
-  const [expMethod,  setExpMethod]  = useState<PaymentMethod>('efectivo');
-  const [savingExp,  setSavingExp]  = useState(false);
+  const [showAddExp,  setShowAddExp]  = useState(false);
+  const [expDesc,     setExpDesc]     = useState('');
+  const [expAmount,   setExpAmount]   = useState('');
+  const [expMethod,   setExpMethod]   = useState<PaymentMethod>('efectivo');
+  const [expCategory, setExpCategory] = useState('otros');
+  const [expBranch,   setExpBranch]   = useState('');
+  const [savingExp,   setSavingExp]   = useState(false);
+  const [expSuccess,  setExpSuccess]  = useState(false);
 
   const isAdmin = profile?.role === 'admin' || profile?.role === 'gerente';
   const isVendedora = profile?.role === 'vendedora';
@@ -102,6 +118,11 @@ export default function CashPage() {
       setSelectedBranch(activeBranch.id);
     }
   }, [activeBranch, selectedBranch, isVendedora, profile?.branch_id]);
+
+  // Keep expBranch in sync with selectedBranch
+  useEffect(() => {
+    if (selectedBranch && !expBranch) setExpBranch(selectedBranch);
+  }, [selectedBranch, expBranch]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -156,7 +177,6 @@ export default function CashPage() {
       (v.fecha || '').startsWith(selectedDate) &&
       (!selectedBranch || v.sucursalCobro === selectedBranch)
     );
-    // Deduplicate: only add if no payment already recorded for this saleId
     const recordedSaleIds = new Set(localPayments.map(p => p.saleId));
     const fallbackRows: PaymentRow[] = localSales
       .filter(v => !recordedSaleIds.has(v.id))
@@ -184,12 +204,20 @@ export default function CashPage() {
     {
       let expQuery = supabase
         .from('expenses')
-        .select('id, description, amount, method, expense_date')
+        .select('id, description, category, amount, method, expense_date, branches(name)')
         .eq('expense_date', selectedDate)
         .order('created_at', { ascending: false });
       if (selectedBranch) expQuery = expQuery.eq('branch_id', selectedBranch);
       const { data: expData } = await expQuery;
-      expList = (expData ?? []) as Expense[];
+      expList = ((expData ?? []) as any[]).map(e => ({
+        id: e.id,
+        description: e.description,
+        category: e.category ?? 'otros',
+        amount: Number(e.amount),
+        method: e.method,
+        expense_date: e.expense_date,
+        branch_name: e.branches?.name ?? '',
+      }));
     }
     setExpenses(expList);
     agg.expenses = expList.reduce((s, e) => s + Number(e.amount), 0);
@@ -253,19 +281,31 @@ export default function CashPage() {
 
   async function addExpense() {
     const amt = parseFloat(expAmount);
-    if (!amt || !expDesc.trim() || !selectedBranch) return;
+    const branchId = expBranch || selectedBranch || activeBranch?.id || '';
+    if (!amt || !expDesc.trim() || !branchId) return;
     setSavingExp(true);
-    await supabase.from('expenses').insert([{
-      branch_id: selectedBranch,
+
+    const { error } = await supabase.from('expenses').insert([{
+      branch_id: branchId,
       amount: amt,
       method: expMethod,
       description: expDesc.trim(),
+      category: expCategory,
       registered_by: profile?.id ?? null,
       expense_date: selectedDate,
     }]);
-    setExpDesc(''); setExpAmount(''); setShowAddExp(false);
+
+    if (!error) {
+      setExpDesc('');
+      setExpAmount('');
+      setExpCategory('otros');
+      setExpMethod('efectivo');
+      setShowAddExp(false);
+      setExpSuccess(true);
+      setTimeout(() => setExpSuccess(false), 4000);
+      load();
+    }
     setSavingExp(false);
-    load();
   }
 
   // Vendedora only sees her own payments
@@ -279,11 +319,14 @@ export default function CashPage() {
     ? (() => {
         let agg = emptyAgg();
         for (const r of visiblePayments) agg = addToAgg(agg, r.method, r.amount);
-        agg.expenses = summary.expenses; // expenses are shared per branch
+        agg.expenses = summary.expenses;
         return agg;
       })()
     : summary;
   const netTotal = visibleSummary.total - visibleSummary.expenses;
+
+  // Effective branch for expense form
+  const expFormBranch = expBranch || selectedBranch || activeBranch?.id || '';
 
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
@@ -323,6 +366,15 @@ export default function CashPage() {
         </div>
       </div>
 
+      {/* Expense success toast */}
+      {expSuccess && (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl"
+          style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.30)' }}>
+          <CheckCircle size={14} style={{ color: '#ef4444' }} />
+          <p className="text-sm font-light" style={{ color: '#ef4444' }}>Gasto registrado correctamente</p>
+        </div>
+      )}
+
       {/* Method cards */}
       <div className="grid grid-cols-3 lg:grid-cols-5 gap-3">
         {METHODS.map(m => (
@@ -349,16 +401,16 @@ export default function CashPage() {
         </div>
         <div className="rounded-xl p-5" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(239,68,68,0.20)' }}>
           <p className="text-xs font-light mb-2 flex items-center gap-1.5" style={{ color: 'rgba(255,255,255,0.44)' }}>
-            <Minus size={11} />Egresos
+            <Minus size={11} />Egresos del día
           </p>
           <p className="text-2xl font-light" style={{ color: '#ef4444' }}>{fmt(visibleSummary.expenses)}</p>
           <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.24)' }}>{expenses.length} gastos</p>
         </div>
         <div className="rounded-xl p-5"
           style={{ background: netTotal >= 0 ? 'rgba(34,197,94,0.04)' : 'rgba(239,68,68,0.04)', border: `1px solid ${netTotal >= 0 ? 'rgba(34,197,94,0.22)' : 'rgba(239,68,68,0.22)'}` }}>
-          <p className="text-xs font-light mb-2" style={{ color: 'rgba(255,255,255,0.44)' }}>Neto del día</p>
+          <p className="text-xs font-light mb-2" style={{ color: 'rgba(255,255,255,0.44)' }}>Total en Caja</p>
           <p className="text-2xl font-light" style={{ color: netTotal >= 0 ? '#22c55e' : '#ef4444' }}>{fmt(netTotal)}</p>
-          <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.24)' }}>Gs.</p>
+          <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.24)' }}>Cobros — Gastos · Gs.</p>
         </div>
       </div>
 
@@ -399,7 +451,6 @@ export default function CashPage() {
       {/* Cash close + day summary */}
       {isAdmin && (
         <div className="rounded-xl overflow-hidden" style={{ border: closedAt ? '1px solid rgba(34,197,94,0.25)' : '1px solid rgba(197,160,89,0.22)' }}>
-          {/* Status bar */}
           <div className="flex items-center justify-between px-5 py-4"
             style={{ background: closedAt ? 'rgba(34,197,94,0.05)' : 'rgba(197,160,89,0.04)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
             <div className="flex items-center gap-2.5">
@@ -408,7 +459,7 @@ export default function CashPage() {
                 : <Unlock size={14} style={{ color: '#C5A059' }} />}
               <div>
                 <p className="text-sm font-light" style={{ color: closedAt ? '#22c55e' : 'rgba(255,255,255,0.75)' }}>
-                  {closedAt ? 'Caja cerrada' : 'Caja abierta — pendiente de cierre'}
+                  {closedAt ? 'Caja cerrada' : selectedBranch ? 'Caja abierta — pendiente de cierre' : 'Seleccioná una sede para cerrar caja'}
                 </p>
                 {closedAt && (
                   <p className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.36)' }}>
@@ -417,7 +468,7 @@ export default function CashPage() {
                 )}
               </div>
             </div>
-            {!closedAt && (
+            {!closedAt && selectedBranch && (
               <button onClick={handleClose} disabled={closing}
                 className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium"
                 style={{ background: 'rgba(197,160,89,0.14)', border: '1px solid rgba(197,160,89,0.38)', color: '#C5A059' }}>
@@ -427,7 +478,6 @@ export default function CashPage() {
             )}
           </div>
 
-          {/* Day close summary */}
           <div className="px-5 py-5">
             <p className="text-xs font-light tracking-widest uppercase mb-4" style={{ color: 'rgba(197,160,89,0.55)' }}>
               Resumen del cierre
@@ -476,46 +526,113 @@ export default function CashPage() {
             <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444' }}>
               {expenses.length}
             </span>
+            {expenses.length > 0 && (
+              <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.32)' }}>
+                · Total: Gs. {fmt(expenses.reduce((s, e) => s + e.amount, 0))}
+              </span>
+            )}
           </div>
-          <button onClick={() => setShowAddExp(!showAddExp)}
+          <button onClick={() => { setShowAddExp(!showAddExp); setExpBranch(selectedBranch || activeBranch?.id || ''); }}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-light"
             style={{ background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.55)', border: '1px solid rgba(255,255,255,0.08)' }}>
             {showAddExp ? <X size={12} /> : <Plus size={12} />}
-            {showAddExp ? 'Cancelar' : 'Agregar egreso'}
+            {showAddExp ? 'Cancelar' : 'Registrar Gasto'}
           </button>
         </div>
 
         {showAddExp && (
-          <div className="px-5 py-4 flex flex-wrap gap-2 items-end"
-            style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.01)' }}>
-            <div className="flex-1 min-w-44">
-              <input value={expDesc} onChange={e => setExpDesc(e.target.value)}
-                placeholder="Descripción del gasto"
-                className="w-full px-3 py-2 rounded-lg bg-transparent text-white text-xs outline-none border"
-                style={{ borderColor: 'rgba(197,160,89,0.2)' }} />
+          <div className="px-5 py-4 space-y-3"
+            style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(239,68,68,0.02)' }}>
+            <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(239,68,68,0.55)' }}>
+              Nuevo Egreso
+            </p>
+
+            {/* Description */}
+            <input value={expDesc} onChange={e => setExpDesc(e.target.value)}
+              placeholder="Motivo del gasto (ej: compra de insumos)"
+              className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border"
+              style={{ borderColor: 'rgba(239,68,68,0.25)' }} />
+
+            <div className="flex gap-2 flex-wrap">
+              {/* Amount */}
+              <input value={expAmount} onChange={e => setExpAmount(e.target.value)}
+                type="number" placeholder="Monto Gs."
+                className="w-36 px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border"
+                style={{ borderColor: 'rgba(239,68,68,0.25)' }} />
+
+              {/* Category */}
+              <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg border flex-1 min-w-36"
+                style={{ borderColor: 'rgba(239,68,68,0.20)', background: 'rgba(255,255,255,0.02)' }}>
+                <Tag size={11} style={{ color: 'rgba(239,68,68,0.6)', flexShrink: 0 }} />
+                <select value={expCategory} onChange={e => setExpCategory(e.target.value)}
+                  className="bg-transparent text-xs outline-none flex-1"
+                  style={{ color: 'rgba(255,255,255,0.7)' }}>
+                  {EXPENSE_CATEGORIES.map(c => (
+                    <option key={c.id} value={c.id} style={{ background: '#111' }}>{c.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Branch for admin with "all branches" selected */}
+              {isAdmin && !selectedBranch && (
+                <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg border flex-1 min-w-36"
+                  style={{ borderColor: 'rgba(239,68,68,0.20)', background: 'rgba(255,255,255,0.02)' }}>
+                  <MapPin size={11} style={{ color: 'rgba(239,68,68,0.6)', flexShrink: 0 }} />
+                  <select value={expFormBranch} onChange={e => setExpBranch(e.target.value)}
+                    className="bg-transparent text-xs outline-none flex-1"
+                    style={{ color: expFormBranch ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.38)' }}>
+                    <option value="" style={{ background: '#111' }}>Sede del gasto...</option>
+                    {branches.map(b => (
+                      <option key={b.id} value={b.id} style={{ background: '#111' }}>{b.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
-            <input value={expAmount} onChange={e => setExpAmount(e.target.value)}
-              type="number" placeholder="Monto Gs."
-              className="w-32 px-3 py-2 rounded-lg bg-transparent text-white text-xs outline-none border"
-              style={{ borderColor: 'rgba(197,160,89,0.2)' }} />
-            <div className="flex gap-1">
-              {METHODS.slice(0, 3).map(m => (
+
+            {/* Payment method — all 5 */}
+            <div className="flex gap-1.5 flex-wrap">
+              {METHODS.map(m => (
                 <button key={m.id} onClick={() => setExpMethod(m.id)}
-                  className="px-2.5 py-2 rounded text-xs"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-light"
                   style={{
                     background: expMethod === m.id ? `${m.color}18` : 'rgba(255,255,255,0.03)',
                     border: `1px solid ${expMethod === m.id ? m.color + '44' : 'rgba(255,255,255,0.07)'}`,
                     color: expMethod === m.id ? m.color : 'rgba(255,255,255,0.38)',
                   }}>
                   {m.icon}
+                  <span>{m.label}</span>
                 </button>
               ))}
             </div>
-            <button onClick={addExpense} disabled={savingExp}
-              className="px-4 py-2 rounded-lg text-xs text-black font-medium"
-              style={{ background: '#C5A059' }}>
-              {savingExp ? 'Guardando...' : 'Guardar'}
-            </button>
+
+            {/* Validation hint */}
+            {isAdmin && !selectedBranch && !expFormBranch && (
+              <p className="text-xs font-light" style={{ color: 'rgba(245,158,11,0.8)' }}>
+                Seleccioná la sede para continuar.
+              </p>
+            )}
+
+            <div className="flex items-center gap-2">
+              <button onClick={addExpense}
+                disabled={savingExp || !expDesc.trim() || !expAmount || (isAdmin && !selectedBranch && !expFormBranch)}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-xs font-medium transition-all"
+                style={{
+                  background: (!expDesc.trim() || !expAmount || (isAdmin && !selectedBranch && !expFormBranch))
+                    ? 'rgba(239,68,68,0.08)' : '#ef4444',
+                  color: (!expDesc.trim() || !expAmount || (isAdmin && !selectedBranch && !expFormBranch))
+                    ? 'rgba(239,68,68,0.4)' : '#fff',
+                  cursor: (!expDesc.trim() || !expAmount) ? 'not-allowed' : 'pointer',
+                }}>
+                <Minus size={12} />
+                {savingExp ? 'Guardando...' : 'Registrar Gasto'}
+              </button>
+              <button onClick={() => { setShowAddExp(false); setExpDesc(''); setExpAmount(''); setExpCategory('otros'); }}
+                className="px-3 py-2 rounded-lg text-xs font-light"
+                style={{ color: 'rgba(255,255,255,0.36)', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                Cancelar
+              </button>
+            </div>
           </div>
         )}
 
@@ -525,13 +642,25 @@ export default function CashPage() {
           </div>
         ) : (
           <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
-            {expenses.map(e => (
-              <div key={e.id} className="flex items-center gap-4 px-5 py-3 text-xs font-light">
-                <span className="text-white flex-1">{e.description}</span>
-                <span style={{ color: '#ef4444' }}>— Gs. {fmt(Number(e.amount))}</span>
-                <span className="px-2 py-0.5 rounded" style={{ background: 'rgba(239,68,68,0.10)', color: '#ef4444' }}>{e.method}</span>
-              </div>
-            ))}
+            {expenses.map(e => {
+              const catLabel = EXPENSE_CATEGORIES.find(c => c.id === e.category)?.label ?? e.category;
+              return (
+                <div key={e.id} className="flex items-center gap-4 px-5 py-3 text-xs font-light">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white truncate">{e.description}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="px-1.5 py-0.5 rounded text-xs"
+                        style={{ background: 'rgba(239,68,68,0.08)', color: 'rgba(239,68,68,0.7)' }}>{catLabel}</span>
+                      {e.branch_name && (
+                        <span style={{ color: 'rgba(255,255,255,0.28)' }}>{e.branch_name}</span>
+                      )}
+                    </div>
+                  </div>
+                  <span className="shrink-0" style={{ color: '#ef4444' }}>— Gs. {fmt(Number(e.amount))}</span>
+                  <span className="px-2 py-0.5 rounded shrink-0" style={{ background: 'rgba(239,68,68,0.10)', color: '#ef4444' }}>{e.method}</span>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
