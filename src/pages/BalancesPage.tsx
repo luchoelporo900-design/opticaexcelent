@@ -494,22 +494,29 @@ export default function BalancesPage() {
         amount: amt,
         method: payMethod,
         branch_id: branchId || null,
-        reference: payRef || null,
+        reference: clientName ? `Pago de saldo — ${clientName}` : (payRef || 'Abono'),
         registered_by: profile?.id ?? null,
         receipt_url: payReceipt || null,
       }]);
       const { data: allPays } = await supabase.from('sale_payments').select('amount').eq('sale_id', row.id);
       const totalPaid = (allPays || []).reduce((s: number, p: any) => s + Number(p.amount), 0);
-      const { data: saleRow } = await supabase.from('sales').select('total').eq('id', row.id).maybeSingle();
+      const { data: saleRow } = await supabase.from('sales').select('total,status').eq('id', row.id).maybeSingle();
       if (saleRow) {
-        await supabase.from('sales').update({
-          deposit: totalPaid,
-          balance: Math.max(0, Number(saleRow.total) - totalPaid),
-        }).eq('id', row.id);
+        const newBal = Math.max(0, Number(saleRow.total) - totalPaid);
+        const upd: Record<string, unknown> = { deposit: totalPaid, balance: newBal };
+        if (newBal <= 0 && saleRow.status !== 'entregado' && saleRow.status !== 'cancelado') {
+          upd.status = 'pagado_total';
+        }
+        await supabase.from('sales').update(upd).eq('id', row.id);
       }
     }
 
-    setPaySuccess(`Pago de Gs. ${fmt(amt)} registrado correctamente.`);
+    const remainingBalance = Math.max(0, row.balance - amt);
+    setPaySuccess(
+      remainingBalance <= 0
+        ? `Venta saldada · ${clientName} — Saldo en 0`
+        : `Pago de Gs. ${fmt(amt)} registrado. Saldo restante: Gs. ${fmt(remainingBalance)}`
+    );
     setAddPayFor(null);
     setPayAmt('');
     setPayRef('');
@@ -546,7 +553,7 @@ export default function BalancesPage() {
         await supabase.from('sale_payments').insert([{
           sale_id: row.id, amount: finalAmt, method: closeMethod,
           branch_id: branchId || null,
-          reference: closeRef || 'Pago final',
+          reference: clientName ? `Pago final — ${clientName}` : (closeRef || 'Pago final'),
           registered_by: profile?.id ?? null,
           receipt_url: closeReceipt || null,
         }]);

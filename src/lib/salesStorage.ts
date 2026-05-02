@@ -151,9 +151,15 @@ export function saveSale(sale: StoredSale): void {
 
 export function updateSaleBalance(saleId: number, newBalance: number, newDeposit: number): void {
   const sales = getSales();
-  const updated = sales.map(s =>
-    s.id === saleId ? { ...s, saldo: newBalance, sena: newDeposit } : s
-  );
+  const updated = sales.map(s => {
+    if (s.id !== saleId) return s;
+    const patch: Partial<StoredSale> = { saldo: newBalance, sena: newDeposit };
+    // Auto-advance status when fully paid (but not yet delivered)
+    if (newBalance <= 0 && s.estadoTrabajo !== 'entregado' && s.estadoTrabajo !== 'cancelado') {
+      patch.estadoTrabajo = 'pagado_total';
+    }
+    return { ...s, ...patch };
+  });
   localStorage.setItem(LS_KEY, JSON.stringify(updated));
   window.dispatchEvent(new CustomEvent('optica_ventas_updated'));
 }

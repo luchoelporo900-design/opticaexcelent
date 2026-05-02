@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Plus, X, Save, ChevronDown, ChevronUp, Glasses, Banknote, CreditCard, Smartphone, QrCode, Send, MapPin, Truck, Store, Package, User, FileText, Check, AlertCircle, Trash2, ShoppingBag, Hash, Clock, Building2, Camera, Image as ImageIcon, MessageCircle, Eye, Receipt, ZoomIn } from 'lucide-react';
+import { Search, Plus, X, Save, ChevronDown, ChevronUp, Glasses, Banknote, CreditCard, Smartphone, QrCode, Send, MapPin, Truck, Store, Package, User, FileText, Check, CheckCircle, AlertCircle, Trash2, ShoppingBag, Hash, Clock, Building2, Camera, Image as ImageIcon, MessageCircle, Eye, Receipt, ZoomIn } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { saveSale as saveToStorage, getSales, getPayments, updateSaleBalance, recordPayment, closeSaleLocal, compressImage } from '../lib/salesStorage';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type PaymentMethod = 'efectivo' | 'transferencia' | 'tarjeta' | 'qr' | 'giro';
-type SaleStatus = 'pendiente' | 'en_laboratorio' | 'listo' | 'entregado' | 'cancelado';
+type SaleStatus = 'pendiente' | 'en_proceso' | 'en_laboratorio' | 'listo' | 'pagado_total' | 'entregado' | 'cancelado';
 type DeliveryType = 'retiro' | 'delivery' | 'encomienda';
 type Channel = 'local' | 'online';
 
@@ -66,8 +66,10 @@ const PAY_METHODS: { id: PaymentMethod; label: string; icon: React.ReactNode; co
 
 const STATUS_CFG: Record<SaleStatus, { label: string; color: string }> = {
   pendiente:      { label: 'Pendiente',      color: '#f59e0b' },
+  en_proceso:     { label: 'En Proceso',     color: '#f59e0b' },
   en_laboratorio: { label: 'En Laboratorio', color: '#3b82f6' },
   listo:          { label: 'Listo',          color: '#10b981' },
+  pagado_total:   { label: 'Pagado Total',   color: '#22c55e' },
   entregado:      { label: 'Entregado',      color: '#6b7280' },
   cancelado:      { label: 'Cancelado',      color: '#ef4444' },
 };
@@ -196,6 +198,7 @@ export default function POSPage() {
   const [saving,      setSaving]      = useState(false);
   const [saved,       setSaved]       = useState('');
   const [saveErr,     setSaveErr]     = useState('');
+  const [paidToast,   setPaidToast]   = useState('');   // green toast when balance hits 0
 
   // Sales list (right panel)
   const [sales,       setSales]       = useState<RecentSale[]>([]);
@@ -529,21 +532,41 @@ export default function POSPage() {
         });
         setSales(prev => prev.map(s =>
           s.id === saleId
-            ? { ...s, deposit: newDeposit, balance: newBalance }
+            ? { ...s, deposit: newDeposit, balance: newBalance,
+                status: newBalance <= 0 && s.status !== 'entregado' ? 'pagado_total' : s.status }
             : s
         ));
+        if (newBalance <= 0) {
+          const clientName = `${localSale.cliente.nombre} ${localSale.cliente.apellido}`.trim();
+          setPaidToast(`Venta saldada · ${clientName} — Saldo en 0`);
+          setTimeout(() => setPaidToast(''), 6000);
+        }
       }
     } else {
+      const clientName = sales.find(s => s.id === saleId)?.customers?.full_name
+        ?? sales.find(s => s.id === saleId)?.customer_first_name ?? '';
       await supabase.from('sale_payments').insert([{
         sale_id: saleId, amount: amt, method: xPayMethod,
-        branch_id: xPayBranch || FIXED_BRANCHES[0].id, reference: xPayRef,
+        branch_id: xPayBranch || FIXED_BRANCHES[0].id,
+        reference: clientName ? `Pago de saldo — ${clientName}` : (xPayRef || 'Abono'),
         registered_by: profile?.id ?? null,
         receipt_url: xPayReceipt || null,
       }]);
       const { data: allPays } = await supabase.from('sale_payments').select('amount').eq('sale_id', saleId);
       const tp = (allPays ?? []).reduce((s: number, p: any) => s + Number(p.amount), 0);
-      const { data: sr } = await supabase.from('sales').select('total').eq('id', saleId).maybeSingle();
-      if (sr) await supabase.from('sales').update({ deposit: tp, balance: Math.max(0, Number(sr.total) - tp) }).eq('id', saleId);
+      const { data: sr } = await supabase.from('sales').select('total,status').eq('id', saleId).maybeSingle();
+      if (sr) {
+        const newBal = Math.max(0, Number(sr.total) - tp);
+        const upd: Record<string, unknown> = { deposit: tp, balance: newBal };
+        if (newBal <= 0 && sr.status !== 'entregado' && sr.status !== 'cancelado') {
+          upd.status = 'pagado_total';
+        }
+        await supabase.from('sales').update(upd).eq('id', saleId);
+        if (newBal <= 0) {
+          setPaidToast(`Venta saldada · ${clientName || 'Cliente'} — Saldo en 0`);
+          setTimeout(() => setPaidToast(''), 6000);
+        }
+      }
     }
 
     setAddPayFor(null); setXPayAmt(''); setXPayRef(''); setXPayReceipt(''); setXPayWarn(false); loadSales();
@@ -553,9 +576,11 @@ export default function POSPage() {
   async function closeSale(saleId: string, balance: number) {
     const now = new Date().toISOString();
     const nowDate = now.split('T')[0];
-
-    // Record final payment if there's a balance
     const finalAmt = balance > 0 ? parseFloat(closeAmt) || 0 : 0;
+    const saleData = sales.find(s => s.id === saleId);
+    const closingClientName = saleData?.customers?.full_name
+      ?? [saleData?.customer_first_name, saleData?.customer_last_name].filter(Boolean).join(' ')
+      ?? '';
     setClosingSale(true);
 
     if (saleId.startsWith('local-')) {
@@ -586,7 +611,7 @@ export default function POSPage() {
           amount: finalAmt,
           method: closeMethod,
           branch_id: xPayBranch || FIXED_BRANCHES[0].id,
-          reference: closeRef || 'Pago final',
+          reference: closingClientName ? `Pago final — ${closingClientName}` : (closeRef || 'Pago final'),
           registered_by: profile?.id ?? null,
           receipt_url: closeReceipt || null,
         }]);
@@ -670,6 +695,12 @@ export default function POSPage() {
           <div className="flex items-center gap-3 p-3.5 rounded-xl border text-sm font-light"
             style={{ background: 'rgba(16,185,129,0.07)', borderColor: 'rgba(16,185,129,0.28)', color: '#10b981' }}>
             <Check size={15} /> {saved}
+          </div>
+        )}
+        {paidToast && (
+          <div className="flex items-center gap-3 p-3.5 rounded-xl border text-sm font-light"
+            style={{ background: 'rgba(34,197,94,0.10)', borderColor: 'rgba(34,197,94,0.40)', color: '#22c55e' }}>
+            <CheckCircle size={15} /> {paidToast}
           </div>
         )}
 
@@ -948,6 +979,15 @@ export default function POSPage() {
       {/* ── RIGHT: Sales List ──────────────────────────────────────────────────── */}
       <div className="w-[420px] shrink-0 border-l flex flex-col h-screen sticky top-0 overflow-hidden"
         style={{ borderColor: 'rgba(197,160,89,0.10)', background: 'rgba(0,0,0,0.18)' }}>
+
+        {/* Paid toast */}
+        {paidToast && (
+          <div className="mx-4 mt-3 flex items-center gap-2.5 px-4 py-3 rounded-xl text-sm font-light"
+            style={{ background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.40)', color: '#22c55e' }}>
+            <CheckCircle size={14} />
+            <span>{paidToast}</span>
+          </div>
+        )}
 
         {/* Header */}
         <div className="px-5 py-4" style={{ borderBottom: '1px solid rgba(197,160,89,0.10)' }}>
