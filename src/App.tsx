@@ -33,7 +33,7 @@ function AppContent() {
     }
   }, [profile?.branch_id, branches.length]);
 
-  const ADMIN_ONLY_PAGES: Page[] = ['settings', 'reports', 'branches', 'balances', 'commissions', 'cash'];
+  const ADMIN_ONLY_PAGES: Page[] = ['settings', 'reports', 'branches', 'balances', 'commissions'];
 
   // Redirect non-admins away from restricted pages
   useEffect(() => {

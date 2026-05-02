@@ -92,10 +92,16 @@ export default function CashPage() {
   const [savingExp,  setSavingExp]  = useState(false);
 
   const isAdmin = profile?.role === 'admin' || profile?.role === 'gerente';
+  const isVendedora = profile?.role === 'vendedora';
 
   useEffect(() => {
-    if (activeBranch && !selectedBranch) setSelectedBranch(activeBranch.id);
-  }, [activeBranch, selectedBranch]);
+    // Vendedora: auto-select her assigned branch and lock it
+    if (isVendedora && profile?.branch_id && !selectedBranch) {
+      setSelectedBranch(profile.branch_id.toLowerCase());
+    } else if (activeBranch && !selectedBranch) {
+      setSelectedBranch(activeBranch.id);
+    }
+  }, [activeBranch, selectedBranch, isVendedora, profile?.branch_id]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -257,8 +263,22 @@ export default function CashPage() {
     load();
   }
 
-  const filtered = methodFilter === 'all' ? payments : payments.filter(p => p.method === methodFilter);
-  const netTotal = summary.total - summary.expenses;
+  // Vendedora only sees her own payments
+  const visiblePayments = isVendedora
+    ? payments.filter(p => p.seller_name === profile?.full_name)
+    : payments;
+  const filtered = methodFilter === 'all' ? visiblePayments : visiblePayments.filter(p => p.method === methodFilter);
+
+  // Recompute summary for vendedora's filtered view
+  const visibleSummary: DailySummary = isVendedora
+    ? (() => {
+        let agg = emptyAgg();
+        for (const r of visiblePayments) agg = addToAgg(agg, r.method, r.amount);
+        agg.expenses = summary.expenses; // expenses are shared per branch
+        return agg;
+      })()
+    : summary;
+  const netTotal = visibleSummary.total - visibleSummary.expenses;
 
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
@@ -266,18 +286,24 @@ export default function CashPage() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-xl font-light tracking-wider text-white">Caja del Día</h1>
-          <p className="text-xs text-gold-muted mt-0.5 tracking-wide">Ingresos y movimientos por sede</p>
+          <h1 className="text-xl font-light tracking-wider text-white">Mi Caja del Día</h1>
+          <p className="text-xs text-gold-muted mt-0.5 tracking-wide">
+            {isVendedora
+              ? `${profile?.full_name} · ${activeBranch?.name ?? ''}`
+              : 'Ingresos y movimientos por sede'}
+          </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <select value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)}
-            className="px-3 py-2 rounded-lg text-xs outline-none border"
-            style={{ background: 'rgba(197,160,89,0.07)', borderColor: 'rgba(197,160,89,0.22)', color: '#C5A059' }}>
-            <option value="" style={{ background: '#111' }}>Todas las sedes</option>
-            {branches.map(b => (
-              <option key={b.id} value={b.id} style={{ background: '#111' }}>{b.name}</option>
-            ))}
-          </select>
+          {isAdmin && (
+            <select value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)}
+              className="px-3 py-2 rounded-lg text-xs outline-none border"
+              style={{ background: 'rgba(197,160,89,0.07)', borderColor: 'rgba(197,160,89,0.22)', color: '#C5A059' }}>
+              <option value="" style={{ background: '#111' }}>Todas las sedes</option>
+              {branches.map(b => (
+                <option key={b.id} value={b.id} style={{ background: '#111' }}>{b.name}</option>
+              ))}
+            </select>
+          )}
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg"
             style={{ background: 'rgba(197,160,89,0.07)', border: '1px solid rgba(197,160,89,0.18)' }}>
             <Calendar size={13} className="text-gold-muted" />
@@ -301,7 +327,7 @@ export default function CashPage() {
               <span className="text-xs font-light tracking-wide" style={{ color: 'rgba(255,255,255,0.44)' }}>{m.label}</span>
               <span style={{ color: m.color, opacity: 0.8 }}>{m.icon}</span>
             </div>
-            <p className="text-xl font-light" style={{ color: m.color }}>{fmt((summary as any)[m.id])}</p>
+            <p className="text-xl font-light" style={{ color: m.color }}>{fmt((visibleSummary as any)[m.id])}</p>
             <p className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.22)' }}>Gs.</p>
           </div>
         ))}
@@ -311,16 +337,16 @@ export default function CashPage() {
       <div className="grid grid-cols-3 gap-4">
         <div className="rounded-xl p-5" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(197,160,89,0.20)' }}>
           <p className="text-xs font-light mb-2 flex items-center gap-1.5" style={{ color: 'rgba(255,255,255,0.44)' }}>
-            <DollarSign size={11} />Total cobrado
+            <DollarSign size={11} />{isVendedora ? 'Mis cobros de hoy' : 'Total cobrado'}
           </p>
-          <p className="text-2xl font-light" style={{ color: '#C5A059' }}>{fmt(summary.total)}</p>
-          <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.24)' }}>{summary.count} movimientos</p>
+          <p className="text-2xl font-light" style={{ color: '#C5A059' }}>{fmt(visibleSummary.total)}</p>
+          <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.24)' }}>{visibleSummary.count} movimientos</p>
         </div>
         <div className="rounded-xl p-5" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(239,68,68,0.20)' }}>
           <p className="text-xs font-light mb-2 flex items-center gap-1.5" style={{ color: 'rgba(255,255,255,0.44)' }}>
             <Minus size={11} />Egresos
           </p>
-          <p className="text-2xl font-light" style={{ color: '#ef4444' }}>{fmt(summary.expenses)}</p>
+          <p className="text-2xl font-light" style={{ color: '#ef4444' }}>{fmt(visibleSummary.expenses)}</p>
           <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.24)' }}>{expenses.length} gastos</p>
         </div>
         <div className="rounded-xl p-5"
@@ -331,8 +357,8 @@ export default function CashPage() {
         </div>
       </div>
 
-      {/* By seller breakdown */}
-      {bySeller.length > 0 && (
+      {/* By seller breakdown — admin only */}
+      {isAdmin && bySeller.length > 0 && (
         <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
           <div className="flex items-center gap-2 px-5 py-3.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
             <User size={14} className="text-gold-muted" />
