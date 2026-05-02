@@ -111,15 +111,17 @@ export default function CashPage() {
 
     // ── Supabase payments ──────────────────────────────────────────────────
     let supabaseRows: PaymentRow[] = [];
-    if (selectedBranch) {
-      const { data: pData } = await supabase
+    {
+      let pQuery = supabase
         .from('sale_payments')
         .select('id, amount, method, paid_at, reference, branches(name), sales(sale_number, seller_name, customers(full_name))')
-        .eq('branch_id', selectedBranch)
         .gte('paid_at', dayStart)
         .lte('paid_at', dayEnd)
         .order('paid_at', { ascending: false });
 
+      if (selectedBranch) pQuery = pQuery.eq('branch_id', selectedBranch);
+
+      const { data: pData } = await pQuery;
       supabaseRows = (pData ?? []).map((p: any) => ({
         id: p.id,
         sale_number: p.sales?.sale_number ?? '',
@@ -179,13 +181,14 @@ export default function CashPage() {
 
     // ── Expenses ──────────────────────────────────────────────────────────
     let expList: Expense[] = [];
-    if (selectedBranch) {
-      const { data: expData } = await supabase
+    {
+      let expQuery = supabase
         .from('expenses')
         .select('id, description, amount, method, expense_date')
-        .eq('branch_id', selectedBranch)
         .eq('expense_date', selectedDate)
         .order('created_at', { ascending: false });
+      if (selectedBranch) expQuery = expQuery.eq('branch_id', selectedBranch);
+      const { data: expData } = await expQuery;
       expList = (expData ?? []) as Expense[];
     }
     setExpenses(expList);
@@ -213,6 +216,8 @@ export default function CashPage() {
         .eq('register_date', selectedDate)
         .maybeSingle();
       setClosedAt(cr?.closed_at ?? null);
+    } else {
+      setClosedAt(null);
     }
 
     setLoading(false);
