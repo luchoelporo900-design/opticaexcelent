@@ -2,13 +2,13 @@ import { useState, useEffect } from 'react';
 import { User, Glasses, Plus, Eye, EyeOff, Check, X, RefreshCw, Shield } from 'lucide-react';
 import { useAuth, getStoredUsers, saveStoredUsers, Profile } from '../context/AuthContext';
 
-const SUCURSALES = ['Azara', 'Centro', 'Caacupé', 'Fernando'];
+const SUCURSALES = ['Azara', 'Fernando', 'Caacupé', 'La Fina'];
 
 const ROLES = [
-  { id: 'vendedor',    label: 'Vendedora',     color: '#3b82f6' },
-  { id: 'laboratorio', label: 'Laboratorio',   color: '#10b981' },
-  { id: 'gerente',     label: 'Gerente',       color: '#f59e0b' },
-  { id: 'admin',       label: 'Administrador', color: '#C5A059' },
+  { id: 'vendedora',    label: 'Vendedora',     color: '#3b82f6' },
+  { id: 'laboratorio',  label: 'Laboratorio',   color: '#10b981' },
+  { id: 'gerente',      label: 'Gerente',       color: '#f59e0b' },
+  { id: 'admin',        label: 'Administrador', color: '#C5A059' },
 ];
 
 function roleColor(role: string) { return ROLES.find(r => r.id === role)?.color ?? 'rgba(255,255,255,0.4)'; }
@@ -26,18 +26,13 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 function GoldInput({ value, onChange, placeholder, type = 'text', disabled = false }: {
-  value: string; onChange?: (v: string) => void;
-  placeholder?: string; type?: string; disabled?: boolean;
+  value: string; onChange?: (v: string) => void; placeholder?: string; type?: string; disabled?: boolean;
 }) {
   return (
-    <input
-      type={type} value={value}
-      onChange={e => onChange?.(e.target.value)}
-      placeholder={placeholder}
-      disabled={disabled}
+    <input type={type} value={value} onChange={e => onChange?.(e.target.value)}
+      placeholder={placeholder} disabled={disabled}
       className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border"
-      style={{ borderColor: disabled ? 'rgba(255,255,255,0.08)' : 'rgba(197,160,89,0.22)', opacity: disabled ? 0.5 : 1 }}
-    />
+      style={{ borderColor: disabled ? 'rgba(255,255,255,0.08)' : 'rgba(197,160,89,0.22)', opacity: disabled ? 0.5 : 1 }} />
   );
 }
 
@@ -48,33 +43,25 @@ export default function SettingsPage() {
   const [fullName, setFullName] = useState(profile?.full_name || '');
   const [saving,   setSaving]   = useState(false);
   const [saved,    setSaved]    = useState(false);
-
-  const [team,        setTeam]        = useState<Profile[]>([]);
-  const [loadingTeam, setLoadingTeam] = useState(false);
+  const [team,     setTeam]     = useState<Profile[]>([]);
 
   const [showCreate, setShowCreate] = useState(false);
   const [newName,    setNewName]    = useState('');
   const [newEmail,   setNewEmail]   = useState('');
   const [newPass,    setNewPass]    = useState('');
   const [showPass,   setShowPass]   = useState(false);
-  const [newRole,    setNewRole]    = useState('admin');
+  const [newRole,    setNewRole]    = useState('vendedora');
   const [newBranch,  setNewBranch]  = useState('');
   const [creating,   setCreating]   = useState(false);
   const [createErr,  setCreateErr]  = useState('');
   const [createOk,   setCreateOk]   = useState('');
 
-  useEffect(() => { loadTeam(); }, []);
-
-  function loadTeam() {
-    setLoadingTeam(true);
-    setTeam(getStoredUsers());
-    setLoadingTeam(false);
-  }
+  useEffect(() => { setTeam(getStoredUsers()); }, []);
 
   function saveProfile() {
     if (!profile) return;
     setSaving(true);
-    const all = getStoredUsers();
+    const all     = getStoredUsers();
     const updated = all.map(u => u.id === profile.id ? { ...u, full_name: fullName } : u);
     saveStoredUsers(updated);
     setSaving(false); setSaved(true);
@@ -83,47 +70,41 @@ export default function SettingsPage() {
 
   function createUser() {
     setCreateErr('');
-    if (!newName.trim() || !newEmail.trim() || !newPass.trim()) {
-      setCreateErr('Nombre, email y contraseña son obligatorios.');
-      return;
-    }
+    if (!newName.trim() || !newEmail.trim() || !newPass.trim()) { setCreateErr('Todos los campos son obligatorios.'); return; }
     if (newPass.length < 6) { setCreateErr('La contraseña debe tener al menos 6 caracteres.'); return; }
-
     const all = getStoredUsers();
-    if (all.find(u => u.email.toLowerCase() === newEmail.trim().toLowerCase())) {
-      setCreateErr('Ya existe un usuario con ese correo.');
-      return;
-    }
-
+    if (all.find(u => u.email.toLowerCase() === newEmail.trim().toLowerCase())) { setCreateErr('Ya existe un usuario con ese correo.'); return; }
     setCreating(true);
     const newUser: Profile = {
-      id: Date.now().toString(),
-      full_name: newName.trim(),
-      email: newEmail.trim(),
-      password: newPass,
-      role: newRole === 'admin' ? 'admin' : 'vendedora',
-      branch_id: newBranch || null,
-      avatar_url: '',
-      created_at: new Date().toISOString(),
+      id: Date.now().toString(), full_name: newName.trim(), email: newEmail.trim(),
+      password: newPass, role: newRole as Profile['role'], branch_id: newBranch || null,
+      avatar_url: '', created_at: new Date().toISOString(),
     };
     saveStoredUsers([...all, newUser]);
+    setTeam(getStoredUsers());
     setCreateOk(`Usuario "${newName.trim()}" creado con éxito.`);
-    setNewName(''); setNewEmail(''); setNewPass(''); setNewRole('vendedor'); setNewBranch('');
+    setNewName(''); setNewEmail(''); setNewPass(''); setNewRole('vendedora'); setNewBranch('');
     setShowCreate(false); setCreating(false);
     setTimeout(() => setCreateOk(''), 6000);
-    loadTeam();
   }
 
   function updateMemberRole(id: string, role: string) {
     const all = getStoredUsers();
     saveStoredUsers(all.map(u => u.id === id ? { ...u, role: role as Profile['role'] } : u));
-    setTeam(prev => prev.map(m => m.id === id ? { ...m, role: role as Profile['role'] } : m));
+    setTeam(getStoredUsers());
   }
 
   function updateMemberBranch(id: string, branch_id: string) {
     const all = getStoredUsers();
     saveStoredUsers(all.map(u => u.id === id ? { ...u, branch_id: branch_id || null } : u));
-    setTeam(prev => prev.map(m => m.id === id ? { ...m, branch_id: branch_id || null } : m));
+    setTeam(getStoredUsers());
+  }
+
+  function deleteUser(id: string) {
+    if (id === profile?.id) return;
+    if (!window.confirm('¿Eliminar este usuario?')) return;
+    saveStoredUsers(getStoredUsers().filter(u => u.id !== id));
+    setTeam(getStoredUsers());
   }
 
   return (
@@ -166,136 +147,123 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Gestión de equipo */}
-      <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.018)', border: '1px solid rgba(197,160,89,0.14)' }}>
-        <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: '1px solid rgba(197,160,89,0.09)' }}>
-          <div className="flex items-center gap-3">
-            <Shield size={14} style={{ color: '#C5A059' }} />
-            <span className="text-sm font-light tracking-wide text-white">Gestión de Equipo</span>
-            <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(197,160,89,0.12)', color: '#C5A059' }}>
-              {team.length} usuarios
-            </span>
+      {/* Gestión de equipo — solo admin */}
+      {isAdmin && (
+        <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.018)', border: '1px solid rgba(197,160,89,0.14)' }}>
+          <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: '1px solid rgba(197,160,89,0.09)' }}>
+            <div className="flex items-center gap-3">
+              <Shield size={14} style={{ color: '#C5A059' }} />
+              <span className="text-sm font-light tracking-wide text-white">Gestión de Equipo</span>
+              <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(197,160,89,0.12)', color: '#C5A059' }}>
+                {team.length} usuarios
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setTeam(getStoredUsers())}
+                className="p-2 rounded-lg" style={{ color: 'rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.04)' }}>
+                <RefreshCw size={12} />
+              </button>
+              <button onClick={() => { setShowCreate(!showCreate); setCreateErr(''); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium"
+                style={{ background: showCreate ? 'rgba(255,255,255,0.06)' : '#C5A059', color: showCreate ? 'rgba(255,255,255,0.6)' : '#000' }}>
+                {showCreate ? <><X size={12} /> Cancelar</> : <><Plus size={12} /> Nuevo usuario</>}
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button onClick={loadTeam} disabled={loadingTeam}
-              className="p-2 rounded-lg" style={{ color: 'rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.04)' }}>
-              <RefreshCw size={12} className={loadingTeam ? 'animate-spin' : ''} />
-            </button>
-            <button onClick={() => { setShowCreate(!showCreate); setCreateErr(''); }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium"
-              style={{ background: showCreate ? 'rgba(255,255,255,0.06)' : '#C5A059', color: showCreate ? 'rgba(255,255,255,0.6)' : '#000' }}>
-              {showCreate ? <><X size={12} /> Cancelar</> : <><Plus size={12} /> Nuevo usuario</>}
-            </button>
-          </div>
-        </div>
 
-        {showCreate && (
-          <div className="p-5 space-y-4" style={{ borderBottom: '1px solid rgba(197,160,89,0.08)', background: 'rgba(197,160,89,0.02)' }}>
-            <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.55)' }}>
-              {team.length === 0 ? 'Crear primer administrador' : 'Crear nuevo usuario'}
-            </p>
-            {team.length === 0 && (
-              <div className="px-4 py-3 rounded-xl text-xs font-light"
-                style={{ background: 'rgba(197,160,89,0.07)', border: '1px solid rgba(197,160,89,0.25)', color: 'rgba(197,160,89,0.85)', lineHeight: 1.6 }}>
-                Modo configuracion inicial. Crea tu cuenta de Administrador principal para empezar.
-              </div>
-            )}
-            {createErr && (
-              <div className="px-3 py-2 rounded-xl text-xs"
-                style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#f87171' }}>
-                {createErr}
-              </div>
-            )}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <Field label="Nombre completo"><GoldInput value={newName} onChange={setNewName} placeholder="Ej: María García" /></Field>
-              <Field label="Email para login"><GoldInput value={newEmail} onChange={setNewEmail} type="email" placeholder="usuario@opticayolanda.com" /></Field>
-              <Field label="Contraseña">
-                <div className="relative">
-                  <GoldInput value={newPass} onChange={setNewPass} type={showPass ? 'text' : 'password'} placeholder="Mínimo 6 caracteres" />
-                  <button type="button" onClick={() => setShowPass(!showPass)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: 'rgba(197,160,89,0.5)' }}>
-                    {showPass ? <EyeOff size={14} /> : <Eye size={14} />}
-                  </button>
+          {showCreate && (
+            <div className="p-5 space-y-4" style={{ borderBottom: '1px solid rgba(197,160,89,0.08)', background: 'rgba(197,160,89,0.02)' }}>
+              <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.55)' }}>Crear nuevo usuario</p>
+              {createErr && (
+                <div className="px-3 py-2 rounded-xl text-xs" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#f87171' }}>
+                  {createErr}
                 </div>
-              </Field>
-              <Field label="Rol">
-                <select value={newRole} onChange={e => setNewRole(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl text-sm font-light outline-none border"
-                  style={{ background: 'rgba(255,255,255,0.03)', borderColor: 'rgba(197,160,89,0.22)', color: 'rgba(255,255,255,0.8)' }}>
-                  {ROLES.map(r => <option key={r.id} value={r.id} style={{ background: '#111' }}>{r.label}</option>)}
-                </select>
-              </Field>
-              <Field label="Sucursal asignada">
-                <select value={newBranch} onChange={e => setNewBranch(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl text-sm font-light outline-none border"
-                  style={{ background: 'rgba(255,255,255,0.03)', borderColor: 'rgba(197,160,89,0.22)', color: 'rgba(255,255,255,0.8)' }}>
-                  <option value="" style={{ background: '#111' }}>Sin sucursal específica</option>
-                  {SUCURSALES.map(s => <option key={s} value={s} style={{ background: '#111' }}>{s}</option>)}
-                </select>
-              </Field>
-            </div>
-            <button onClick={createUser}
-              disabled={creating || !newName.trim() || !newEmail.trim() || !newPass.trim()}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-medium transition-opacity"
-              style={{
-                background: '#C5A059', color: '#000',
-                opacity: (!newName.trim() || !newEmail.trim() || !newPass.trim()) ? 0.45 : 1,
-                cursor: (!newName.trim() || !newEmail.trim() || !newPass.trim()) ? 'not-allowed' : 'pointer',
-              }}>
-              <User size={12} />
-              {creating ? 'Creando usuario...' : 'Crear Usuario'}
-            </button>
-          </div>
-        )}
-
-        {loadingTeam ? (
-          <div className="p-5 space-y-2">{[...Array(3)].map((_, i) => <div key={i} className="h-12 rounded shimmer" />)}</div>
-        ) : team.length === 0 ? (
-          <div className="text-center py-10 space-y-3">
-            <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.28)' }}>No hay usuarios registrados aun.</p>
-            <button onClick={() => { setShowCreate(true); setCreateErr(''); }}
-              className="text-xs px-4 py-2 rounded-xl font-medium"
-              style={{ background: '#C5A059', color: '#000' }}>
-              Crear primer administrador
-            </button>
-          </div>
-        ) : (
-          <div>
-            <div className="grid px-5 py-2.5 text-xs font-light"
-              style={{ gridTemplateColumns: '1fr 170px 180px 90px', borderBottom: '1px solid rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.30)' }}>
-              <span>Usuario</span><span>Rol</span><span>Sucursal</span><span>Desde</span>
-            </div>
-            <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
-              {team.map((m, i) => (
-                <div key={m.id} className="grid items-center gap-3 px-5 py-3"
-                  style={{ gridTemplateColumns: '1fr 170px 180px 90px', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.008)' }}>
-                  <div className="min-w-0">
-                    <p className="text-sm text-white font-light truncate">{m.full_name}</p>
-                    {m.id === profile?.id && <span className="text-xs" style={{ color: 'rgba(197,160,89,0.6)' }}>← tú</span>}
+              )}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <Field label="Nombre completo"><GoldInput value={newName} onChange={setNewName} placeholder="Ej: María García" /></Field>
+                <Field label="Email para login"><GoldInput value={newEmail} onChange={setNewEmail} type="email" placeholder="usuario@opticayolanda.com" /></Field>
+                <Field label="Contraseña">
+                  <div className="relative">
+                    <GoldInput value={newPass} onChange={setNewPass} type={showPass ? 'text' : 'password'} placeholder="Mínimo 6 caracteres" />
+                    <button type="button" onClick={() => setShowPass(!showPass)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: 'rgba(197,160,89,0.5)' }}>
+                      {showPass ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
                   </div>
-                  <select value={m.role} onChange={e => updateMemberRole(m.id, e.target.value)}
-                    disabled={m.id === profile?.id}
-                    className="px-2 py-1.5 rounded-lg text-xs outline-none border"
-                    style={{ background: `${roleColor(m.role)}12`, borderColor: `${roleColor(m.role)}35`, color: roleColor(m.role), opacity: m.id === profile?.id ? 0.6 : 1 }}>
-                    {ROLES.map(r => <option key={r.id} value={r.id} style={{ background: '#111', color: '#fff' }}>{r.label}</option>)}
+                </Field>
+                <Field label="Rol">
+                  <select value={newRole} onChange={e => setNewRole(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl text-sm font-light outline-none border"
+                    style={{ background: 'rgba(255,255,255,0.03)', borderColor: 'rgba(197,160,89,0.22)', color: 'rgba(255,255,255,0.8)' }}>
+                    {ROLES.map(r => <option key={r.id} value={r.id} style={{ background: '#111' }}>{r.label}</option>)}
                   </select>
-                  <select value={m.branch_id || ''} onChange={e => updateMemberBranch(m.id, e.target.value)}
-                    className="px-2 py-1.5 rounded-lg text-xs outline-none border"
-                    style={{ background: 'rgba(255,255,255,0.03)', borderColor: 'rgba(197,160,89,0.18)', color: 'rgba(255,255,255,0.7)' }}>
-                    <option value="" style={{ background: '#111' }}>Sin sucursal</option>
+                </Field>
+                <Field label="Sucursal asignada">
+                  <select value={newBranch} onChange={e => setNewBranch(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl text-sm font-light outline-none border"
+                    style={{ background: 'rgba(255,255,255,0.03)', borderColor: 'rgba(197,160,89,0.22)', color: 'rgba(255,255,255,0.8)' }}>
+                    <option value="" style={{ background: '#111' }}>Sin sucursal específica</option>
                     {SUCURSALES.map(s => <option key={s} value={s} style={{ background: '#111' }}>{s}</option>)}
                   </select>
-                  <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.32)' }}>
-                    {new Date(m.created_at).toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit', year: '2-digit' })}
-                  </p>
-                </div>
-              ))}
+                </Field>
+              </div>
+              <button onClick={createUser} disabled={creating || !newName.trim() || !newEmail.trim() || !newPass.trim()}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-medium transition-opacity"
+                style={{ background: '#C5A059', color: '#000', opacity: (!newName.trim() || !newEmail.trim() || !newPass.trim()) ? 0.45 : 1, cursor: (!newName.trim() || !newEmail.trim() || !newPass.trim()) ? 'not-allowed' : 'pointer' }}>
+                <User size={12} />{creating ? 'Creando...' : 'Crear Usuario'}
+              </button>
             </div>
-          </div>
-        )}
-      </div>
+          )}
 
-      {/* Info del sistema */}
+          {team.length === 0 ? (
+            <div className="text-center py-10">
+              <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.28)' }}>No hay usuarios registrados.</p>
+            </div>
+          ) : (
+            <div>
+              <div className="grid px-5 py-2.5 text-xs font-light"
+                style={{ gridTemplateColumns: '1fr 160px 180px 50px', borderBottom: '1px solid rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.30)' }}>
+                <span>Usuario</span><span>Rol</span><span>Sucursal</span><span></span>
+              </div>
+              <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+                {team.map((m, i) => (
+                  <div key={m.id} className="grid items-center gap-3 px-5 py-3"
+                    style={{ gridTemplateColumns: '1fr 160px 180px 50px', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.008)' }}>
+                    <div className="min-w-0">
+                      <p className="text-sm text-white font-light truncate">{m.full_name}</p>
+                      <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.35)' }}>{m.email}</p>
+                      {m.id === profile?.id && <span className="text-xs" style={{ color: 'rgba(197,160,89,0.6)' }}>← tú</span>}
+                    </div>
+                    <select value={m.role} onChange={e => updateMemberRole(m.id, e.target.value)}
+                      disabled={m.id === profile?.id}
+                      className="px-2 py-1.5 rounded-lg text-xs outline-none border"
+                      style={{ background: `${roleColor(m.role)}12`, borderColor: `${roleColor(m.role)}35`, color: roleColor(m.role), opacity: m.id === profile?.id ? 0.6 : 1 }}>
+                      {ROLES.map(r => <option key={r.id} value={r.id} style={{ background: '#111', color: '#fff' }}>{r.label}</option>)}
+                    </select>
+                    <select value={m.branch_id || ''} onChange={e => updateMemberBranch(m.id, e.target.value)}
+                      className="px-2 py-1.5 rounded-lg text-xs outline-none border"
+                      style={{ background: 'rgba(255,255,255,0.03)', borderColor: 'rgba(197,160,89,0.18)', color: 'rgba(255,255,255,0.7)' }}>
+                      <option value="" style={{ background: '#111' }}>Sin sucursal</option>
+                      {SUCURSALES.map(s => <option key={s} value={s} style={{ background: '#111' }}>{s}</option>)}
+                    </select>
+                    {m.id !== profile?.id && (
+                      <button onClick={() => deleteUser(m.id)}
+                        className="flex items-center justify-center w-8 h-8 rounded-lg"
+                        style={{ color: 'rgba(239,68,68,0.5)', border: '1px solid rgba(239,68,68,0.2)' }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#ef4444'; }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(239,68,68,0.5)'; }}>
+                        <X size={13} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Info sistema */}
       <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.018)', border: '1px solid rgba(197,160,89,0.14)' }}>
         <div className="flex items-center gap-3 px-5 py-3.5" style={{ borderBottom: '1px solid rgba(197,160,89,0.09)' }}>
           <Glasses size={14} style={{ color: '#C5A059' }} />
@@ -305,9 +273,9 @@ export default function SettingsPage() {
           {[
             ['Sistema',         'Óptica Yolanda · Elite Management'],
             ['Versión',         'V32.0.0'],
-            ['Sucursales',      '4 (Azara, Fernando, Caacupé, Centro)'],
+            ['Sucursales',      '4 (Azara, Fernando, Caacupé, La Fina)'],
             ['Base de datos',   'localStorage (sin conexión requerida)'],
-            ['Módulos activos', 'Dashboard · POS · CRM · Caja · Saldos · Reportes'],
+            ['Módulos activos', 'Dashboard · POS · CRM · Caja · Saldos · Lab · Reportes'],
           ].map(([label, value]) => (
             <div key={label} className="flex justify-between text-xs font-light py-2.5 border-b"
               style={{ borderColor: 'rgba(197,160,89,0.07)' }}>
