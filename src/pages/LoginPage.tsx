@@ -1,4 +1,4 @@
-import { useState, FormEvent } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import { Eye, EyeOff, Glasses, Zap, UserPlus, ChevronLeft, Check } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -13,16 +13,24 @@ export default function LoginPage() {
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState('');
 
+  // ── Branches (loaded publicly) ───────────────────────────
+  const [branches, setBranches] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    supabase.from('branches').select('id, name').order('name')
+      .then(({ data }) => { if (data) setBranches(data); });
+  }, []);
+
   // ── Register state ───────────────────────────────────────
-  const [view,       setView]       = useState<'login' | 'register'>('login');
-  const [regName,    setRegName]    = useState('');
-  const [regEmail,   setRegEmail]   = useState('');
-  const [regPass,    setRegPass]    = useState('');
-  const [regRole,    setRegRole]    = useState<'vendedor' | 'admin'>('vendedor');
+  const [view,        setView]       = useState<'login' | 'register'>('login');
+  const [regName,     setRegName]    = useState('');
+  const [regEmail,    setRegEmail]   = useState('');
+  const [regPass,     setRegPass]    = useState('');
+  const [regRole,     setRegRole]    = useState<'vendedor' | 'admin'>('vendedor');
+  const [regBranch,   setRegBranch]  = useState('');
   const [showRegPass, setShowRegPass] = useState(false);
-  const [regLoading, setRegLoading] = useState(false);
-  const [regError,   setRegError]   = useState('');
-  const [regOk,      setRegOk]      = useState('');
+  const [regLoading,  setRegLoading] = useState(false);
+  const [regError,    setRegError]   = useState('');
+  const [regOk,       setRegOk]      = useState('');
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -62,7 +70,7 @@ export default function LoginPage() {
           password: regPass,
           full_name: regName.trim(),
           role: regRole,
-          branch_id: null,
+          branch_id: regBranch || null,
         }),
       }
     );
@@ -73,7 +81,7 @@ export default function LoginPage() {
       return;
     }
     setRegOk(`Usuario "${regName.trim()}" registrado con exito.`);
-    setRegName(''); setRegEmail(''); setRegPass(''); setRegRole('vendedor');
+    setRegName(''); setRegEmail(''); setRegPass(''); setRegRole('vendedor'); setRegBranch('');
     setTimeout(() => { setRegOk(''); setView('login'); }, 3000);
   }
 
@@ -364,11 +372,29 @@ export default function LoginPage() {
                     ))}
                   </div>
                 </div>
+                <div>
+                  <label className="section-label block mb-2">Sucursal <span style={{ color: 'rgba(255,255,255,0.28)' }}>(opcional)</span></label>
+                  <select
+                    value={regBranch}
+                    onChange={e => setRegBranch(e.target.value)}
+                    className="w-full px-4 py-3 text-sm outline-none"
+                    style={{
+                      borderRadius: 10,
+                      background: 'rgba(255,255,255,0.04)',
+                      border: '1px solid rgba(197,160,89,0.22)',
+                      color: regBranch ? 'rgba(255,255,255,0.80)' : 'rgba(255,255,255,0.32)',
+                    }}>
+                    <option value="" style={{ background: '#111', color: '#fff' }}>Sin sucursal (Admin General)</option>
+                    {branches.map(b => (
+                      <option key={b.id} value={b.id} style={{ background: '#111', color: '#fff' }}>{b.name}</option>
+                    ))}
+                  </select>
+                </div>
                 <button
                   type="submit"
-                  disabled={regLoading}
+                  disabled={regLoading || !regName.trim() || !regEmail.trim() || !regPass.trim()}
                   className="luxury-button w-full py-3 mt-1"
-                  style={regLoading ? { opacity: 0.52, cursor: 'not-allowed' } : {}}>
+                  style={regLoading || !regName.trim() || !regEmail.trim() || !regPass.trim() ? { opacity: 0.52, cursor: 'not-allowed' } : {}}>
                   {regLoading ? (
                     <span className="flex items-center justify-center gap-2.5">
                       <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">

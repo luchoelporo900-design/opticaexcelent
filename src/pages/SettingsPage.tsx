@@ -258,9 +258,16 @@ export default function SettingsPage() {
                   </select>
                 </Field>
               </div>
-              <button onClick={createUser} disabled={creating}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-medium"
-                style={{ background: '#C5A059', color: '#000' }}>
+              <button
+                onClick={createUser}
+                disabled={creating || !newName.trim() || !newEmail.trim() || !newPass.trim()}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-medium transition-opacity"
+                style={{
+                  background: '#C5A059',
+                  color: '#000',
+                  opacity: (!newName.trim() || !newEmail.trim() || !newPass.trim()) ? 0.45 : 1,
+                  cursor: (!newName.trim() || !newEmail.trim() || !newPass.trim()) ? 'not-allowed' : 'pointer',
+                }}>
                 <User size={12} />
                 {creating ? 'Creando usuario...' : 'Crear Usuario'}
               </button>
