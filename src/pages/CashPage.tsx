@@ -4,7 +4,6 @@ import {
   CheckCircle, TrendingUp, Calendar, QrCode, Send, Minus, Plus, X,
   User, Lock, Unlock, Tag, MapPin, Clock,
 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
 import { useBranch } from '../context/BranchContext';
 import { useAuth } from '../context/AuthContext';
 import { getSales, getPaymentsForDate, saveExpense, getExpensesForDate } from '../lib/salesStorage';
@@ -54,6 +53,8 @@ const METHODS: { id: PaymentMethod; label: string; icon: React.ReactNode; color:
   { id: 'giro',          label: 'Giro',         icon: <Send           size={16} />, color: '#a78bfa' },
 ];
 
+const SUCURSALES = ['Azara', 'Centro', 'Caacupé', 'Fernando'];
+
 const EXPENSE_CATEGORIES: { id: string; label: string }[] = [
   { id: 'alquiler',    label: 'Alquiler' },
   { id: 'servicios',   label: 'Servicios' },
@@ -82,6 +83,16 @@ function addToAgg(agg: DailySummary, method: string, amount: number): DailySumma
   return next;
 }
 
+// Compara nombres de sucursal ignorando mayúsculas y acentos
+function branchMatch(stored: string, selected: string): boolean {
+  if (!selected) return true;
+  const normalize = (s: string) => s.toLowerCase()
+    .replace(/á/g, 'a').replace(/é/g, 'e').replace(/í/g, 'i')
+    .replace(/ó/g, 'o').replace(/ú/g, 'u').replace(/ü/g, 'u');
+  return normalize(stored).includes(normalize(selected)) ||
+         normalize(selected).includes(normalize(stored));
+}
+
 export default function CashPage() {
   const { activeBranch, branches } = useBranch();
   const { profile } = useAuth();
@@ -93,11 +104,9 @@ export default function CashPage() {
   const [expenses,       setExpenses]       = useState<Expense[]>([]);
   const [bySeller,       setBySeller]       = useState<SellerRow[]>([]);
   const [loading,        setLoading]        = useState(false);
-  const [closing,        setClosing]        = useState(false);
   const [closedAt,       setClosedAt]       = useState<string | null>(null);
   const [methodFilter,   setMethodFilter]   = useState<string>('all');
 
-  // Expense entry
   const [showAddExp,  setShowAddExp]  = useState(false);
   const [expDesc,     setExpDesc]     = useState('');
   const [expAmount,   setExpAmount]   = useState('');
@@ -111,15 +120,13 @@ export default function CashPage() {
   const isVendedora = profile?.role === 'vendedora';
 
   useEffect(() => {
-    // Vendedora: auto-select her assigned branch and lock it
     if (isVendedora && profile?.branch_id && !selectedBranch) {
-      setSelectedBranch(profile.branch_id.toLowerCase());
+      setSelectedBranch(profile.branch_id);
     } else if (activeBranch && !selectedBranch) {
-      setSelectedBranch(activeBranch.id);
+      setSelectedBranch(activeBranch.name);
     }
   }, [activeBranch, selectedBranch, isVendedora, profile?.branch_id]);
 
-  // Keep expBranch in sync with selectedBranch
   useEffect(() => {
     if (selectedBranch && !expBranch) setExpBranch(selectedBranch);
   }, [selectedBranch, expBranch]);
@@ -146,13 +153,11 @@ export default function CashPage() {
   const load = useCallback(async () => {
     setLoading(true);
 
-    // Branch stored as name slug in localStorage (e.g. 'centro', 'azara')
-    const branchFilter = (selectedBranch || '').toLowerCase();
-
-    // ── Step 1: Build from localStorage immediately ────────────────────────
+    // Pagos del día filtrados por sucursal (comparación por nombre)
     const localPayments = getPaymentsForDate(selectedDate).filter(p =>
-      !branchFilter || (p.sucursal || '').toLowerCase() === branchFilter
+      !selectedBranch || branchMatch(p.sucursal || '', selectedBranch)
     );
+
     const localRows: PaymentRow[] = localPayments.map(p => ({
       id: String(p.id),
       sale_number: `VTA-${p.saleId}`,
@@ -165,13 +170,12 @@ export default function CashPage() {
       branch_name: p.sucursal,
     }));
 
+    // Ventas del día que no tienen pago registrado por separado
     const localSales = getSales().filter(v =>
       (v.fecha || '').startsWith(selectedDate) &&
-      (!branchFilter || (v.sucursalCobro || '').toLowerCase() === branchFilter)
+      (!selectedBranch || branchMatch(v.sucursalCobro || v.sucursalVenta || '', selectedBranch))
     );
-    // Sales that have NO payment record in LS_PAYMENTS_KEY get a synthetic row.
-    // Use (total - saldo) as the real paid amount — never sena alone, which
-    // doesn't grow when abonos are added.
+
     const recordedSaleIds = new Set(localPayments.map(p => p.saleId));
     const fallbackRows: PaymentRow[] = localSales
       .filter(v => !recordedSaleIds.has(v.id))
@@ -190,9 +194,11 @@ export default function CashPage() {
         };
       });
 
+    // Gastos del día filtrados por sucursal
     const localExpenses = getExpensesForDate(selectedDate).filter(e =>
-      !branchFilter || (e.sucursal || '').toLowerCase() === branchFilter
+      !selectedBranch || branchMatch(e.sucursal || '', selectedBranch)
     );
+
     const localExpList: Expense[] = localExpenses.map(e => ({
       id: String(e.id),
       description: e.descripcion,
@@ -203,114 +209,24 @@ export default function CashPage() {
       branch_name: e.sucursal,
     }));
 
-    // Render local data right away — no waiting
     buildAndCommit([...localRows, ...fallbackRows], localExpList);
     setLoading(false);
-
-    // ── Step 2: Enrich with Supabase (max 2 seconds, non-blocking) ─────────
-    try {
-      const TIMEOUT = 2000;
-      const dayStart = `${selectedDate}T00:00:00`;
-      const dayEnd   = `${selectedDate}T23:59:59`;
-      const race = (p: Promise<unknown>) => Promise.race([p, new Promise<null>(res => setTimeout(() => res(null), TIMEOUT))]);
-
-      let pQuery = supabase
-        .from('sale_payments')
-        .select('id, amount, method, paid_at, reference, branches(name), sales(sale_number, seller_name, customers(full_name))')
-        .gte('paid_at', dayStart).lte('paid_at', dayEnd)
-        .order('paid_at', { ascending: false });
-      if (selectedBranch) pQuery = pQuery.eq('branch_id', selectedBranch);
-      const pResult = await race(pQuery);
-      const pData = (pResult as any)?.data;
-
-      let expQuery = supabase
-        .from('expenses')
-        .select('id, description, category, amount, method, expense_date, branches(name)')
-        .eq('expense_date', selectedDate)
-        .order('created_at', { ascending: false });
-      if (selectedBranch) expQuery = expQuery.eq('branch_id', selectedBranch);
-      const eResult = await race(expQuery);
-      const eData = (eResult as any)?.data;
-
-      const sbRows: PaymentRow[] = (pData ?? []).map((p: any) => ({
-        id: p.id,
-        sale_number: p.sales?.sale_number ?? '',
-        customer_name: p.sales?.customers?.full_name ?? '',
-        amount: Number(p.amount),
-        method: p.method as PaymentMethod,
-        paid_at: p.paid_at,
-        seller_name: p.sales?.seller_name ?? '',
-        reference: p.reference ?? '',
-        branch_name: p.branches?.name ?? '',
-      }));
-
-      const sbExp: Expense[] = (eData ?? []).map((e: any) => ({
-        id: e.id,
-        description: e.description,
-        category: e.category ?? 'otros',
-        amount: Number(e.amount),
-        method: e.method,
-        expense_date: e.expense_date,
-        branch_name: e.branches?.name ?? '',
-      }));
-
-      // Only update if Supabase returned something new
-      if (sbRows.length > 0 || sbExp.length > 0) {
-        const sbIds = new Set(sbRows.map(r => r.id));
-        const merged = [...sbRows, ...[...localRows, ...fallbackRows].filter(r => !sbIds.has(r.id))];
-        const sbExpIds = new Set(sbExp.map(e => e.id));
-        const mergedExp = [...sbExp, ...localExpList.filter(e => !sbExpIds.has(e.id))];
-        buildAndCommit(merged, mergedExp);
-      }
-
-      // Cash register close status
-      if (selectedBranch) {
-        const crResult = await race(
-          supabase.from('cash_register').select('closed_at')
-            .eq('branch_id', selectedBranch).eq('register_date', selectedDate).maybeSingle()
-        );
-        setClosedAt((crResult as any)?.data?.closed_at ?? null);
-      } else {
-        setClosedAt(null);
-      }
-    } catch { /* Supabase unavailable — local data already shown */ }
-  }, [selectedBranch, selectedDate]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedBranch, selectedDate]);
 
   useEffect(() => { load(); }, [load]);
 
-  // React to new sales/payments saved from POSPage or BalancesPage
   useEffect(() => {
     const handler = () => load();
     window.addEventListener('optica_ventas_updated', handler);
     return () => window.removeEventListener('optica_ventas_updated', handler);
   }, [load]);
 
-  async function handleClose() {
-    if (!selectedBranch || !profile) return;
-    setClosing(true);
-    await supabase.from('cash_register').upsert({
-      branch_id: selectedBranch,
-      register_date: selectedDate,
-      efectivo: summary.efectivo,
-      transferencia: summary.transferencia,
-      tarjeta: summary.tarjeta,
-      qr: summary.qr,
-      giro: summary.giro,
-      expenses: summary.expenses,
-      closed_by: profile.id,
-      closed_at: new Date().toISOString(),
-    }, { onConflict: 'branch_id,register_date' });
-    await load();
-    setClosing(false);
-  }
-
   async function addExpense() {
     const amt = parseFloat(expAmount);
-    const branchName = expBranch || selectedBranch || activeBranch?.id || '';
+    const branchName = expBranch || selectedBranch || activeBranch?.name || '';
     if (!amt || !expDesc.trim() || !branchName) return;
     setSavingExp(true);
 
-    // Save to localStorage immediately — always works
     saveExpense({
       id: Date.now(),
       fecha: selectedDate,
@@ -321,17 +237,6 @@ export default function CashPage() {
       sucursal: branchName,
       vendedora: profile?.full_name || '',
     });
-
-    // Also try Supabase (branch_id may be slug or UUID — best effort)
-    supabase.from('expenses').insert([{
-      branch_id: branchName,
-      amount: Number(amt),
-      method: expMethod,
-      description: expDesc.trim(),
-      category: expCategory,
-      registered_by: null,
-      expense_date: selectedDate,
-    }]).then(() => {}).catch(() => {});
 
     setExpDesc('');
     setExpAmount('');
@@ -344,13 +249,11 @@ export default function CashPage() {
     load();
   }
 
-  // Vendedora only sees her own payments
   const visiblePayments = isVendedora
     ? payments.filter(p => p.seller_name === profile?.full_name)
     : payments;
   const filtered = methodFilter === 'all' ? visiblePayments : visiblePayments.filter(p => p.method === methodFilter);
 
-  // Recompute summary directly from visible rows and current expenses list
   const visibleSummary: DailySummary = (() => {
     let agg = emptyAgg();
     for (const r of visiblePayments) agg = addToAgg(agg, r.method, r.amount);
@@ -358,26 +261,19 @@ export default function CashPage() {
     return agg;
   })();
 
-  // Net = total ingresos - egresos
   const netTotal = visibleSummary.total - visibleSummary.expenses;
-
-  // Efectivo neto = efectivo cobrado - todos los egresos (gastos salen de caja física)
   const efectivoNeto = visibleSummary.efectivo - visibleSummary.expenses;
 
-  // Total pendiente = suma de saldos de TODAS las ventas activas (no entregadas/canceladas),
-  // filtrado por sucursal si hay una seleccionada. No depende de la fecha seleccionada.
   const totalPendiente = getSales()
     .filter(v => {
       if ((Number(v.saldo) || 0) <= 0) return false;
       if (v.estadoTrabajo === 'entregado' || v.estadoTrabajo === 'cancelado') return false;
-      const branch = (v.sucursalCobro || v.sucursalVenta || '').toLowerCase();
-      if (selectedBranch && branch !== selectedBranch) return false;
+      if (selectedBranch && !branchMatch(v.sucursalCobro || v.sucursalVenta || '', selectedBranch)) return false;
       return true;
     })
     .reduce((s, v) => s + (Number(v.saldo) || 0), 0);
 
-  // Effective branch for expense form
-  const expFormBranch = expBranch || selectedBranch || activeBranch?.id || '';
+  const expFormBranch = expBranch || selectedBranch || activeBranch?.name || '';
 
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
@@ -388,7 +284,7 @@ export default function CashPage() {
           <h1 className="text-xl font-light tracking-wider text-white">Mi Caja del Día</h1>
           <p className="text-xs text-gold-muted mt-0.5 tracking-wide">
             {isVendedora
-              ? `${profile?.full_name} · ${activeBranch?.name ?? ''}`
+              ? `${profile?.full_name} · ${profile?.branch_id ?? ''}`
               : 'Ingresos y movimientos por sede'}
           </p>
         </div>
@@ -398,8 +294,8 @@ export default function CashPage() {
               className="px-3 py-2 rounded-lg text-xs outline-none border"
               style={{ background: 'rgba(197,160,89,0.07)', borderColor: 'rgba(197,160,89,0.22)', color: '#C5A059' }}>
               <option value="" style={{ background: '#111' }}>Todas las sedes</option>
-              {branches.map(b => (
-                <option key={b.id} value={b.id} style={{ background: '#111' }}>{b.name}</option>
+              {SUCURSALES.map(s => (
+                <option key={s} value={s} style={{ background: '#111' }}>{s}</option>
               ))}
             </select>
           )}
@@ -417,7 +313,6 @@ export default function CashPage() {
         </div>
       </div>
 
-      {/* Expense success toast */}
       {expSuccess && (
         <div className="flex items-center gap-3 px-4 py-3 rounded-xl"
           style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.30)' }}>
@@ -429,7 +324,7 @@ export default function CashPage() {
       {/* Method cards */}
       <div className="grid grid-cols-3 lg:grid-cols-5 gap-3">
         {METHODS.map(m => (
-          <div key={m.id} className="rounded-xl p-4 transition-all"
+          <div key={m.id} className="rounded-xl p-4"
             style={{ background: 'rgba(255,255,255,0.02)', border: `1px solid ${m.color}28` }}>
             <div className="flex items-center justify-between mb-3">
               <span className="text-xs font-light tracking-wide" style={{ color: 'rgba(255,255,255,0.44)' }}>{m.label}</span>
@@ -472,20 +367,18 @@ export default function CashPage() {
         </div>
       </div>
 
-      {/* Pending balance summary */}
       {totalPendiente > 0 && (
         <div className="flex items-center justify-between px-5 py-3.5 rounded-xl"
           style={{ background: 'rgba(245,158,11,0.04)', border: '1px solid rgba(245,158,11,0.20)' }}>
           <p className="text-xs font-light flex items-center gap-1.5" style={{ color: 'rgba(255,255,255,0.55)' }}>
             <Clock size={12} style={{ color: '#f59e0b' }} />
             Total Pendiente de cobro
-            <span className="text-xs" style={{ color: 'rgba(255,255,255,0.30)' }}>(saldo de ventas no entregadas)</span>
           </p>
           <p className="text-lg font-light" style={{ color: '#f59e0b' }}>Gs. {fmt(totalPendiente)}</p>
         </div>
       )}
 
-      {/* By seller breakdown — admin only */}
+      {/* By seller — admin only */}
       {isAdmin && bySeller.length > 0 && (
         <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
           <div className="flex items-center gap-2 px-5 py-3.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
@@ -519,46 +412,25 @@ export default function CashPage() {
         </div>
       )}
 
-      {/* Cash close + day summary */}
+      {/* Resumen cierre — admin only */}
       {isAdmin && (
-        <div className="rounded-xl overflow-hidden" style={{ border: closedAt ? '1px solid rgba(34,197,94,0.25)' : '1px solid rgba(197,160,89,0.22)' }}>
+        <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(197,160,89,0.22)' }}>
           <div className="flex items-center justify-between px-5 py-4"
-            style={{ background: closedAt ? 'rgba(34,197,94,0.05)' : 'rgba(197,160,89,0.04)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+            style={{ background: 'rgba(197,160,89,0.04)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
             <div className="flex items-center gap-2.5">
-              {closedAt
-                ? <Lock size={14} style={{ color: '#22c55e' }} />
-                : <Unlock size={14} style={{ color: '#C5A059' }} />}
-              <div>
-                <p className="text-sm font-light" style={{ color: closedAt ? '#22c55e' : 'rgba(255,255,255,0.75)' }}>
-                  {closedAt ? 'Caja cerrada' : selectedBranch ? 'Caja abierta — pendiente de cierre' : 'Seleccioná una sede para cerrar caja'}
-                </p>
-                {closedAt && (
-                  <p className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.36)' }}>
-                    Cerrada el {new Date(closedAt).toLocaleString('es-PY')}
-                  </p>
-                )}
-              </div>
+              <Unlock size={14} style={{ color: '#C5A059' }} />
+              <p className="text-sm font-light" style={{ color: 'rgba(255,255,255,0.75)' }}>
+                Resumen del día
+              </p>
             </div>
-            {!closedAt && selectedBranch && (
-              <button onClick={handleClose} disabled={closing}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium"
-                style={{ background: 'rgba(197,160,89,0.14)', border: '1px solid rgba(197,160,89,0.38)', color: '#C5A059' }}>
-                <CheckCircle size={14} />
-                {closing ? 'Cerrando...' : 'Cerrar Caja'}
-              </button>
-            )}
           </div>
-
           <div className="px-5 py-5">
-            <p className="text-xs font-light tracking-widest uppercase mb-4" style={{ color: 'rgba(197,160,89,0.55)' }}>
-              Resumen del cierre
-            </p>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               {[
-                { label: 'Total Efectivo en Caja', value: summary.efectivo, color: '#22c55e', icon: <Banknote size={14} /> },
-                { label: 'Total Ventas POS',        value: summary.tarjeta,  color: '#f59e0b', icon: <CreditCard size={14} /> },
-                { label: 'Transferencias',          value: summary.transferencia, color: '#3b82f6', icon: <ArrowRightLeft size={14} /> },
-                { label: 'Total General',           value: summary.total,    color: '#C5A059', icon: <TrendingUp size={14} /> },
+                { label: 'Total Efectivo',   value: summary.efectivo,       color: '#22c55e', icon: <Banknote size={14} /> },
+                { label: 'Total POS',        value: summary.tarjeta,        color: '#f59e0b', icon: <CreditCard size={14} /> },
+                { label: 'Transferencias',   value: summary.transferencia,  color: '#3b82f6', icon: <ArrowRightLeft size={14} /> },
+                { label: 'Total General',    value: summary.total,          color: '#C5A059', icon: <TrendingUp size={14} /> },
               ].map(item => (
                 <div key={item.label} className="rounded-xl p-4"
                   style={{ background: `${item.color}08`, border: `1px solid ${item.color}28` }}>
@@ -573,9 +445,7 @@ export default function CashPage() {
             {summary.expenses > 0 && (
               <div className="mt-3 flex items-center justify-between px-4 py-3 rounded-xl"
                 style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.18)' }}>
-                <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.44)' }}>
-                  Menos egresos del día
-                </span>
+                <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.44)' }}>Menos egresos del día</span>
                 <span className="text-sm font-light" style={{ color: '#ef4444' }}>— Gs. {fmt(summary.expenses)}</span>
               </div>
             )}
@@ -588,7 +458,7 @@ export default function CashPage() {
         </div>
       )}
 
-      {/* Expenses section */}
+      {/* Expenses */}
       <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
         <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           <div className="flex items-center gap-2">
@@ -603,7 +473,7 @@ export default function CashPage() {
               </span>
             )}
           </div>
-          <button onClick={() => { setShowAddExp(!showAddExp); setExpBranch(selectedBranch || activeBranch?.id || ''); }}
+          <button onClick={() => { setShowAddExp(!showAddExp); setExpBranch(selectedBranch || activeBranch?.name || ''); }}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-light"
             style={{ background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.55)', border: '1px solid rgba(255,255,255,0.08)' }}>
             {showAddExp ? <X size={12} /> : <Plus size={12} />}
@@ -614,24 +484,16 @@ export default function CashPage() {
         {showAddExp && (
           <div className="px-5 py-4 space-y-3"
             style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(239,68,68,0.02)' }}>
-            <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(239,68,68,0.55)' }}>
-              Nuevo Egreso
-            </p>
-
-            {/* Description */}
+            <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(239,68,68,0.55)' }}>Nuevo Egreso</p>
             <input value={expDesc} onChange={e => setExpDesc(e.target.value)}
-              placeholder="Motivo del gasto (ej: compra de insumos)"
+              placeholder="Motivo del gasto"
               className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border"
               style={{ borderColor: 'rgba(239,68,68,0.25)' }} />
-
             <div className="flex gap-2 flex-wrap">
-              {/* Amount */}
               <input value={expAmount} onChange={e => setExpAmount(e.target.value)}
                 type="number" placeholder="Monto Gs."
                 className="w-36 px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border"
                 style={{ borderColor: 'rgba(239,68,68,0.25)' }} />
-
-              {/* Category */}
               <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg border flex-1 min-w-36"
                 style={{ borderColor: 'rgba(239,68,68,0.20)', background: 'rgba(255,255,255,0.02)' }}>
                 <Tag size={11} style={{ color: 'rgba(239,68,68,0.6)', flexShrink: 0 }} />
@@ -643,8 +505,6 @@ export default function CashPage() {
                   ))}
                 </select>
               </div>
-
-              {/* Branch for admin with "all branches" selected */}
               {isAdmin && !selectedBranch && (
                 <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg border flex-1 min-w-36"
                   style={{ borderColor: 'rgba(239,68,68,0.20)', background: 'rgba(255,255,255,0.02)' }}>
@@ -653,15 +513,13 @@ export default function CashPage() {
                     className="bg-transparent text-xs outline-none flex-1"
                     style={{ color: expFormBranch ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.38)' }}>
                     <option value="" style={{ background: '#111' }}>Sede del gasto...</option>
-                    {branches.map(b => (
-                      <option key={b.id} value={b.id} style={{ background: '#111' }}>{b.name}</option>
+                    {SUCURSALES.map(s => (
+                      <option key={s} value={s} style={{ background: '#111' }}>{s}</option>
                     ))}
                   </select>
                 </div>
               )}
             </div>
-
-            {/* Payment method — all 5 */}
             <div className="flex gap-1.5 flex-wrap">
               {METHODS.map(m => (
                 <button key={m.id} onClick={() => setExpMethod(m.id)}
@@ -671,34 +529,22 @@ export default function CashPage() {
                     border: `1px solid ${expMethod === m.id ? m.color + '44' : 'rgba(255,255,255,0.07)'}`,
                     color: expMethod === m.id ? m.color : 'rgba(255,255,255,0.38)',
                   }}>
-                  {m.icon}
-                  <span>{m.label}</span>
+                  {m.icon}<span>{m.label}</span>
                 </button>
               ))}
             </div>
-
-            {/* Validation hint */}
-            {isAdmin && !selectedBranch && !expFormBranch && (
-              <p className="text-xs font-light" style={{ color: 'rgba(245,158,11,0.8)' }}>
-                Seleccioná la sede para continuar.
-              </p>
-            )}
-
             <div className="flex items-center gap-2">
               <button onClick={addExpense}
-                disabled={savingExp || !expDesc.trim() || !expAmount || (isAdmin && !selectedBranch && !expFormBranch)}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-xs font-medium transition-all"
+                disabled={savingExp || !expDesc.trim() || !expAmount}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-xs font-medium"
                 style={{
-                  background: (!expDesc.trim() || !expAmount || (isAdmin && !selectedBranch && !expFormBranch))
-                    ? 'rgba(239,68,68,0.08)' : '#ef4444',
-                  color: (!expDesc.trim() || !expAmount || (isAdmin && !selectedBranch && !expFormBranch))
-                    ? 'rgba(239,68,68,0.4)' : '#fff',
+                  background: (!expDesc.trim() || !expAmount) ? 'rgba(239,68,68,0.08)' : '#ef4444',
+                  color: (!expDesc.trim() || !expAmount) ? 'rgba(239,68,68,0.4)' : '#fff',
                   cursor: (!expDesc.trim() || !expAmount) ? 'not-allowed' : 'pointer',
                 }}>
-                <Minus size={12} />
-                {savingExp ? 'Guardando...' : 'Registrar Gasto'}
+                <Minus size={12} />{savingExp ? 'Guardando...' : 'Registrar Gasto'}
               </button>
-              <button onClick={() => { setShowAddExp(false); setExpDesc(''); setExpAmount(''); setExpCategory('otros'); }}
+              <button onClick={() => { setShowAddExp(false); setExpDesc(''); setExpAmount(''); }}
                 className="px-3 py-2 rounded-lg text-xs font-light"
                 style={{ color: 'rgba(255,255,255,0.36)', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
                 Cancelar
@@ -722,9 +568,7 @@ export default function CashPage() {
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="px-1.5 py-0.5 rounded text-xs"
                         style={{ background: 'rgba(239,68,68,0.08)', color: 'rgba(239,68,68,0.7)' }}>{catLabel}</span>
-                      {e.branch_name && (
-                        <span style={{ color: 'rgba(255,255,255,0.28)' }}>{e.branch_name}</span>
-                      )}
+                      {e.branch_name && <span style={{ color: 'rgba(255,255,255,0.28)' }}>{e.branch_name}</span>}
                     </div>
                   </div>
                   <span className="shrink-0" style={{ color: '#ef4444' }}>— Gs. {fmt(Number(e.amount))}</span>
@@ -736,7 +580,7 @@ export default function CashPage() {
         )}
       </div>
 
-      {/* Movements table */}
+      {/* Cobros del día */}
       <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
         <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           <div className="flex items-center gap-2">
@@ -764,9 +608,7 @@ export default function CashPage() {
         {filtered.length === 0 ? (
           <div className="text-center py-14">
             <DollarSign size={28} style={{ color: 'rgba(255,255,255,0.08)', margin: '0 auto 10px' }} />
-            <p className="text-xs" style={{ color: 'rgba(255,255,255,0.28)' }}>
-              {selectedBranch ? 'Sin cobros para este día y sede' : 'Sin cobros para esta fecha'}
-            </p>
+            <p className="text-xs" style={{ color: 'rgba(255,255,255,0.28)' }}>Sin cobros para este día</p>
           </div>
         ) : (
           <table className="w-full">
@@ -794,12 +636,9 @@ export default function CashPage() {
                         {METHODS.find(m => m.id === p.method)?.label ?? p.method}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-xs font-light" style={{ color: 'rgba(255,255,255,0.36)' }}>
-                      {p.reference || '—'}
-                    </td>
+                    <td className="px-4 py-3 text-xs font-light" style={{ color: 'rgba(255,255,255,0.36)' }}>{p.reference || '—'}</td>
                     <td className="px-4 py-3 text-sm font-light text-right" style={{ color: '#22c55e' }}>
-                      {fmt(p.amount)}
-                      <span className="text-xs ml-1" style={{ color: 'rgba(255,255,255,0.28)' }}>Gs.</span>
+                      {fmt(p.amount)}<span className="text-xs ml-1" style={{ color: 'rgba(255,255,255,0.28)' }}>Gs.</span>
                     </td>
                   </tr>
                 );
