@@ -68,16 +68,23 @@ export default function BalancesPage() {
     if (activeBranch && !payBranch) setPayBranch(activeBranch.id);
   }, [activeBranch, payBranch]);
 
+  const isVendedora = profile?.role === 'vendedora';
+
   const load = useCallback(async () => {
     setLoading(true);
 
-    // Supabase sales with balance
-    const { data } = await supabase
+    // Supabase sales with balance — vendedora only sees her own branch
+    let query = supabase
       .from('sales')
       .select('id, sale_number, created_at, total, deposit, balance, status, seller_name, customer_first_name, customer_last_name, estimated_delivery, delivered_at, customers(full_name, ci, phone), branches(name)')
       .gt('balance', 0)
       .not('status', 'eq', 'cancelado')
       .order('created_at', { ascending: false });
+
+    if (isVendedora && profile?.branch_id) {
+      query = query.eq('branch_id', profile.branch_id.toLowerCase());
+    }
+    const { data } = await query;
 
     const saleIds = (data ?? []).map((r: any) => r.id);
     const lastPayMap: Record<string, string> = {};
@@ -98,9 +105,18 @@ export default function BalancesPage() {
       last_payment_date: lastPayMap[r.id] ?? null,
     }));
 
-    // localStorage sales with pending balance
+    // localStorage sales with pending balance — vendedora only sees her own branch
     const localRows: BalanceRow[] = getSales()
-      .filter(v => (Number(v.saldo) || 0) > 0 && v.estadoTrabajo !== 'cancelado')
+      .filter(v => {
+        if ((Number(v.saldo) || 0) <= 0 || v.estadoTrabajo === 'cancelado') return false;
+        if (isVendedora && profile?.branch_id) {
+          const branchMatch =
+            (v.sucursalVenta || '').toLowerCase() === profile.branch_id.toLowerCase() ||
+            (v.sucursalCobro || '').toLowerCase() === profile.branch_id.toLowerCase();
+          return branchMatch;
+        }
+        return true;
+      })
       .map(v => ({
         id: String(v.id),
         isLocal: true,
@@ -126,7 +142,7 @@ export default function BalancesPage() {
 
     setRows([...supabaseRows, ...localRows]);
     setLoading(false);
-  }, []);
+  }, [isVendedora, profile?.branch_id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load(); }, [load]);
 
@@ -209,7 +225,11 @@ export default function BalancesPage() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-light tracking-wider text-white">Saldos Pendientes</h1>
-          <p className="text-xs text-gold-muted mt-0.5 tracking-wide">Clientes con balance pendiente de cobro</p>
+          <p className="text-xs text-gold-muted mt-0.5 tracking-wide">
+            {isVendedora
+              ? `Mi sucursal · ${activeBranch?.name ?? profile?.branch_id ?? ''}`
+              : 'Clientes con balance pendiente de cobro'}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg border"

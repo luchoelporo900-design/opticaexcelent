@@ -229,9 +229,9 @@ export default function Sidebar({ current, onChange }: Props) {
           const isAdmin = profile?.role === 'admin' || profile?.role === 'gerente';
           const isVendedora = profile?.role === 'vendedora';
           // Strictly admin-only pages
-          if (['settings', 'reports', 'branches', 'balances', 'commissions'].includes(item.id)) return isAdmin;
-          // Vendedora sees: dashboard, pos, customers, cash
-          if (isVendedora) return ['dashboard', 'pos', 'customers', 'cash'].includes(item.id);
+          if (['settings', 'reports', 'branches', 'commissions'].includes(item.id)) return isAdmin;
+          // Vendedora sees: dashboard, pos, customers, cash, balances
+          if (isVendedora) return ['dashboard', 'pos', 'customers', 'cash', 'balances'].includes(item.id);
           return true;
         }).map(item => {
           const active = current === item.id;
