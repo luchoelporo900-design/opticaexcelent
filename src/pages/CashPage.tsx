@@ -126,6 +126,8 @@ export default function CashPage() {
   useEffect(() => {
     if (isVendedora && profile?.branch_id && !selectedBranch) setSelectedBranch(profile.branch_id);
     else if (activeBranch && !selectedBranch) setSelectedBranch(activeBranch.name);
+    // Vendedora siempre ve el día de hoy
+    if (isVendedora) setSelectedDate(new Date().toISOString().slice(0, 10));
   }, [activeBranch, selectedBranch, isVendedora, profile?.branch_id]);
 
   useEffect(() => { if (selectedBranch && !expBranch) setExpBranch(selectedBranch); }, [selectedBranch, expBranch]);
@@ -283,6 +285,7 @@ export default function CashPage() {
               {SUCURSALES.map(s => <option key={s} value={s} style={{ background: '#111' }}>{s}</option>)}
             </select>
           )}
+          {/* Admin: puede elegir cualquier fecha */}
           {!isVendedora && (
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg"
               style={{ background: 'rgba(197,160,89,0.07)', border: '1px solid rgba(197,160,89,0.18)' }}>
@@ -291,24 +294,14 @@ export default function CashPage() {
                 className="bg-transparent text-xs text-white border-none outline-none" />
             </div>
           )}
+          {/* Vendedora: solo ve hoy */}
           {isVendedora && weekRange && !weekRange.isClosed && (
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg"
               style={{ background: 'rgba(197,160,89,0.07)', border: '1px solid rgba(197,160,89,0.18)' }}>
               <Calendar size={13} className="text-gold-muted" />
-              <select value={selectedDate} onChange={e => setSelectedDate(e.target.value)}
-                className="bg-transparent text-xs text-white border-none outline-none"
-                style={{ background: '#0a0908' }}>
-                {Array.from({ length: 6 }, (_, i) => {
-                  const d = new Date(weekRange.start + 'T12:00:00');
-                  d.setDate(d.getDate() + i);
-                  const val = d.toISOString().slice(0, 10);
-                  return (
-                    <option key={val} value={val} style={{ background: '#111' }}>
-                      {d.toLocaleDateString('es-PY', { weekday: 'short', day: '2-digit', month: '2-digit' })}
-                    </option>
-                  );
-                })}
-              </select>
+              <span className="text-xs text-white font-light">
+                {new Date().toLocaleDateString('es-PY', { weekday: 'long', day: '2-digit', month: '2-digit', year: '2-digit' })}
+              </span>
             </div>
           )}
           <button onClick={load} disabled={loading}
@@ -342,15 +335,7 @@ export default function CashPage() {
         </div>
       )}
 
-      {/* Aviso semana activa */}
-      {isVendedora && weekRange && !weekRange.isClosed && (
-        <div className="flex items-center justify-between px-4 py-2.5 rounded-xl"
-          style={{ background: 'rgba(197,160,89,0.06)', border: '1px solid rgba(197,160,89,0.18)' }}>
-          <p className="text-xs font-light" style={{ color: 'rgba(197,160,89,0.8)' }}>
-            📅 Semana activa: {new Date(weekRange.start + 'T12:00:00').toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' })} al {new Date(weekRange.end + 'T12:00:00').toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' })} · Cierre sábado 13:30 hs
-          </p>
-        </div>
-      )}
+
 
       {/* Tarjetas por método */}
       <div className="grid grid-cols-3 lg:grid-cols-5 gap-3">
