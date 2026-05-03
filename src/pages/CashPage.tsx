@@ -77,6 +77,21 @@ function branchMatch(stored: string, selected: string): boolean {
   return n(stored).includes(n(selected)) || n(selected).includes(n(stored));
 }
 
+// ── Restricción de caja vendedora: lunes-sábado, cierre 13:30 ─────────────────
+function getWeekRange(): { start: string; end: string; isClosed: boolean } {
+  const now  = new Date();
+  const day  = now.getDay();
+  const hour = now.getHours() + now.getMinutes() / 60;
+  const isClosed = day === 0 || (day === 6 && hour >= 13.5);
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() + diffToMonday);
+  const saturday = new Date(monday);
+  saturday.setDate(monday.getDate() + 5);
+  const fmtDate = (d: Date) => d.toISOString().slice(0, 10);
+  return { start: fmtDate(monday), end: fmtDate(saturday), isClosed };
+}
+
 export default function CashPage() {
   const { activeBranch } = useBranch();
   const { profile } = useAuth();
@@ -106,24 +121,7 @@ export default function CashPage() {
   const isAdmin    = profile?.role === 'admin' || profile?.role === 'gerente';
   const isVendedora = profile?.role === 'vendedora';
 
-  // ── Restricción de caja para vendedora ───────────────────────────────────
-  // Solo puede ver lunes-sábado de la semana actual
-  // A las 13:30 del sábado se cierra y espera el lunes siguiente
-  function getWeekRange(): { start: string; end: string; isClosed: boolean } {
-    const now  = new Date();
-    const day  = now.getDay(); // 0=Dom, 1=Lun, ... 6=Sab
-    const hour = now.getHours() + now.getMinutes() / 60;
-    // Si es domingo o sábado después de las 13:30 → semana cerrada
-    const isClosed = day === 0 || (day === 6 && hour >= 13.5);
-    // Calcular lunes de esta semana
-    const diffToMonday = day === 0 ? -6 : 1 - day;
-    const monday = new Date(now);
-    monday.setDate(now.getDate() + diffToMonday);
-    const saturday = new Date(monday);
-    saturday.setDate(monday.getDate() + 5);
-    const fmt = (d: Date) => d.toISOString().slice(0, 10);
-    return { start: fmt(monday), end: fmt(saturday), isClosed };
-  }
+
 
   useEffect(() => {
     if (isVendedora && profile?.branch_id && !selectedBranch) setSelectedBranch(profile.branch_id);
