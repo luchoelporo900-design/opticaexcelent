@@ -991,32 +991,31 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: { eg: EyeglassItem;
 
         {eg.showReceta && (
           <div className="rounded-xl p-3 space-y-3" style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.14)' }}>
-            {/* OD — 4 columnas con Altura */}
+            {/* OD — 3 columnas sin Altura */}
             <div>
               <p className="text-xs font-light mb-2" style={{ color: '#C5A059' }}>OD — Ojo Derecho</p>
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <RxInput label="Esfera"   value={eg.prescription.od_esfera}   onChange={v => updateRx('od_esfera', v)}   placeholder="-2.00" />
                 <RxInput label="Cilindro" value={eg.prescription.od_cilindro} onChange={v => updateRx('od_cilindro', v)} placeholder="-0.50" />
                 <RxInput label="Eje"      value={eg.prescription.od_eje}      onChange={v => updateRx('od_eje', v)}      placeholder="180" />
-                <RxInput label="Altura"   value={eg.prescription.od_altura}   onChange={v => updateRx('od_altura', v)}   placeholder="20" />
               </div>
             </div>
-            {/* OI — 4 columnas con Altura */}
+            {/* OI — 3 columnas sin Altura */}
             <div>
               <p className="text-xs font-light mb-2" style={{ color: '#C5A059' }}>OI — Ojo Izquierdo</p>
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <RxInput label="Esfera"   value={eg.prescription.oi_esfera}   onChange={v => updateRx('oi_esfera', v)}   placeholder="-1.75" />
                 <RxInput label="Cilindro" value={eg.prescription.oi_cilindro} onChange={v => updateRx('oi_cilindro', v)} placeholder="-0.25" />
                 <RxInput label="Eje"      value={eg.prescription.oi_eje}      onChange={v => updateRx('oi_eje', v)}      placeholder="175" />
-                <RxInput label="Altura"   value={eg.prescription.oi_altura}   onChange={v => updateRx('oi_altura', v)}   placeholder="20" />
               </div>
             </div>
-            {/* ADD / DP / Obs */}
-            <div className="grid grid-cols-3 gap-2">
-              <RxInput label="ADD" value={eg.prescription.add} onChange={v => updateRx('add', v)} placeholder="+2.00" />
-              <RxInput label="DP"  value={eg.prescription.dp}  onChange={v => updateRx('dp', v)}  placeholder="64" />
+            {/* ADD / DP / Altura / Obs */}
+            <div className="grid grid-cols-4 gap-2">
+              <RxInput label="ADD"    value={eg.prescription.add}       onChange={v => updateRx('add', v)}       placeholder="+2.00" />
+              <RxInput label="DP"     value={eg.prescription.dp}        onChange={v => updateRx('dp', v)}        placeholder="64" />
+              <RxInput label="Altura" value={eg.prescription.od_altura} onChange={v => updateRx('od_altura', v)} placeholder="20" />
               <div>
-                <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.35)' }}>Observación</p>
+                <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.35)' }}>Obs</p>
                 <input type="text" value={eg.prescription.obs} onChange={e => updateRx('obs', e.target.value)} placeholder="Notas..."
                   className="w-full px-2.5 py-2 rounded-lg bg-transparent text-white text-xs font-light outline-none border"
                   style={{ borderColor: 'rgba(197,160,89,0.20)' }} />
