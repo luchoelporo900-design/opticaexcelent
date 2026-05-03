@@ -163,13 +163,7 @@ export default function POSPage() {
   const [saving,    setSaving]    = useState(false);
   const [saved,     setSaved]     = useState('');
   const [saveErr,   setSaveErr]   = useState('');
-  const [paidToast, setPaidToast] = useState('');
 
-  const [sales,        setSales]        = useState<RecentSale[]>([]);
-  const [loadingSales, setLoadingSales] = useState(true);
-  const [sfFilter,     setSfFilter]     = useState<SaleStatus | 'todos'>('todos');
-  const [expanded,     setExpanded]     = useState<string | null>(null);
-  const [listSearch,   setListSearch]   = useState('');
 
   const [addPayFor,      setAddPayFor]      = useState<string | null>(null);
   const [xPayAmt,        setXPayAmt]        = useState('');
@@ -196,7 +190,6 @@ export default function POSPage() {
   const depositNum = parseFloat(saleDeposit) || 0;
   const balanceNum = Math.max(0, totalNum - depositNum);
 
-  useEffect(() => { loadSales(); }, []);
 
   useEffect(() => {
     if (profile?.branch_id) {
@@ -205,29 +198,6 @@ export default function POSPage() {
     }
   }, [profile?.branch_id]);
 
-  const loadSales = useCallback(async () => {
-    setLoadingSales(true);
-    const localRows: RecentSale[] = getSales()
-      .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime())
-      .map(v => ({
-        id: `local-${v.id}`,
-        sale_number: `VTA-${v.id}`,
-        created_at: v.fecha,
-        total: v.total, deposit: v.sena, balance: v.saldo,
-        status: (v.estadoTrabajo as SaleStatus) ?? 'pendiente',
-        seller_name: v.vendedora,
-        customer_first_name: v.cliente.nombre,
-        customer_last_name: v.cliente.apellido,
-        customers: null,
-        branches: v.sucursalEntrega ? { name: v.sucursalEntrega } : null,
-        delivered_at: v.delivered_at ?? null,
-        delivery_type: v.delivery_type ?? null,
-        _local: true,
-        _phone: v.cliente.telefono,
-      }));
-    setSales(localRows);
-    setLoadingSales(false);
-  }, []);
 
   function addEyeglass() { setEyeglasses(prev => [...prev, newEyeglass()]); }
   function removeEyeglass(id: string) { setEyeglasses(prev => prev.filter(eg => eg._id !== id)); }
@@ -381,7 +351,6 @@ export default function POSPage() {
     setClosingSale(false); loadSales();
   }
 
-  const filtered = sales.filter(s => {
     if (sfFilter !== 'todos' && s.status !== sfFilter) return false;
     if (listSearch) {
       const q = listSearch.toLowerCase();
@@ -390,7 +359,6 @@ export default function POSPage() {
     }
     return true;
   });
-  const countBy = Object.fromEntries(Object.keys(STATUS_CFG).map(k => [k, sales.filter(s => s.status === k).length])) as Record<SaleStatus, number>;
 
   const branchOpts = [
     <option key="" value="" style={{ background: '#0a0908' }}>— Seleccionar —</option>,
@@ -398,7 +366,7 @@ export default function POSPage() {
   ];
 
   return (
-    <div className="flex h-full min-h-screen">
+    <div className="min-h-screen">
       {/* ── LEFT: Formulario nueva venta ── */}
       <div className="flex-1 min-w-0 overflow-y-auto p-6 space-y-4" style={{ maxWidth: 680 }}>
 
@@ -617,239 +585,8 @@ export default function POSPage() {
         <div className="h-6" />
       </div>
 
-      {/* ── RIGHT: Lista de ventas ── */}
-      <div className="w-[420px] shrink-0 border-l flex flex-col h-screen sticky top-0 overflow-hidden"
-        style={{ borderColor: 'rgba(197,160,89,0.10)', background: 'rgba(0,0,0,0.18)' }}>
-
-        {paidToast && (
-          <div className="mx-4 mt-3 flex items-center gap-2.5 px-4 py-3 rounded-xl text-sm font-light"
-            style={{ background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.40)', color: '#22c55e' }}>
-            <CheckCircle size={14} /><span>{paidToast}</span>
-          </div>
-        )}
-
-        <div className="px-5 py-4" style={{ borderBottom: '1px solid rgba(197,160,89,0.10)' }}>
-          <p className="text-sm font-light tracking-wide text-white mb-3">Ventas recientes</p>
-          <div className="flex items-center gap-2 px-3 py-2 rounded-xl border" style={{ borderColor: 'rgba(197,160,89,0.18)', background: 'rgba(255,255,255,0.02)' }}>
-            <Search size={12} style={{ color: 'rgba(197,160,89,0.45)' }} />
-            <input value={listSearch} onChange={e => setListSearch(e.target.value)} placeholder="Buscar..."
-              className="flex-1 bg-transparent text-white text-xs outline-none font-light" />
-          </div>
-          <div className="flex gap-1 mt-3 flex-wrap">
-            {([
-              { id: 'todos', label: 'Todas', count: sales.length, color: 'rgba(255,255,255,0.5)' },
-              ...Object.entries(STATUS_CFG).map(([k, v]) => ({ id: k, label: v.label, count: countBy[k as SaleStatus] ?? 0, color: v.color })),
-            ] as { id: string; label: string; count: number; color: string }[]).map(opt => (
-              <button key={opt.id} onClick={() => setSfFilter(opt.id as any)}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-light"
-                style={{ background: sfFilter === opt.id ? `${opt.color}18` : 'transparent', border: `1px solid ${sfFilter === opt.id ? opt.color + '55' : 'transparent'}`, color: sfFilter === opt.id ? opt.color : 'rgba(255,255,255,0.38)' }}>
-                {opt.label}<span className="ml-0.5 text-xs opacity-60">{opt.count}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
-          {loadingSales ? (
-            <div className="p-4 space-y-2">{[...Array(5)].map((_, i) => <div key={i} className="h-14 rounded-xl shimmer" />)}</div>
-          ) : filtered.length === 0 ? (
-            <div className="p-10 text-center text-xs font-light" style={{ color: 'rgba(255,255,255,0.28)' }}>Sin ventas</div>
-          ) : filtered.map(sale => {
-            const sc = STATUS_CFG[sale.status] ?? STATUS_CFG.pendiente;
-            const isExp = expanded === sale.id;
-            const name = sale.customers?.full_name || [sale.customer_first_name, sale.customer_last_name].filter(Boolean).join(' ') || '—';
-            const clientPhone = sale._phone ?? '';
-            const branchName = sale.branches?.name ?? '';
-            const waMsg = `Hola ${name}, te saludamos de Óptica Yolanda. Tus lentes ya están listos en la sucursal ${branchName}. ¡Te esperamos!`;
-            const waLink = clientPhone ? `https://wa.me/595${clientPhone.replace(/\D/g, '')}?text=${encodeURIComponent(waMsg)}` : null;
-
-            return (
-              <div key={sale.id}>
-                <div className="px-4 py-3 cursor-pointer" style={{ background: isExp ? 'rgba(197,160,89,0.03)' : 'transparent' }}
-                  onClick={() => setExpanded(isExp ? null : sale.id)}
-                  onMouseEnter={e => { if (!isExp) (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.012)'; }}
-                  onMouseLeave={e => { if (!isExp) (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs font-mono" style={{ color: '#C5A059' }}>{sale.sale_number}</span>
-                    <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.28)' }}>
-                      {new Date(sale.created_at).toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' })}
-                    </span>
-                    <select value={sale.status} onClick={e => e.stopPropagation()}
-                      onChange={e => updateSaleStatus(sale.id, e.target.value as SaleStatus)}
-                      disabled={updStatus === sale.id}
-                      className="ml-auto px-2 py-0.5 rounded-lg text-xs font-light outline-none"
-                      style={{ background: `${sc.color}18`, border: `1px solid ${sc.color}44`, color: sc.color }}>
-                      {Object.entries(STATUS_CFG).map(([k, v]) => (
-                        <option key={k} value={k} style={{ background: '#111', color: v.color }}>{v.label}</option>
-                      ))}
-                    </select>
-                    <ChevronDown size={12} style={{ color: 'rgba(255,255,255,0.28)', flexShrink: 0, transform: isExp ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm text-white font-light truncate flex-1">{name}</p>
-                    {waLink && (
-                      <a href={waLink} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} title="Enviar WhatsApp"
-                        className="shrink-0 flex items-center justify-center w-6 h-6 rounded-full"
-                        style={{ background: 'rgba(37,211,102,0.15)', color: '#25D366' }}>
-                        <MessageCircle size={12} />
-                      </a>
-                    )}
-                  </div>
-                  <div className="flex items-center justify-between mt-1">
-                    <p className="text-xs font-light truncate" style={{ color: 'rgba(255,255,255,0.32)' }}>
-                      {sale.seller_name || '—'} · {branchName}
-                    </p>
-                    <div className="text-right shrink-0 ml-2">
-                      <p className="text-xs text-white font-light">Gs. {fmt(Number(sale.total))}</p>
-                      {Number(sale.balance) > 0 && <p className="text-xs font-light" style={{ color: '#f59e0b' }}>Debe {fmt(Number(sale.balance))}</p>}
-                    </div>
-                  </div>
-                </div>
-
-                {isExp && (
-                  <div className="px-4 pb-4 space-y-3" style={{ background: 'rgba(197,160,89,0.02)' }}>
-                    {waLink && (
-                      <div className="border-t pt-3" style={{ borderColor: 'rgba(197,160,89,0.1)' }}>
-                        <a href={waLink} target="_blank" rel="noreferrer"
-                          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-light"
-                          style={{ background: 'rgba(37,211,102,0.10)', color: '#25D366', border: '1px solid rgba(37,211,102,0.25)' }}>
-                          <MessageCircle size={13} />Enviar WhatsApp a {name}
-                        </a>
-                      </div>
-                    )}
-
-                    <PaymentHistory saleId={sale.id} isLocal={sale._local} isAdmin={profile?.role === 'admin' || profile?.role === 'gerente'} />
-
-                    {Number(sale.balance) > 0 && (
-                      <div className="border-t pt-3 space-y-2" style={{ borderColor: 'rgba(197,160,89,0.1)' }}>
-                        <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.55)' }}>Registrar pago</p>
-                        {addPayFor === sale.id ? (
-                          <div className="space-y-2.5">
-                            <div className="flex gap-1 flex-wrap">
-                              {PAY_METHODS.map(m => (
-                                <button key={m.id} onClick={() => setXPayMethod(m.id)}
-                                  className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-light"
-                                  style={{ background: xPayMethod === m.id ? `${m.color}18` : 'rgba(255,255,255,0.03)', border: `1px solid ${xPayMethod === m.id ? m.color + '44' : 'rgba(255,255,255,0.07)'}`, color: xPayMethod === m.id ? m.color : 'rgba(255,255,255,0.38)' }}>
-                                  {m.icon}
-                                </button>
-                              ))}
-                            </div>
-                            <div className="flex gap-2">
-                              <input value={xPayAmt} onChange={e => { setXPayAmt(e.target.value); setXPayWarn(false); }}
-                                type="number" placeholder={`Saldo: Gs. ${fmt(Number(sale.balance))}`}
-                                className="flex-1 px-3 py-2 rounded-xl bg-transparent text-white text-xs outline-none border"
-                                style={{ borderColor: 'rgba(197,160,89,0.2)' }} />
-                              <select value={xPayBranch} onChange={e => setXPayBranch(e.target.value)}
-                                className="px-2 py-2 rounded-xl text-xs outline-none border"
-                                style={{ background: 'rgba(255,255,255,0.03)', borderColor: 'rgba(197,160,89,0.18)', color: 'rgba(255,255,255,0.6)' }}>
-                                {FIXED_BRANCHES.map(b => <option key={b.id} value={b.id} style={{ background: '#111' }}>{b.name}</option>)}
-                              </select>
-                            </div>
-                            {(xPayMethod === 'transferencia' || xPayMethod === 'giro') && (
-                              <input value={xPayRef} onChange={e => setXPayRef(e.target.value)} placeholder="Banco / referencia"
-                                className="w-full px-3 py-2 rounded-xl bg-transparent text-white text-xs outline-none border"
-                                style={{ borderColor: 'rgba(197,160,89,0.18)' }} />
-                            )}
-                            <div className="rounded-xl p-2.5 space-y-2"
-                              style={{ background: 'rgba(197,160,89,0.04)', border: `1px solid ${xPayWarn && !xPayReceipt ? 'rgba(245,158,11,0.55)' : 'rgba(197,160,89,0.12)'}` }}>
-                              <div className="flex items-center gap-1.5">
-                                <Receipt size={11} style={{ color: '#C5A059' }} />
-                                <span className="text-xs font-light" style={{ color: 'rgba(197,160,89,0.8)' }}>Comprobante de Pago</span>
-                                {xPayMethod !== 'efectivo' && <span className="text-xs font-light" style={{ color: '#f59e0b' }}>recomendado</span>}
-                              </div>
-                              {xPayReceipt ? (
-                                <div className="relative inline-block">
-                                  <img src={xPayReceipt} alt="comprobante" className="h-20 rounded-lg object-cover" style={{ border: '1px solid rgba(197,160,89,0.3)' }} />
-                                  <button onClick={() => setXPayReceipt('')} className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center" style={{ background: '#ef4444' }}><X size={8} color="#fff" /></button>
-                                </div>
-                              ) : (
-                                <label className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-light cursor-pointer"
-                                  style={{ background: 'rgba(197,160,89,0.07)', border: '1px dashed rgba(197,160,89,0.3)', color: 'rgba(197,160,89,0.7)' }}>
-                                  <Camera size={12} />Subir foto del comprobante
-                                  <input type="file" accept="image/*" className="hidden"
-                                    onChange={async e => {
-                                      const file = e.target.files?.[0]; if (!file) return;
-                                      const reader = new FileReader();
-                                      reader.onload = async ev => { const c = await compressImage(ev.target?.result as string); setXPayReceipt(c); setXPayWarn(false); };
-                                      reader.readAsDataURL(file);
-                                    }} />
-                                </label>
-                              )}
-                            </div>
-                            <div className="flex gap-2">
-                              <button onClick={() => { if (!xPayReceipt && xPayMethod !== 'efectivo') { setXPayWarn(true); return; } registerXPay(sale.id); }}
-                                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs text-black font-medium" style={{ background: '#C5A059' }}>
-                                <Check size={11} />Guardar abono
-                              </button>
-                              <button onClick={() => { setAddPayFor(null); setXPayAmt(''); setXPayReceipt(''); setXPayWarn(false); }}
-                                className="px-3 py-2 rounded-lg text-xs font-light" style={{ color: 'rgba(255,255,255,0.38)' }}>Cancelar</button>
-                            </div>
-                          </div>
-                        ) : (
-                          <button onClick={e => { e.stopPropagation(); setAddPayFor(sale.id); setXPayBranch(FIXED_BRANCHES[0].id); setXPayWarn(false); }}
-                            className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-light"
-                            style={{ background: 'rgba(197,160,89,0.08)', color: '#C5A059', border: '1px solid rgba(197,160,89,0.22)' }}>
-                            <Plus size={11} />Cliente viene a pagar saldo
-                          </button>
-                        )}
-                      </div>
-                    )}
-
-                    {sale.status !== 'entregado' && sale.status !== 'cancelado' && (
-                      <div className="border-t pt-3" style={{ borderColor: 'rgba(197,160,89,0.1)' }}>
-                        {closeFor === sale.id ? (
-                          <CloseSaleForm
-                            balance={Number(sale.balance)}
-                            closeAmt={closeAmt} setCloseAmt={setCloseAmt}
-                            closeMethod={closeMethod} setCloseMethod={setCloseMethod}
-                            closeRef={closeRef} setCloseRef={setCloseRef}
-                            closeReceipt={closeReceipt} setCloseReceipt={setCloseReceipt}
-                            closeReceiptWarn={closeReceiptWarn} setCloseReceiptWarn={setCloseReceiptWarn}
-                            closeDelivery={closeDelivery} setCloseDelivery={setCloseDelivery}
-                            closingSale={closingSale}
-                            onConfirm={() => closeSale(sale.id, Number(sale.balance))}
-                            onCancel={() => { setCloseFor(null); setCloseAmt(''); setCloseRef(''); setCloseReceipt(''); setCloseReceiptWarn(false); }}
-                          />
-                        ) : (
-                          <button onClick={e => { e.stopPropagation(); setCloseFor(sale.id); setAddPayFor(null); }}
-                            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium"
-                            style={{ background: 'rgba(34,197,94,0.10)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.30)' }}
-                            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(34,197,94,0.18)'; }}
-                            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(34,197,94,0.10)'; }}>
-                            <Package size={14} />Entregar Lentes y Cobrar Saldo
-                          </button>
-                        )}
-                      </div>
-                    )}
-
-                    {sale.status === 'entregado' && (sale.delivery_type || sale.delivered_at) && (
-                      <div className="border-t pt-3 flex items-center gap-3 flex-wrap" style={{ borderColor: 'rgba(34,197,94,0.12)' }}>
-                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl" style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.18)' }}>
-                          {sale.delivery_type === 'retiro' && <Store size={11} style={{ color: '#22c55e' }} />}
-                          {sale.delivery_type === 'delivery' && <Truck size={11} style={{ color: '#22c55e' }} />}
-                          {sale.delivery_type === 'encomienda' && <Package size={11} style={{ color: '#22c55e' }} />}
-                          <span className="text-xs font-light" style={{ color: '#22c55e' }}>
-                            {sale.delivery_type === 'retiro' && 'Retirado en local'}
-                            {sale.delivery_type === 'delivery' && 'Enviado por delivery'}
-                            {sale.delivery_type === 'encomienda' && 'Enviado por encomienda'}
-                          </span>
-                        </div>
-                        {sale.delivered_at && (
-                          <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.38)' }}>
-                            <Clock size={10} className="inline mr-1" />
-                            {new Date(sale.delivered_at).toLocaleDateString('es-PY', { day: '2-digit', month: 'long', year: 'numeric' })}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
     </div>
+
   );
 }
 
