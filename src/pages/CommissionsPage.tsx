@@ -330,51 +330,100 @@ export default function CommissionsPage() {
             </div>
           ) : (
             <>
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid rgba(197,160,89,0.1)' }}>
-                      {['#','Vendedora','Sucursal','Días','Ventas','Días Oro 🏆','Días Bronce 🥉','Mejor día'].map(h => (
-                        <th key={h} className="px-4 py-3 text-left font-light" style={{ color: 'rgba(197,160,89,0.6)', whiteSpace: 'nowrap' }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {adminData.map((s, i) => (
-                      <tr key={s.seller_name} className="border-b"
-                        style={{ borderColor: 'rgba(255,255,255,0.04)' }}
-                        onMouseEnter={e => (e.currentTarget.style.background = 'rgba(197,160,89,0.03)')}
-                        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                        <td className="px-4 py-3">
-                          <span className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium"
-                            style={{ background: i === 0 ? 'rgba(197,160,89,0.2)' : 'rgba(255,255,255,0.06)', color: i === 0 ? '#C5A059' : 'rgba(255,255,255,0.4)' }}>
-                            {i + 1}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-white font-light">{s.seller_name}</td>
-                        <td className="px-4 py-3 font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>{s.branch_name || '—'}</td>
-                        <td className="px-4 py-3 text-white">{s.days_worked}</td>
-                        <td className="px-4 py-3 font-medium" style={{ color: '#10b981' }}>{s.total_sales}</td>
-                        <td className="px-4 py-3">
-                          {s.days_oro > 0
-                            ? <span className="font-medium" style={{ color: '#C5A059' }}>{s.days_oro} {s.days_oro === 1 ? 'día' : 'días'}</span>
-                            : <span style={{ color: 'rgba(255,255,255,0.2)' }}>—</span>}
-                        </td>
-                        <td className="px-4 py-3">
-                          {s.days_bronce > 0
-                            ? <span className="font-medium" style={{ color: '#cd7f32' }}>{s.days_bronce} {s.days_bronce === 1 ? 'día' : 'días'}</span>
-                            : <span style={{ color: 'rgba(255,255,255,0.2)' }}>—</span>}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className="font-medium"
-                            style={{ color: s.best_day_points >= 10 ? '#C5A059' : s.best_day_points >= 8 ? '#cd7f32' : 'rgba(255,255,255,0.5)' }}>
-                            {s.best_day_points.toFixed(1)} pts
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+                {adminData.map((s, i) => {
+                  const isExpSeller = expandedDay === `seller-${s.seller_name}`;
+                  const sellerDays  = buildDaySummaries(s.seller_name, selectedMonth);
+                  return (
+                    <div key={s.seller_name}>
+                      {/* Fila de vendedora */}
+                      <div className="flex items-center gap-3 px-5 py-4 cursor-pointer"
+                        onMouseEnter={e => { if (!isExpSeller) (e.currentTarget as HTMLElement).style.background = 'rgba(197,160,89,0.02)'; }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                        onClick={() => setExpandedDay(isExpSeller ? null : `seller-${s.seller_name}`)}>
+                        {/* Número */}
+                        <span className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium shrink-0"
+                          style={{ background: i === 0 ? 'rgba(197,160,89,0.2)' : 'rgba(255,255,255,0.06)', color: i === 0 ? '#C5A059' : 'rgba(255,255,255,0.4)' }}>
+                          {i + 1}
+                        </span>
+                        {/* Nombre y sucursal */}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-white font-light">{s.seller_name}</p>
+                          <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.35)' }}>{s.branch_name || '—'} · {s.days_worked} días · {s.total_sales} ventas</p>
+                        </div>
+                        {/* Días con premio */}
+                        <div className="flex items-center gap-2 flex-wrap justify-end">
+                          {s.days_oro > 0 && (
+                            <span className="text-xs font-medium px-2.5 py-1 rounded-full"
+                              style={{ background: 'rgba(197,160,89,0.12)', color: '#C5A059', border: '1px solid rgba(197,160,89,0.3)' }}>
+                              🏆 {s.days_oro} {s.days_oro === 1 ? 'día Oro' : 'días Oro'}
+                            </span>
+                          )}
+                          {s.days_bronce > 0 && (
+                            <span className="text-xs font-medium px-2.5 py-1 rounded-full"
+                              style={{ background: 'rgba(205,127,50,0.12)', color: '#cd7f32', border: '1px solid rgba(205,127,50,0.3)' }}>
+                              🥉 {s.days_bronce} {s.days_bronce === 1 ? 'día Bronce' : 'días Bronce'}
+                            </span>
+                          )}
+                          {s.days_oro === 0 && s.days_bronce === 0 && (
+                            <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.25)' }}>Sin premios</span>
+                          )}
+                        </div>
+                        <ChevronDown size={14} style={{ color: 'rgba(255,255,255,0.3)', transform: isExpSeller ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }} />
+                      </div>
+
+                      {/* Detalle día a día de esta vendedora */}
+                      {isExpSeller && (
+                        <div className="px-5 pb-4" style={{ background: 'rgba(197,160,89,0.02)', borderTop: '1px solid rgba(197,160,89,0.08)' }}>
+                          <p className="text-xs font-light tracking-widest uppercase pt-3 mb-3" style={{ color: 'rgba(197,160,89,0.5)' }}>
+                            Historial de {s.seller_name} · {formatMonth(selectedMonth)}
+                          </p>
+                          {sellerDays.length === 0 ? (
+                            <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.3)' }}>Sin ventas este mes</p>
+                          ) : (
+                            <div className="space-y-2">
+                              {sellerDays.map(day => {
+                                const cfg  = prizeConfig(day.level);
+                                const pct  = Math.min(100, (day.totalPoints / 10) * 100);
+                                return (
+                                  <div key={day.date} className="flex items-center gap-3 px-4 py-3 rounded-xl"
+                                    style={{ background: 'rgba(255,255,255,0.025)', border: `1px solid ${day.level !== 'sin_nivel' ? cfg.border : 'rgba(255,255,255,0.06)'}` }}>
+                                    {/* Fecha */}
+                                    <div className="w-32 shrink-0">
+                                      <p className="text-xs text-white font-light">{fmtDay(day.date)}</p>
+                                      <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10 }}>
+                                        {day.totalSales} venta{day.totalSales !== 1 ? 's' : ''}
+                                      </p>
+                                    </div>
+                                    {/* Barra */}
+                                    <div className="flex-1">
+                                      <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
+                                        <div className="h-full rounded-full"
+                                          style={{ width: `${pct}%`, background: day.level === 'oro' ? 'linear-gradient(to right,#C5A059,#f0d080)' : day.level === 'bronce' ? '#cd7f32' : 'rgba(197,160,89,0.3)' }} />
+                                      </div>
+                                    </div>
+                                    {/* Puntos */}
+                                    <span className="text-sm font-medium w-16 text-right shrink-0" style={{ color: cfg.color }}>
+                                      {day.totalPoints.toFixed(1)} pts
+                                    </span>
+                                    {/* Nivel */}
+                                    {day.level !== 'sin_nivel' ? (
+                                      <div className="flex items-center gap-1 px-2.5 py-1 rounded-full shrink-0"
+                                        style={{ background: cfg.bg, border: `1px solid ${cfg.border}`, color: cfg.color }}>
+                                        {cfg.icon}
+                                        <span className="text-xs font-light">{day.level === 'oro' ? 'Oro' : 'Bronce'}</span>
+                                      </div>
+                                    ) : <div className="w-20 shrink-0" />}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
               <div className="px-5 py-3 border-t flex flex-wrap gap-4 text-xs font-light" style={{ borderColor: 'rgba(197,160,89,0.1)' }}>
                 <span style={{ color: 'rgba(255,255,255,0.4)' }}>Total vendedoras: <span className="text-white">{adminData.length}</span></span>
