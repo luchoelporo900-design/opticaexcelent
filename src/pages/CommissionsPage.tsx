@@ -1,33 +1,54 @@
 import { useEffect, useState } from 'react';
-import { Trophy, Medal, Star, Users } from 'lucide-react';
+import { Trophy, Medal, Star, Users, ChevronDown } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { getSales } from '../lib/salesStorage';
+import { getSales, StoredSale } from '../lib/salesStorage';
 
 const CURRENT_MONTH = new Date().toISOString().slice(0, 7);
+const TODAY = new Date().toISOString().slice(0, 10);
 
 type SellerSummary = {
   seller_name: string;
   branch_name: string;
   total_sales: number;
-  full_sales: number;
+  full_sales: number;       // armazón + cristales
+  half_sales: number;       // solo uno de los dos
   total_points: number;
   prize_level: 'oro' | 'bronce' | 'sin_nivel';
 };
 
+// ── Lógica de puntos por venta ────────────────────────────────────────────────
+// Si la vendedora marcó saleType en cada anteojo → usar ese valor
+// Si no, detectar automáticamente: Armazón + Cristales = 1 pto, solo uno = 0.5
+function calcPoints(sale: StoredSale): number {
+  const anteojos = (sale.anteojos as any[]) || [];
+  if (anteojos.length === 0) return 1; // venta sin detalle = 1 punto completo
+
+  let totalPoints = 0;
+  for (const eg of anteojos) {
+    // Si la vendedora seleccionó explícitamente el tipo → respetar
+    if (eg.saleType === 'completa') { totalPoints += 1; continue; }
+    if (eg.saleType === 'media')    { totalPoints += 0.5; continue; }
+    // Detección automática si no se seleccionó
+    const hasFrame   = !!(eg.frame_description || eg.photo_url);
+    const hasCrystal = !!(eg.crystals);
+    if (hasFrame && hasCrystal) totalPoints += 1;
+    else if (hasFrame || hasCrystal) totalPoints += 0.5;
+    else totalPoints += 1; // sin detalle = completa por defecto
+  }
+  return totalPoints;
+}
+
 function calcLevel(points: number): 'oro' | 'bronce' | 'sin_nivel' {
   if (points >= 10) return 'oro';
-  if (points >= 8) return 'bronce';
+  if (points >= 8)  return 'bronce';
   return 'sin_nivel';
 }
 
 function prizeConfig(level: string) {
   switch (level) {
-    case 'oro':
-      return { label: 'Nivel Oro', color: '#C5A059', bg: 'rgba(197,160,89,0.12)', border: 'rgba(197,160,89,0.4)', icon: <Trophy size={16} /> };
-    case 'bronce':
-      return { label: 'Nivel Bronce', color: '#cd7f32', bg: 'rgba(205,127,50,0.12)', border: 'rgba(205,127,50,0.4)', icon: <Medal size={16} /> };
-    default:
-      return { label: 'Sin nivel', color: 'rgba(255,255,255,0.3)', bg: 'rgba(255,255,255,0.04)', border: 'rgba(255,255,255,0.1)', icon: <Star size={16} /> };
+    case 'oro':    return { label: 'Nivel Oro',    color: '#C5A059', bg: 'rgba(197,160,89,0.12)', border: 'rgba(197,160,89,0.4)',  icon: <Trophy size={16} /> };
+    case 'bronce': return { label: 'Nivel Bronce', color: '#cd7f32', bg: 'rgba(205,127,50,0.12)', border: 'rgba(205,127,50,0.4)',  icon: <Medal  size={16} /> };
+    default:       return { label: 'Sin nivel',    color: 'rgba(255,255,255,0.3)', bg: 'rgba(255,255,255,0.04)', border: 'rgba(255,255,255,0.1)', icon: <Star size={16} /> };
   }
 }
 
@@ -36,21 +57,40 @@ function formatMonth(m: string) {
   return new Date(Number(y), Number(mo) - 1).toLocaleDateString('es-PY', { month: 'long', year: 'numeric' });
 }
 
+function pointLabel(pts: number): string {
+  if (pts >= 1) return '+1 pt';
+  return '+0.5 pt';
+}
+function pointColor(pts: number): string {
+  return pts >= 1 ? '#10b981' : '#f59e0b';
+}
+
+// ── Construir resumen mensual ──────────────────────────────────────────────────
 function buildSummaries(month: string): SellerSummary[] {
   const all = getSales().filter(v => (v.fecha || '').startsWith(month));
   const map: Record<string, SellerSummary> = {};
+
   for (const v of all) {
     const seller = v.vendedora || 'Sin vendedora';
     const branch = v.sucursalVenta || '';
-    if (!map[seller]) map[seller] = { seller_name: seller, branch_name: branch, total_sales: 0, full_sales: 0, total_points: 0, prize_level: 'sin_nivel' };
+    if (!map[seller]) map[seller] = { seller_name: seller, branch_name: branch, total_sales: 0, full_sales: 0, half_sales: 0, total_points: 0, prize_level: 'sin_nivel' };
+
+    const pts = calcPoints(v);
     map[seller].total_sales++;
-    map[seller].full_sales++;
-    map[seller].total_points += 1;
+    if (pts >= 1) map[seller].full_sales++;
+    else map[seller].half_sales++;
+    map[seller].total_points += pts;
   }
+
   for (const s of Object.values(map)) {
     s.prize_level = calcLevel(s.total_points);
   }
   return Object.values(map).sort((a, b) => b.total_points - a.total_points);
+}
+
+// ── Ventas del día de una vendedora ───────────────────────────────────────────
+function getDailySales(sellerName: string, date: string): StoredSale[] {
+  return getSales().filter(v => v.vendedora === sellerName && (v.fecha || '').startsWith(date));
 }
 
 function getAvailableMonths(): string[] {
@@ -65,33 +105,57 @@ export default function CommissionsPage() {
   const isAdmin = profile?.role === 'admin' || profile?.role === 'gerente';
 
   const [selectedMonth, setSelectedMonth] = useState(CURRENT_MONTH);
-  const [months, setMonths] = useState<string[]>([CURRENT_MONTH]);
-  const [summaries, setSummaries] = useState<SellerSummary[]>([]);
-  const [mySummary, setMySummary] = useState<SellerSummary | null>(null);
+  const [months,        setMonths]        = useState<string[]>([CURRENT_MONTH]);
+  const [summaries,     setSummaries]     = useState<SellerSummary[]>([]);
+  const [mySummary,     setMySummary]     = useState<SellerSummary | null>(null);
+  const [expandedDay,   setExpandedDay]   = useState<string | null>(null);
 
   useEffect(() => {
     setMonths(getAvailableMonths());
     const all = buildSummaries(selectedMonth);
     setSummaries(all);
     if (profile) {
-      const mine = all.find(s => s.seller_name === profile.full_name) ?? null;
-      setMySummary(mine);
+      setMySummary(all.find(s => s.seller_name === profile.full_name) ?? null);
     }
   }, [selectedMonth, profile]);
 
-  const myPoints = mySummary?.total_points ?? 0;
-  const myLevel = mySummary?.prize_level ?? 'sin_nivel';
-  const myPrize = prizeConfig(myLevel);
+  const myPoints   = mySummary?.total_points ?? 0;
+  const myLevel    = mySummary?.prize_level  ?? 'sin_nivel';
+  const myPrize    = prizeConfig(myLevel);
   const nextTarget = myPoints >= 10 ? 10 : 8;
-  const prevTarget = myPoints >= 8 ? 8 : 0;
-  const progressPct = Math.min(100, nextTarget > prevTarget ? ((myPoints - prevTarget) / (nextTarget - prevTarget)) * 100 : 100);
+  const prevTarget = myPoints >= 8  ? 8  : 0;
+  const progressPct = Math.min(100, nextTarget > prevTarget
+    ? ((myPoints - prevTarget) / (nextTarget - prevTarget)) * 100
+    : 100);
+
+  // Mis ventas del mes agrupadas por día
+  const myMonthlySales = profile
+    ? getSales().filter(v => (v.fecha || '').startsWith(selectedMonth) && v.vendedora === profile.full_name)
+    : [];
+
+  const salesByDay = myMonthlySales.reduce<Record<string, StoredSale[]>>((acc, v) => {
+    const day = (v.fecha || '').slice(0, 10);
+    if (!acc[day]) acc[day] = [];
+    acc[day].push(v);
+    return acc;
+  }, {});
+
+  const sortedDays = Object.keys(salesByDay).sort((a, b) => b.localeCompare(a));
+
+  // Puntos del día de hoy
+  const todaySales  = profile ? getDailySales(profile.full_name, TODAY) : [];
+  const todayPoints = todaySales.reduce((s, v) => s + calcPoints(v), 0);
 
   return (
     <div className="p-6 space-y-6">
+
+      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl text-white font-light tracking-wider">Comisiones y Premios</h1>
-          <p className="text-sm font-light mt-1" style={{ color: 'rgba(197,160,89,0.7)' }}>Sistema de puntos y niveles mensuales</p>
+          <p className="text-sm font-light mt-1" style={{ color: 'rgba(197,160,89,0.7)' }}>
+            Sistema de puntos y niveles mensuales
+          </p>
         </div>
         <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)}
           className="px-4 py-2 rounded-lg text-xs font-light bg-transparent text-white outline-none border capitalize"
@@ -101,12 +165,13 @@ export default function CommissionsPage() {
       </div>
 
       {/* Reglas */}
-      <div className="rounded-xl border p-4 grid grid-cols-1 sm:grid-cols-3 gap-4"
+      <div className="rounded-xl border p-4 grid grid-cols-1 sm:grid-cols-4 gap-4"
         style={{ background: 'rgba(255,255,255,0.02)', borderColor: 'rgba(197,160,89,0.15)' }}>
         {[
-          { icon: <Star size={14} />, label: 'Venta completa', sub: 'Armazón + Cristales', pts: '+1 punto', color: '#C5A059' },
-          { icon: <Medal size={14} />, label: 'Nivel Bronce', sub: 'Desde 8 puntos', pts: 'Premio menor', color: '#cd7f32' },
-          { icon: <Trophy size={14} />, label: 'Nivel Oro', sub: 'Desde 10 puntos', pts: 'Premio mayor', color: '#C5A059' },
+          { icon: <Star size={14} />,   label: 'Venta completa',     sub: 'Armazón + Cristales', pts: '+1 punto',    color: '#10b981' },
+          { icon: <Star size={14} />,   label: 'Venta parcial',      sub: 'Solo armazón o solo cristales', pts: '+0.5 punto', color: '#f59e0b' },
+          { icon: <Medal size={14} />,  label: 'Nivel Bronce',       sub: 'Desde 8 puntos',       pts: 'Premio menor', color: '#cd7f32' },
+          { icon: <Trophy size={14} />, label: 'Nivel Oro',          sub: 'Desde 10 puntos',      pts: 'Premio mayor', color: '#C5A059' },
         ].map(r => (
           <div key={r.label} className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
@@ -121,34 +186,53 @@ export default function CommissionsPage() {
         ))}
       </div>
 
-      {/* Mi progreso — solo visible para vendedora */}
+      {/* MI PROGRESO — vendedora */}
       {!isAdmin && (
-        <div className="rounded-2xl border p-6"
+        <div className="rounded-2xl border p-6 space-y-5"
           style={{ background: 'rgba(255,255,255,0.02)', borderColor: myPrize.border }}>
+
+          {/* Puntos del mes + hoy */}
           <div className="flex items-start justify-between flex-wrap gap-4">
             <div>
               <p className="text-xs font-light tracking-widest uppercase mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>
                 Mis puntos · {formatMonth(selectedMonth)}
               </p>
-              <div className="flex items-center gap-3">
+              <div className="flex items-end gap-3">
                 <span className="text-5xl font-light text-white">{myPoints.toFixed(1)}</span>
-                <span className="text-lg font-light" style={{ color: 'rgba(255,255,255,0.3)' }}>pts</span>
+                <span className="text-lg font-light mb-1" style={{ color: 'rgba(255,255,255,0.3)' }}>pts</span>
               </div>
               {mySummary && (
                 <p className="text-xs font-light mt-1" style={{ color: 'rgba(255,255,255,0.4)' }}>
-                  {mySummary.full_sales} ventas completas · {mySummary.total_sales} total
+                  {mySummary.full_sales} completas · {mySummary.half_sales} parciales · {mySummary.total_sales} ventas total
                 </p>
               )}
             </div>
-            <div className="flex items-center gap-2 px-4 py-2 rounded-xl border"
-              style={{ background: myPrize.bg, borderColor: myPrize.border, color: myPrize.color }}>
-              {myPrize.icon}
-              <span className="text-sm font-light tracking-wider">{myPrize.label}</span>
+
+            <div className="flex flex-col items-end gap-2">
+              {/* Premio del mes */}
+              <div className="flex items-center gap-2 px-4 py-2 rounded-xl border"
+                style={{ background: myPrize.bg, borderColor: myPrize.border, color: myPrize.color }}>
+                {myPrize.icon}
+                <span className="text-sm font-light tracking-wider">{myPrize.label}</span>
+              </div>
+              {/* Puntos de hoy */}
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl"
+                style={{ background: 'rgba(197,160,89,0.08)', border: '1px solid rgba(197,160,89,0.2)' }}>
+                <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.5)' }}>Hoy:</span>
+                <span className="text-sm font-medium" style={{ color: '#C5A059' }}>{todayPoints.toFixed(1)} pts</span>
+                <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.35)' }}>({todaySales.length} ventas)</span>
+              </div>
             </div>
           </div>
-          <div className="mt-5 space-y-1.5">
+
+          {/* Barra de progreso */}
+          <div className="space-y-1.5">
             <div className="flex justify-between text-xs font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>
-              <span>{myPoints >= 10 ? 'Nivel Oro alcanzado' : `Faltan ${(nextTarget - myPoints).toFixed(1)} pts para ${nextTarget === 8 ? 'Bronce' : 'Oro'}`}</span>
+              <span>
+                {myPoints >= 10
+                  ? 'Nivel Oro alcanzado 🏆'
+                  : `Faltan ${(nextTarget - myPoints).toFixed(1)} pts para ${nextTarget === 8 ? 'Bronce' : 'Oro'}`}
+              </span>
               <span style={{ color: myPrize.color }}>{myPoints.toFixed(1)} / {nextTarget}</span>
             </div>
             <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
@@ -162,37 +246,91 @@ export default function CommissionsPage() {
             </div>
           </div>
 
-          {/* Mis ventas del mes */}
-          <div className="mt-6">
-            <p className="text-xs font-light tracking-widest uppercase mb-3" style={{ color: 'rgba(197,160,89,0.55)' }}>Mis ventas del mes</p>
-            {getSales().filter(v => (v.fecha || '').startsWith(selectedMonth) && v.vendedora === profile?.full_name).length === 0 ? (
+          {/* Historial por día */}
+          <div>
+            <p className="text-xs font-light tracking-widest uppercase mb-3" style={{ color: 'rgba(197,160,89,0.55)' }}>
+              Mis ventas del mes por día
+            </p>
+
+            {sortedDays.length === 0 ? (
               <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.3)' }}>No hay ventas registradas este mes</p>
             ) : (
               <div className="space-y-2">
-                {getSales()
-                  .filter(v => (v.fecha || '').startsWith(selectedMonth) && v.vendedora === profile?.full_name)
-                  .map(v => (
-                    <div key={v.id} className="flex items-center justify-between px-3 py-2 rounded-lg"
-                      style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(197,160,89,0.1)' }}>
-                      <div>
-                        <span className="text-xs font-mono" style={{ color: '#C5A059' }}>VTA-{v.id}</span>
-                        <span className="text-xs font-light ml-2 text-white">{v.cliente.nombre} {v.cliente.apellido}</span>
+                {sortedDays.map(day => {
+                  const daySales  = salesByDay[day];
+                  const dayPts    = daySales.reduce((s, v) => s + calcPoints(v), 0);
+                  const isExp     = expandedDay === day;
+                  const isToday   = day === TODAY;
+
+                  return (
+                    <div key={day} className="rounded-xl overflow-hidden"
+                      style={{ border: `1px solid ${isToday ? 'rgba(197,160,89,0.35)' : 'rgba(197,160,89,0.1)'}`, background: isToday ? 'rgba(197,160,89,0.04)' : 'rgba(255,255,255,0.02)' }}>
+
+                      {/* Fila del día */}
+                      <div className="flex items-center justify-between px-4 py-3 cursor-pointer"
+                        onClick={() => setExpandedDay(isExp ? null : day)}>
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs font-light text-white">
+                            {new Date(day + 'T12:00:00').toLocaleDateString('es-PY', { weekday: 'short', day: '2-digit', month: 'short' })}
+                            {isToday && <span className="ml-2 text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(197,160,89,0.2)', color: '#C5A059' }}>Hoy</span>}
+                          </span>
+                          <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>
+                            {daySales.length} venta{daySales.length !== 1 ? 's' : ''}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium px-2 py-0.5 rounded-full"
+                            style={{ background: `${pointColor(dayPts)}18`, color: pointColor(dayPts) }}>
+                            +{dayPts.toFixed(1)} pts
+                          </span>
+                          <ChevronDown size={13} style={{ color: 'rgba(255,255,255,0.3)', transform: isExp ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>
-                          {new Date(v.fecha).toLocaleDateString('es-PY')}
-                        </span>
-                        <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(16,185,129,0.12)', color: '#10b981' }}>+1 pt</span>
-                      </div>
+
+                      {/* Detalle de ventas del día */}
+                      {isExp && (
+                        <div className="px-4 pb-3 space-y-1.5" style={{ borderTop: '1px solid rgba(197,160,89,0.1)' }}>
+                          {daySales.map(v => {
+                            const pts   = calcPoints(v);
+                            const anteojos = (v.anteojos as any[]) || [];
+                            const desc  = anteojos.length > 0
+                              ? anteojos.map((eg: any) => {
+                                  const parts = [];
+                                  if (eg.frame_description) parts.push(eg.frame_description);
+                                  if (eg.crystals) parts.push(eg.crystals);
+                                  return parts.join(' + ') || 'Sin detalle';
+                                }).join(' | ')
+                              : 'Sin detalle de lentes';
+
+                            return (
+                              <div key={v.id} className="flex items-center justify-between py-2"
+                                style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-xs font-mono" style={{ color: '#C5A059' }}>VTA-{v.id}</span>
+                                    <span className="text-xs text-white font-light">{v.cliente.nombre} {v.cliente.apellido}</span>
+                                  </div>
+                                  <p className="text-xs font-light mt-0.5 truncate" style={{ color: 'rgba(255,255,255,0.35)' }}>{desc}</p>
+                                </div>
+                                <span className="text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ml-2"
+                                  style={{ background: `${pointColor(pts)}18`, color: pointColor(pts) }}>
+                                  {pointLabel(pts)}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                  ))}
+                  );
+                })}
               </div>
             )}
           </div>
         </div>
       )}
 
-      {/* Admin: ranking completo */}
+      {/* ADMIN: ranking completo */}
       {isAdmin && (
         <div className="rounded-xl border overflow-hidden"
           style={{ background: 'rgba(255,255,255,0.02)', borderColor: 'rgba(197,160,89,0.15)' }}>
@@ -217,7 +355,7 @@ export default function CommissionsPage() {
             <table className="w-full text-xs">
               <thead>
                 <tr style={{ borderBottom: '1px solid rgba(197,160,89,0.1)' }}>
-                  {['#', 'Vendedora', 'Sucursal', 'Ventas', 'Puntos', 'Premio'].map(h => (
+                  {['#', 'Vendedora', 'Sucursal', 'Total', 'Completas', 'Parciales', 'Puntos', 'Premio'].map(h => (
                     <th key={h} className="px-4 py-3 text-left font-light tracking-wider uppercase"
                       style={{ color: 'rgba(197,160,89,0.6)' }}>{h}</th>
                   ))}
@@ -239,9 +377,9 @@ export default function CommissionsPage() {
                       </td>
                       <td className="px-4 py-3 text-white font-light">{s.seller_name}</td>
                       <td className="px-4 py-3 font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>{s.branch_name || '—'}</td>
-                      <td className="px-4 py-3">
-                        <span className="font-medium" style={{ color: '#10b981' }}>{s.total_sales}</span>
-                      </td>
+                      <td className="px-4 py-3 font-medium" style={{ color: '#10b981' }}>{s.total_sales}</td>
+                      <td className="px-4 py-3 font-light" style={{ color: '#10b981' }}>{s.full_sales}</td>
+                      <td className="px-4 py-3 font-light" style={{ color: '#f59e0b' }}>{s.half_sales}</td>
                       <td className="px-4 py-3">
                         <span className="text-sm font-medium" style={{ color: cfg.color }}>{s.total_points.toFixed(1)}</span>
                         <span className="font-light ml-1" style={{ color: 'rgba(255,255,255,0.3)' }}>pts</span>
@@ -268,6 +406,7 @@ export default function CommissionsPage() {
               <span style={{ color: 'rgba(255,255,255,0.4)' }}>Total vendedoras: <span className="text-white">{summaries.length}</span></span>
               <span style={{ color: 'rgba(255,255,255,0.4)' }}>Nivel Oro: <span style={{ color: '#C5A059' }}>{summaries.filter(s => s.prize_level === 'oro').length}</span></span>
               <span style={{ color: 'rgba(255,255,255,0.4)' }}>Nivel Bronce: <span style={{ color: '#cd7f32' }}>{summaries.filter(s => s.prize_level === 'bronce').length}</span></span>
+              <span style={{ color: 'rgba(255,255,255,0.4)' }}>Total puntos: <span style={{ color: '#C5A059' }}>{summaries.reduce((s, x) => s + x.total_points, 0).toFixed(1)}</span></span>
             </div>
           )}
         </div>
