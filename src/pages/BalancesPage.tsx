@@ -134,10 +134,30 @@ export default function BalancesPage() {
   // ── Marcar como entregado ─────────────────────────────────────────────────
   function markDelivered(rowId: string) {
     const saleIdNum = Number(rowId);
+    const sale = getSales().find(v => v.id === saleIdNum);
     closeSaleLocal(saleIdNum, 'retiro');
-    setPaySuccess('✓ Lentes entregados — venta cerrada.');
+
+    // Guardar alerta para el admin
+    if (sale) {
+      try {
+        const alerts = JSON.parse(localStorage.getItem('optica_delivery_alerts') || '[]');
+        alerts.unshift({
+          id: Date.now(),
+          saleId: saleIdNum,
+          saleNumber: `VTA-${saleIdNum}`,
+          customer: `${sale.cliente.nombre} ${sale.cliente.apellido}`.trim(),
+          vendedora: sale.vendedora,
+          total: sale.total,
+          timestamp: new Date().toISOString(),
+          reviewed: false,
+        });
+        localStorage.setItem('optica_delivery_alerts', JSON.stringify(alerts.slice(0, 50)));
+      } catch {}
+    }
+
+    setPaySuccess('✓ Lentes entregados — venta cerrada. El administrador verá una alerta para verificar el pago.');
     setExpandedId(null);
-    setTimeout(() => setPaySuccess(''), 4000);
+    setTimeout(() => setPaySuccess(''), 5000);
     load();
     window.dispatchEvent(new Event('optica_ventas_updated'));
   }
@@ -211,7 +231,7 @@ export default function BalancesPage() {
         </div>
         <div className="rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(245,158,11,0.22)' }}>
           <p className="text-xs font-light mb-2" style={{ color: 'rgba(255,255,255,0.4)' }}>Pendientes de entrega</p>
-          <p className="text-xl font-light" style={{ color: '#f59e0b' }}>{rows.filter(r => Number(r.balance) <= 0).length}</p>
+          <p className="text-xl font-light" style={{ color: '#f59e0b' }}>{rows.length}</p>
         </div>
       </div>
 
@@ -405,16 +425,18 @@ export default function BalancesPage() {
                           </div>
                         )}
 
-                        {/* Pagado — botón para marcar como entregado */}
-                        {isPaid && (
+                        {/* Botón entregado — solo para pendiente y pagado_total */}
+                        {(row.status === 'pendiente' || row.status === 'en_proceso' || row.status === 'pagado_total') && (
                           <div className="pt-3 space-y-2" style={{ borderTop: '1px solid rgba(197,160,89,0.10)' }}>
-                            <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl"
-                              style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)' }}>
-                              <Check size={14} style={{ color: '#10b981' }} />
-                              <p className="text-xs font-light" style={{ color: '#10b981' }}>
-                                Pago completo — marcar cuando retiren los lentes
-                              </p>
-                            </div>
+                            {isPaid && (
+                              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl"
+                                style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)' }}>
+                                <Check size={14} style={{ color: '#10b981' }} />
+                                <p className="text-xs font-light" style={{ color: '#10b981' }}>
+                                  Pago completo — marcar cuando retiren los lentes
+                                </p>
+                              </div>
+                            )}
                             <button
                               onClick={e => { e.stopPropagation(); markDelivered(row.id); }}
                               className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium transition-all"
@@ -424,6 +446,18 @@ export default function BalancesPage() {
                               <Package size={15} />
                               ✓ Marcar como Entregado
                             </button>
+                          </div>
+                        )}
+                        {/* Laboratorio/Listo — no se puede entregar aún */}
+                        {(row.status === 'en_laboratorio' || row.status === 'listo') && (
+                          <div className="pt-3" style={{ borderTop: '1px solid rgba(197,160,89,0.10)' }}>
+                            <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl"
+                              style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)' }}>
+                              <span className="text-sm">🔬</span>
+                              <p className="text-xs font-light" style={{ color: 'rgba(59,130,246,0.8)' }}>
+                                {row.status === 'listo' ? 'Listo en laboratorio — esperando retiro' : 'En laboratorio — no se puede entregar aún'}
+                              </p>
+                            </div>
                           </div>
                         )}
 
