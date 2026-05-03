@@ -595,27 +595,61 @@ export default function CashPage() {
                         </div>
                       </div>
 
-                      {/* Comprobante de pago */}
-                      {receiptUrl ? (
-                        <div>
-                          <p className="text-xs font-light tracking-widest uppercase mb-2" style={{ color: 'rgba(197,160,89,0.55)' }}>
-                            Comprobante de pago
-                          </p>
-                          <img src={receiptUrl} alt="comprobante"
-                            className="h-48 object-contain rounded-xl border cursor-pointer w-full"
-                            style={{ borderColor: 'rgba(197,160,89,0.3)', maxWidth: 360, background: 'rgba(255,255,255,0.03)' }}
-                            onClick={() => setLightboxUrl(receiptUrl)} />
-                          <p className="text-xs mt-1 font-light" style={{ color: 'rgba(255,255,255,0.3)' }}>
-                            Clic para ampliar
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg"
-                          style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                          <Eye size={13} style={{ color: 'rgba(255,255,255,0.3)' }} />
-                          <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.3)' }}>Sin comprobante adjunto</p>
-                        </div>
-                      )}
+                      {/* Todos los comprobantes de esta venta */}
+                      {(() => {
+                        const allPays = getPayments().filter((pay: any) => pay.saleId === p.sale_id);
+                        const hasAny  = allPays.some((pay: any) => pay.receipt_url);
+                        return (
+                          <div>
+                            <p className="text-xs font-light tracking-widest uppercase mb-2" style={{ color: 'rgba(197,160,89,0.55)' }}>
+                              Comprobantes de pago
+                            </p>
+                            {allPays.length === 0 && (
+                              <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg"
+                                style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                                <Eye size={13} style={{ color: 'rgba(255,255,255,0.3)' }} />
+                                <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.3)' }}>Sin comprobantes adjuntos</p>
+                              </div>
+                            )}
+                            {allPays.map((pay: any, idx: number) => {
+                              const mc2 = METHODS.find(m => m.id === pay.metodo)?.color ?? '#C5A059';
+                              return (
+                                <div key={pay.id} className="mb-3 rounded-xl overflow-hidden"
+                                  style={{ border: '1px solid rgba(197,160,89,0.12)', background: 'rgba(255,255,255,0.02)' }}>
+                                  <div className="flex items-center gap-2 px-3 py-2"
+                                    style={{ borderBottom: pay.receipt_url ? '1px solid rgba(197,160,89,0.1)' : 'none' }}>
+                                    <span className="w-4 h-4 rounded-full flex items-center justify-center text-xs font-medium text-black shrink-0"
+                                      style={{ background: mc2, fontSize: 9 }}>{idx + 1}</span>
+                                    <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: `${mc2}18`, color: mc2 }}>{pay.metodo}</span>
+                                    <span className="text-xs text-white font-light">Gs. {Number(pay.monto).toLocaleString('es-PY')}</span>
+                                    <span className="text-xs font-light ml-auto" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                                      {new Date(pay.fecha).toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' })}
+                                      {' '}{new Date(pay.fecha).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                    <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(197,160,89,0.08)', color: 'rgba(197,160,89,0.6)' }}>
+                                      {pay.tipo === 'sena' ? 'Seña' : 'Abono'}
+                                    </span>
+                                  </div>
+                                  {pay.receipt_url ? (
+                                    <div className="p-2">
+                                      <img src={pay.receipt_url} alt={`comprobante ${idx + 1}`}
+                                        className="h-40 object-contain rounded-lg border cursor-pointer w-full"
+                                        style={{ borderColor: 'rgba(197,160,89,0.2)', background: '#111', maxWidth: 320 }}
+                                        onClick={() => setLightboxUrl(pay.receipt_url)} />
+                                      <p className="text-xs mt-1 font-light" style={{ color: 'rgba(255,255,255,0.25)' }}>Clic para ampliar</p>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-2 px-3 py-2">
+                                      <Eye size={11} style={{ color: 'rgba(255,255,255,0.2)' }} />
+                                      <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.25)' }}>Sin comprobante</p>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()}
 
                       {/* Fotos del armazón */}
                       {lensPhotos.length > 0 && (
