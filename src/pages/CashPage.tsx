@@ -81,6 +81,7 @@ export default function CashPage() {
   const { activeBranch } = useBranch();
   const { profile } = useAuth();
 
+  const weekRange = isVendedora ? getWeekRange() : null;
   const [selectedDate,   setSelectedDate]   = useState(new Date().toISOString().slice(0, 10));
   const [selectedBranch, setSelectedBranch] = useState<string>('');
   const [summary,        setSummary]        = useState<DailySummary>(emptyAgg());
@@ -104,6 +105,25 @@ export default function CashPage() {
 
   const isAdmin    = profile?.role === 'admin' || profile?.role === 'gerente';
   const isVendedora = profile?.role === 'vendedora';
+
+  // ── Restricción de caja para vendedora ───────────────────────────────────
+  // Solo puede ver lunes-sábado de la semana actual
+  // A las 13:30 del sábado se cierra y espera el lunes siguiente
+  function getWeekRange(): { start: string; end: string; isClosed: boolean } {
+    const now  = new Date();
+    const day  = now.getDay(); // 0=Dom, 1=Lun, ... 6=Sab
+    const hour = now.getHours() + now.getMinutes() / 60;
+    // Si es domingo o sábado después de las 13:30 → semana cerrada
+    const isClosed = day === 0 || (day === 6 && hour >= 13.5);
+    // Calcular lunes de esta semana
+    const diffToMonday = day === 0 ? -6 : 1 - day;
+    const monday = new Date(now);
+    monday.setDate(now.getDate() + diffToMonday);
+    const saturday = new Date(monday);
+    saturday.setDate(monday.getDate() + 5);
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    return { start: fmt(monday), end: fmt(saturday), isClosed };
+  }
 
   useEffect(() => {
     if (isVendedora && profile?.branch_id && !selectedBranch) setSelectedBranch(profile.branch_id);
@@ -265,12 +285,34 @@ export default function CashPage() {
               {SUCURSALES.map(s => <option key={s} value={s} style={{ background: '#111' }}>{s}</option>)}
             </select>
           )}
-          <div className="flex items-center gap-2 px-3 py-2 rounded-lg"
-            style={{ background: 'rgba(197,160,89,0.07)', border: '1px solid rgba(197,160,89,0.18)' }}>
-            <Calendar size={13} className="text-gold-muted" />
-            <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)}
-              className="bg-transparent text-xs text-white border-none outline-none" />
-          </div>
+          {!isVendedora && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg"
+              style={{ background: 'rgba(197,160,89,0.07)', border: '1px solid rgba(197,160,89,0.18)' }}>
+              <Calendar size={13} className="text-gold-muted" />
+              <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)}
+                className="bg-transparent text-xs text-white border-none outline-none" />
+            </div>
+          )}
+          {isVendedora && weekRange && !weekRange.isClosed && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg"
+              style={{ background: 'rgba(197,160,89,0.07)', border: '1px solid rgba(197,160,89,0.18)' }}>
+              <Calendar size={13} className="text-gold-muted" />
+              <select value={selectedDate} onChange={e => setSelectedDate(e.target.value)}
+                className="bg-transparent text-xs text-white border-none outline-none"
+                style={{ background: '#0a0908' }}>
+                {Array.from({ length: 6 }, (_, i) => {
+                  const d = new Date(weekRange.start + 'T12:00:00');
+                  d.setDate(d.getDate() + i);
+                  const val = d.toISOString().slice(0, 10);
+                  return (
+                    <option key={val} value={val} style={{ background: '#111' }}>
+                      {d.toLocaleDateString('es-PY', { weekday: 'short', day: '2-digit', month: '2-digit' })}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+          )}
           <button onClick={load} disabled={loading}
             className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-light"
             style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.55)' }}>
@@ -284,6 +326,31 @@ export default function CashPage() {
           style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.30)' }}>
           <CheckCircle size={14} style={{ color: '#ef4444' }} />
           <p className="text-sm font-light" style={{ color: '#ef4444' }}>Gasto registrado correctamente</p>
+        </div>
+      )}
+
+      {/* Caja cerrada para vendedora */}
+      {isVendedora && weekRange?.isClosed && (
+        <div className="flex flex-col items-center justify-center py-16 text-center rounded-2xl"
+          style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.2)' }}>
+          <div className="text-4xl mb-4">🔒</div>
+          <h2 className="text-xl font-light text-white mb-2">Caja Cerrada</h2>
+          <p className="text-sm font-light" style={{ color: 'rgba(255,255,255,0.5)' }}>
+            La caja se cierra los sábados a las 13:30 hs.
+          </p>
+          <p className="text-sm font-light mt-1" style={{ color: 'rgba(197,160,89,0.7)' }}>
+            Volvé el lunes para comenzar una nueva semana 📅
+          </p>
+        </div>
+      )}
+
+      {/* Aviso semana activa */}
+      {isVendedora && weekRange && !weekRange.isClosed && (
+        <div className="flex items-center justify-between px-4 py-2.5 rounded-xl"
+          style={{ background: 'rgba(197,160,89,0.06)', border: '1px solid rgba(197,160,89,0.18)' }}>
+          <p className="text-xs font-light" style={{ color: 'rgba(197,160,89,0.8)' }}>
+            📅 Semana activa: {new Date(weekRange.start + 'T12:00:00').toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' })} al {new Date(weekRange.end + 'T12:00:00').toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' })} · Cierre sábado 13:30 hs
+          </p>
         </div>
       )}
 
