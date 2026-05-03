@@ -19,6 +19,7 @@ export type StoredSale = {
   observaciones: string;
   delivery_type?: 'retiro' | 'delivery' | 'encomienda';
   delivered_at?: string;
+  receipt_url?: string;   // ← comprobante del pago inicial
 };
 
 // Represents any single cash movement (initial seña or subsequent abono)
@@ -32,7 +33,7 @@ export type StoredPayment = {
   vendedora: string;
   cliente: string;
   tipo: 'sena' | 'abono';
-  receipt_url?: string;  // compressed base64 comprobante photo
+  receipt_url?: string;
 };
 
 export type SalesSummary = {
@@ -42,29 +43,20 @@ export type SalesSummary = {
 };
 
 // ── Image compression ─────────────────────────────────────────────────────────
-// Reduces a base64 image to max 200 KB by resizing and compressing via canvas.
 export function compressImage(dataUrl: string, maxKB = 200): Promise<string> {
   return new Promise(resolve => {
     if (!dataUrl.startsWith('data:image')) { resolve(dataUrl); return; }
     const img = new Image();
     img.onload = () => {
       const MAX_BYTES = maxKB * 1024;
-      // If already small enough, skip
       if (dataUrl.length * 0.75 <= MAX_BYTES) { resolve(dataUrl); return; }
-
       const canvas = document.createElement('canvas');
-      // Scale down proportionally so the encoded size fits
       const scaleFactor = Math.sqrt(MAX_BYTES / (dataUrl.length * 0.75));
       canvas.width  = Math.max(1, Math.floor(img.width  * scaleFactor));
       canvas.height = Math.max(1, Math.floor(img.height * scaleFactor));
-      const ctx = canvas.getContext('2d')!;
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-      // Try quality 0.75 first, then 0.5 as fallback
+      canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
       let out = canvas.toDataURL('image/jpeg', 0.75);
-      if (out.length * 0.75 > MAX_BYTES) {
-        out = canvas.toDataURL('image/jpeg', 0.50);
-      }
+      if (out.length * 0.75 > MAX_BYTES) out = canvas.toDataURL('image/jpeg', 0.50);
       resolve(out);
     };
     img.onerror = () => resolve(dataUrl);
@@ -73,14 +65,13 @@ export function compressImage(dataUrl: string, maxKB = 200): Promise<string> {
 }
 
 // ── localStorage helpers ──────────────────────────────────────────────────────
-
 function purgeOldSales(): void {
   try {
     const cutoff = new Date();
     cutoff.setMonth(cutoff.getMonth() - 3);
     const kept = getSales().filter(s => new Date(s.fecha) >= cutoff);
     localStorage.setItem(LS_KEY, JSON.stringify(kept));
-  } catch { /* ignore secondary failure */ }
+  } catch { /* ignore */ }
 }
 
 function trySetItem(key: string, value: string): boolean {
@@ -94,14 +85,11 @@ function trySetItem(key: string, value: string): boolean {
 }
 
 // ── Sales ─────────────────────────────────────────────────────────────────────
-
 export function getSales(): StoredSale[] {
   try {
     const raw = localStorage.getItem(LS_KEY);
     return raw ? (JSON.parse(raw) as StoredSale[]) : [];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 
 export function saveSale(sale: StoredSale): void {
@@ -109,30 +97,30 @@ export function saveSale(sale: StoredSale): void {
   const json = JSON.stringify(updated);
 
   if (!trySetItem(LS_KEY, json)) {
-    // Step 1: strip photo data from all anteojos arrays to save space
+    // Strip photo data to save space
     const stripped = updated.map(s => ({
       ...s,
       anteojos: Array.isArray(s.anteojos)
         ? (s.anteojos as any[]).map((eg: any) => ({ ...eg, photo_url: '' }))
         : s.anteojos,
+      receipt_url: '',
     }));
     if (!trySetItem(LS_KEY, JSON.stringify(stripped))) {
-      // Step 2: purge sales older than 3 months and retry
       purgeOldSales();
       const afterPurge = [...getSales(), sale];
-      const afterJson = JSON.stringify(
+      trySetItem(LS_KEY, JSON.stringify(
         afterPurge.map(s => ({
           ...s,
           anteojos: Array.isArray(s.anteojos)
             ? (s.anteojos as any[]).map((eg: any) => ({ ...eg, photo_url: '' }))
             : s.anteojos,
+          receipt_url: '',
         }))
-      );
-      trySetItem(LS_KEY, afterJson);
-      // Even if this final attempt fails, we still continue so the UI doesn't block
+      ));
     }
   }
 
+  // ── Registrar el pago inicial (seña) CON comprobante ──────────────────────
   if (sale.sena > 0 || sale.total > 0) {
     recordPayment({
       id: Date.now(),
@@ -144,6 +132,7 @@ export function saveSale(sale: StoredSale): void {
       vendedora: sale.vendedora,
       cliente: `${sale.cliente.nombre} ${sale.cliente.apellido}`.trim(),
       tipo: 'sena',
+      receipt_url: sale.receipt_url || undefined,   // ← ahora se guarda
     });
   }
 
@@ -155,7 +144,6 @@ export function updateSaleBalance(saleId: number, newBalance: number, newDeposit
   const updated = sales.map(s => {
     if (s.id !== saleId) return s;
     const patch: Partial<StoredSale> = { saldo: newBalance, sena: newDeposit };
-    // Auto-advance status when fully paid (but not yet delivered)
     if (newBalance <= 0 && s.estadoTrabajo !== 'entregado' && s.estadoTrabajo !== 'cancelado') {
       patch.estadoTrabajo = 'pagado_total';
     }
@@ -165,7 +153,6 @@ export function updateSaleBalance(saleId: number, newBalance: number, newDeposit
   window.dispatchEvent(new CustomEvent('optica_ventas_updated'));
 }
 
-// Close a sale: zero out balance, mark as entregado, record delivery type and timestamp
 export function closeSaleLocal(
   saleId: number,
   deliveryType: 'retiro' | 'delivery' | 'encomienda',
@@ -196,15 +183,12 @@ export function getSalesSummary(ventas?: StoredSale[]): SalesSummary {
   };
 }
 
-// ── Payments (ingresos diarios) ───────────────────────────────────────────────
-
+// ── Payments ──────────────────────────────────────────────────────────────────
 export function getPayments(): StoredPayment[] {
   try {
     const raw = localStorage.getItem(LS_PAYMENTS_KEY);
     return raw ? (JSON.parse(raw) as StoredPayment[]) : [];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 
 export function recordPayment(payment: StoredPayment): void {
@@ -217,14 +201,13 @@ export function getPaymentsForDate(date: string): StoredPayment[] {
   return getPayments().filter(p => (p.fecha || '').startsWith(date));
 }
 
-// ── Expenses (egresos diarios) ─────────────────────────────────────────────
-
+// ── Expenses ──────────────────────────────────────────────────────────────────
 export type StoredExpense = {
   id: number;
-  fecha: string;           // ISO date string YYYY-MM-DD
+  fecha: string;
   descripcion: string;
   categoria: string;
-  monto: number;           // always stored as number
+  monto: number;
   metodo: string;
   sucursal: string;
   vendedora: string;
@@ -234,9 +217,7 @@ export function getExpenses(): StoredExpense[] {
   try {
     const raw = localStorage.getItem(LS_EXPENSES_KEY);
     return raw ? (JSON.parse(raw) as StoredExpense[]) : [];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 
 export function saveExpense(expense: StoredExpense): void {
