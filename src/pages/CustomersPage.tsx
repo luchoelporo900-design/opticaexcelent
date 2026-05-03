@@ -18,6 +18,13 @@ type SaleEyeglass = {
   prescription_text: string;
   photo_url: string;
   price: number;
+  // campos de receta estructurada (localStorage)
+  showReceta?: boolean;
+  prescription?: {
+    od_esfera?: string; od_cilindro?: string; od_eje?: string; od_altura?: string;
+    oi_esfera?: string; oi_cilindro?: string; oi_eje?: string; oi_altura?: string;
+    add?: string; dp?: string; obs?: string;
+  };
 };
 
 type SalePaymentEntry = {
@@ -63,22 +70,16 @@ function fmt(n: number) {
   return n.toLocaleString('es-PY', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
 
-// Normalize accents and case for fuzzy matching
 function normalize(s: string) {
   return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 }
 
-// Returns true if query is contained in text (after normalization) OR
-// if query is within 1 edit distance of any substring of similar length (typo tolerance)
 function fuzzyMatch(text: string, query: string): boolean {
   if (!query) return true;
   const t = normalize(text);
   const q = normalize(query);
   if (t.includes(q)) return true;
-  // Typo tolerance: check if q appears as a subsequence or close substring
-  // For short queries skip costly check
   if (q.length < 3) return false;
-  // Sliding window of length q.length ± 1 through t, compare edit distance
   for (let i = 0; i <= t.length - q.length + 1; i++) {
     const win = t.slice(i, i + q.length);
     if (editDistance(win, q) <= 1) return true;
@@ -91,8 +92,7 @@ function editDistance(a: string, b: string): number {
   if (Math.abs(m - n) > 1) return 99;
   const dp = Array.from({ length: m + 1 }, (_, i) => i);
   for (let j = 1; j <= n; j++) {
-    let prev = dp[0];
-    dp[0] = j;
+    let prev = dp[0]; dp[0] = j;
     for (let i = 1; i <= m; i++) {
       const tmp = dp[i];
       dp[i] = a[i - 1] === b[j - 1] ? prev : 1 + Math.min(prev, dp[i], dp[i - 1]);
@@ -114,8 +114,7 @@ function PhotoThumb({ url, alt }: { url: string; alt: string }) {
   if (!url) return null;
   return (
     <>
-      <button
-        onClick={() => setOpen(true)}
+      <button onClick={() => setOpen(true)}
         className="relative group rounded-xl overflow-hidden shrink-0"
         style={{ width: 72, height: 72, border: '1px solid rgba(197,160,89,0.22)' }}>
         <img src={url} alt={alt} className="w-full h-full object-cover" />
@@ -126,12 +125,10 @@ function PhotoThumb({ url, alt }: { url: string; alt: string }) {
       </button>
       {open && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6"
-          style={{ background: 'rgba(0,0,0,0.92)' }}
-          onClick={() => setOpen(false)}>
+          style={{ background: 'rgba(0,0,0,0.92)' }} onClick={() => setOpen(false)}>
           <div className="relative max-w-2xl w-full" onClick={e => e.stopPropagation()}>
             <img src={url} alt={alt} className="w-full rounded-2xl" style={{ border: '1px solid rgba(197,160,89,0.3)' }} />
-            <button onClick={() => setOpen(false)}
-              className="absolute top-3 right-3 p-2 rounded-full"
+            <button onClick={() => setOpen(false)} className="absolute top-3 right-3 p-2 rounded-full"
               style={{ background: 'rgba(0,0,0,0.7)', color: 'rgba(255,255,255,0.7)' }}>
               <X size={16} />
             </button>
@@ -142,7 +139,6 @@ function PhotoThumb({ url, alt }: { url: string; alt: string }) {
   );
 }
 
-// ── Receipt lightbox ──────────────────────────────────────────────────────────
 function ReceiptLightbox({ url, onClose }: { url: string; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-[300] flex items-center justify-center p-6"
@@ -151,10 +147,6 @@ function ReceiptLightbox({ url, onClose }: { url: string; onClose: () => void })
         <div className="flex items-center gap-2 mb-3">
           <Receipt size={14} style={{ color: '#C5A059' }} />
           <span className="text-sm font-light tracking-wider" style={{ color: '#C5A059' }}>Comprobante de Pago</span>
-          <span className="ml-1 text-xs px-2 py-0.5 rounded-full"
-            style={{ background: 'rgba(197,160,89,0.15)', color: '#C5A059', border: '1px solid rgba(197,160,89,0.3)' }}>
-            Solo Admin
-          </span>
         </div>
         <img src={url} alt="comprobante" className="w-full rounded-2xl"
           style={{ border: '1px solid rgba(197,160,89,0.3)', maxHeight: '75vh', objectFit: 'contain' }} />
@@ -170,9 +162,9 @@ function ReceiptLightbox({ url, onClose }: { url: string; onClose: () => void })
 // ── Sale card in timeline ──────────────────────────────────────────────────
 
 function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded,    setExpanded]    = useState(false);
   const [viewReceipt, setViewReceipt] = useState<string | null>(null);
-  const sc = STATUS_CFG[sale.status] ?? STATUS_CFG.pendiente;
+  const sc         = STATUS_CFG[sale.status] ?? STATUS_CFG.pendiente;
   const hasPending = Number(sale.balance) > 0;
 
   return (
@@ -183,12 +175,10 @@ function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
       }}>
 
       {/* Header row */}
-      <button
-        className="w-full flex items-center gap-3 px-4 py-3.5 text-left"
+      <button className="w-full flex items-center gap-3 px-4 py-3.5 text-left"
         style={{ borderBottom: expanded ? '1px solid rgba(197,160,89,0.08)' : 'none' }}
         onClick={() => setExpanded(!expanded)}>
 
-        {/* Date dot */}
         <div className="flex flex-col items-center shrink-0">
           <div className="w-2.5 h-2.5 rounded-full" style={{ background: hasPending ? '#ef4444' : sc.color }} />
         </div>
@@ -196,15 +186,13 @@ function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs font-mono" style={{ color: '#C5A059' }}>#{sale.sale_number}</span>
-            <span className="text-xs px-2 py-0.5 rounded-full"
-              style={{ background: `${sc.color}18`, color: sc.color }}>
+            <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: `${sc.color}18`, color: sc.color }}>
               {sc.label}
             </span>
             {hasPending && (
               <span className="text-xs px-2 py-0.5 rounded-full flex items-center gap-1"
                 style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.30)' }}>
-                <AlertCircle size={10} />
-                Saldo Gs. {fmt(Number(sale.balance))}
+                <AlertCircle size={10} />Saldo Gs. {fmt(Number(sale.balance))}
               </span>
             )}
           </div>
@@ -215,7 +203,6 @@ function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
           </p>
         </div>
 
-        {/* Amounts */}
         <div className="text-right shrink-0">
           <p className="text-sm font-light text-white">Gs. {fmt(Number(sale.total))}</p>
           {!hasPending && Number(sale.total) > 0 && (
@@ -225,7 +212,6 @@ function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
           )}
         </div>
 
-        {/* Frame photos preview */}
         {sale.eyeglasses.some(eg => eg.photo_url) && !expanded && (
           <div className="flex gap-1 shrink-0">
             {sale.eyeglasses.filter(eg => eg.photo_url).slice(0, 2).map(eg => (
@@ -245,7 +231,7 @@ function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
       {expanded && (
         <div className="px-4 pb-4 pt-3 space-y-4">
 
-          {/* Eyeglasses — Foto del Armazón / Receta */}
+          {/* Eyeglasses + Receta */}
           {sale.eyeglasses.length > 0 && (
             <div className="space-y-3">
               <div className="flex items-center gap-2">
@@ -255,8 +241,10 @@ function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
                 </span>
               </div>
               {sale.eyeglasses.map((eg, idx) => (
-                <div key={eg.id} className="rounded-xl p-3 space-y-2"
+                <div key={eg.id} className="rounded-xl p-3 space-y-3"
                   style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.10)' }}>
+
+                  {/* Foto + info básica */}
                   <div className="flex items-start gap-3">
                     {eg.photo_url && <PhotoThumb url={eg.photo_url} alt={`armazón ${idx + 1}`} />}
                     <div className="flex-1 min-w-0 space-y-1">
@@ -282,14 +270,48 @@ function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
                       )}
                     </div>
                   </div>
-                  {eg.prescription_text && (
+
+                  {/* ── RECETA ESTRUCTURADA (localStorage) ── */}
+                  {eg.prescription && (
+                    <div className="rounded-lg p-3 space-y-2"
+                      style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.20)' }}>
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <FlaskConical size={11} style={{ color: '#3b82f6' }} />
+                        <span className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(59,130,246,0.8)' }}>Receta óptica</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <p className="text-xs font-light mb-1" style={{ color: '#C5A059' }}>OD (ojo derecho)</p>
+                          <p className="text-xs font-mono" style={{ color: 'rgba(255,255,255,0.75)' }}>
+                            {eg.prescription.od_esfera || '—'} / {eg.prescription.od_cilindro || '—'} x {eg.prescription.od_eje || '—'}
+                            {eg.prescription.od_altura ? ` · Alt: ${eg.prescription.od_altura}` : ''}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs font-light mb-1" style={{ color: '#C5A059' }}>OI (ojo izquierdo)</p>
+                          <p className="text-xs font-mono" style={{ color: 'rgba(255,255,255,0.75)' }}>
+                            {eg.prescription.oi_esfera || '—'} / {eg.prescription.oi_cilindro || '—'} x {eg.prescription.oi_eje || '—'}
+                            {eg.prescription.oi_altura ? ` · Alt: ${eg.prescription.oi_altura}` : ''}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-3 text-xs font-light" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                        {eg.prescription.add && <span>ADD: {eg.prescription.add}</span>}
+                        {eg.prescription.dp  && <span>DP: {eg.prescription.dp}</span>}
+                        {eg.prescription.obs && <span>{eg.prescription.obs}</span>}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── RECETA COMO TEXTO PLANO (Supabase) ── */}
+                  {!eg.prescription && eg.prescription_text && (
                     <div className="rounded-lg px-3 py-2"
-                      style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                      style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.18)' }}>
                       <div className="flex items-center gap-1.5 mb-1">
                         <FlaskConical size={10} style={{ color: '#3b82f6' }} />
                         <span className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(59,130,246,0.7)' }}>Receta</span>
                       </div>
-                      <p className="text-xs font-mono font-light" style={{ color: 'rgba(255,255,255,0.62)', lineHeight: 1.8 }}>
+                      <p className="text-xs font-mono font-light" style={{ color: 'rgba(255,255,255,0.65)', lineHeight: 1.8 }}>
                         {eg.prescription_text}
                       </p>
                     </div>
@@ -302,8 +324,8 @@ function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
           {/* Payment summary */}
           <div className="grid grid-cols-3 gap-3">
             {[
-              { label: 'Total', value: `Gs. ${fmt(Number(sale.total))}`, color: '#C5A059' },
-              { label: 'Pagado', value: `Gs. ${fmt(Number(sale.deposit))}`, color: '#22c55e' },
+              { label: 'Total',   value: `Gs. ${fmt(Number(sale.total))}`,   color: '#C5A059' },
+              { label: 'Pagado',  value: `Gs. ${fmt(Number(sale.deposit))}`, color: '#22c55e' },
               { label: hasPending ? 'Saldo pendiente' : 'Saldo', value: `Gs. ${fmt(Number(sale.balance))}`, color: hasPending ? '#ef4444' : 'rgba(255,255,255,0.4)' },
             ].map(item => (
               <div key={item.label} className="rounded-xl px-3 py-2.5 text-center"
@@ -314,13 +336,12 @@ function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
             ))}
           </div>
 
-          {/* Payment detail timeline + Fotos de Pagos / Transferencias */}
+          {/* Payment detail timeline */}
           {sale.payments.length > 0 && (
             <>
               {viewReceipt && <ReceiptLightbox url={viewReceipt} onClose={() => setViewReceipt(null)} />}
               <div className="rounded-xl overflow-hidden"
                 style={{ border: '1px solid rgba(197,160,89,0.10)', background: 'rgba(197,160,89,0.02)' }}>
-                {/* Header with two labels */}
                 <div className="px-3 py-2 border-b flex items-center justify-between gap-2"
                   style={{ borderColor: 'rgba(197,160,89,0.08)' }}>
                   <div className="flex items-center gap-1.5">
@@ -329,18 +350,12 @@ function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
                       Detalle de pagos
                     </span>
                   </div>
-                  {isAdmin && sale.payments.some(p => (p as any).receipt_url) && (
-                    <div className="flex items-center gap-1">
-                      <Camera size={9} style={{ color: 'rgba(197,160,89,0.45)' }} />
-                      <span style={{ color: 'rgba(197,160,89,0.45)', fontSize: 9 }}>Fotos de transferencias visibles</span>
-                    </div>
-                  )}
                 </div>
                 <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
                   {sale.payments.map((p, i) => {
                     const isSeña = p.tipo === 'sena';
-                    const color = isSeña ? '#22c55e' : '#3b82f6';
-                    const dt = new Date(p.paid_at);
+                    const color  = isSeña ? '#22c55e' : '#3b82f6';
+                    const dt     = new Date(p.paid_at);
                     const dateStr = dt.toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit', year: '2-digit' });
                     const timeStr = dt.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' });
                     const totalPaidUpToNow = sale.payments.slice(0, i + 1).reduce((s, px) => s + px.amount, 0);
@@ -348,7 +363,6 @@ function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
                     const receipt = (p as any).receipt_url as string | undefined;
                     return (
                       <div key={p.id}>
-                        {/* Amount row */}
                         <div className="flex items-center gap-2 px-3 py-2 text-xs font-light flex-wrap">
                           <span className="shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-black font-medium"
                             style={{ background: color, fontSize: 9 }}>{i + 1}</span>
@@ -357,8 +371,7 @@ function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
                           <span className="text-white font-medium">Gs. {fmt(p.amount)}</span>
                           <span style={{ color: 'rgba(255,255,255,0.38)' }}>{p.method}</span>
                           <span className="ml-auto shrink-0 text-right" style={{ color: 'rgba(255,255,255,0.30)' }}>
-                            {dateStr}
-                            <span style={{ color: 'rgba(255,255,255,0.18)' }}> {timeStr}</span>
+                            {dateStr}<span style={{ color: 'rgba(255,255,255,0.18)' }}> {timeStr}</span>
                           </span>
                           {remaining > 0 && i === sale.payments.length - 1 && (
                             <span className="shrink-0 px-1.5 py-0.5 rounded-full text-xs"
@@ -367,21 +380,16 @@ function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
                             </span>
                           )}
                         </div>
-                        {/* Admin comprobante thumbnail row */}
                         {isAdmin && (
                           <div className="px-3 pb-2.5 flex items-center gap-2"
                             style={{ borderTop: '1px solid rgba(255,255,255,0.03)' }}>
                             <Receipt size={9} style={{ color: 'rgba(197,160,89,0.4)', flexShrink: 0 }} />
-                            <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 10 }}>
-                              Comprobante de pago:
-                            </span>
+                            <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 10 }}>Comprobante:</span>
                             {receipt ? (
-                              <button
-                                onClick={() => setViewReceipt(receipt)}
+                              <button onClick={() => setViewReceipt(receipt)}
                                 className="relative group rounded-lg overflow-hidden shrink-0"
-                                style={{ width: 48, height: 48, border: '1px solid rgba(197,160,89,0.35)' }}
-                                title="Ver comprobante de pago / transferencia">
-                                <img src={receipt} alt="comprobante pago" className="w-full h-full object-cover" />
+                                style={{ width: 48, height: 48, border: '1px solid rgba(197,160,89,0.35)' }}>
+                                <img src={receipt} alt="comprobante" className="w-full h-full object-cover" />
                                 <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                                   style={{ background: 'rgba(0,0,0,0.6)' }}>
                                   <ZoomIn size={14} style={{ color: '#C5A059' }} />
@@ -389,7 +397,7 @@ function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
                               </button>
                             ) : (
                               <span className="text-xs font-light px-2 py-0.5 rounded-md"
-                                style={{ background: p.method !== 'efectivo' ? 'rgba(245,158,11,0.08)' : 'rgba(255,255,255,0.03)', color: p.method !== 'efectivo' ? 'rgba(245,158,11,0.5)' : 'rgba(255,255,255,0.18)', border: `1px solid ${p.method !== 'efectivo' ? 'rgba(245,158,11,0.18)' : 'rgba(255,255,255,0.05)'}` }}>
+                                style={{ background: 'rgba(255,255,255,0.03)', color: 'rgba(255,255,255,0.18)', border: '1px solid rgba(255,255,255,0.05)' }}>
                                 {p.method !== 'efectivo' ? 'Sin comprobante' : 'Efectivo — sin foto'}
                               </span>
                             )}
@@ -419,16 +427,14 @@ function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
 
 function ClientFicha({ history, onClose, isAdmin }: { history: ClientHistory; onClose: () => void; isAdmin?: boolean }) {
   const { customer, sales } = history;
-  const totalSpent    = sales.reduce((s, v) => s + Number(v.total), 0);
-  const totalPending  = sales.reduce((s, v) => s + Number(v.balance), 0);
-  const phone         = customer.whatsapp || customer.phone;
+  const totalSpent   = sales.reduce((s, v) => s + Number(v.total), 0);
+  const totalPending = sales.reduce((s, v) => s + Number(v.balance), 0);
+  const phone        = customer.whatsapp || customer.phone;
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto py-8 px-4"
-      style={{ background: 'rgba(0,0,0,0.85)' }}
-      onClick={onClose}>
-      <div
-        className="w-full max-w-2xl rounded-3xl overflow-hidden animate-slide-up"
+      style={{ background: 'rgba(0,0,0,0.85)' }} onClick={onClose}>
+      <div className="w-full max-w-2xl rounded-3xl overflow-hidden animate-slide-up"
         style={{ background: '#0a0900', border: '1px solid rgba(197,160,89,0.28)', boxShadow: '0 32px 80px rgba(0,0,0,0.8)' }}
         onClick={e => e.stopPropagation()}>
 
@@ -455,19 +461,13 @@ function ClientFicha({ history, onClose, isAdmin }: { history: ClientHistory; on
           <div className="flex items-center gap-2 shrink-0">
             {phone && (
               <a href={waLink(phone)} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all"
-                style={{ background: 'rgba(37,211,102,0.12)', color: '#25d366', border: '1px solid rgba(37,211,102,0.28)' }}
-                onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(37,211,102,0.20)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(37,211,102,0.12)'; }}>
-                <MessageCircle size={13} />
-                WhatsApp
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium"
+                style={{ background: 'rgba(37,211,102,0.12)', color: '#25d366', border: '1px solid rgba(37,211,102,0.28)' }}>
+                <MessageCircle size={13} />WhatsApp
               </a>
             )}
-            <button onClick={onClose}
-              className="p-2 rounded-xl transition-colors"
-              style={{ color: 'rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.04)' }}
-              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = '#fff'; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = 'rgba(255,255,255,0.4)'; }}>
+            <button onClick={onClose} className="p-2 rounded-xl"
+              style={{ color: 'rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.04)' }}>
               <X size={16} />
             </button>
           </div>
@@ -500,14 +500,12 @@ function ClientFicha({ history, onClose, isAdmin }: { history: ClientHistory; on
               Historial de compras
             </span>
           </div>
-
           {sales.length === 0 ? (
             <div className="text-center py-10">
               <p className="text-xs" style={{ color: 'rgba(255,255,255,0.28)' }}>Sin compras registradas</p>
             </div>
           ) : (
             <div className="space-y-3 relative">
-              {/* Vertical timeline line */}
               <div className="absolute left-[23px] top-4 bottom-4 w-px"
                 style={{ background: 'linear-gradient(to bottom, rgba(197,160,89,0.3), rgba(197,160,89,0.05))' }} />
               {sales.map(sale => <SaleCard key={sale.id} sale={sale} isAdmin={isAdmin} />)}
@@ -528,35 +526,27 @@ type Props = {
 
 export default function CustomersPage({ initialSearch = '', onSearchConsumed }: Props) {
   const { profile } = useAuth();
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [loading,   setLoading]   = useState(true);
-  const [search,    setSearch]    = useState('');
-  const [history,   setHistory]   = useState<ClientHistory | null>(null);
+  const [customers,    setCustomers]    = useState<Customer[]>([]);
+  const [loading,      setLoading]      = useState(true);
+  const [search,       setSearch]       = useState('');
+  const [history,      setHistory]      = useState<ClientHistory | null>(null);
   const [loadingFicha, setLoadingFicha] = useState(false);
 
   useEffect(() => { load(); }, []);
 
   useEffect(() => {
-    if (initialSearch) {
-      setSearch(initialSearch);
-      onSearchConsumed?.();
-    }
+    if (initialSearch) { setSearch(initialSearch); onSearchConsumed?.(); }
   }, [initialSearch]);
 
   async function load(q?: string) {
     setLoading(true);
-
-    // Build Supabase query — use server-side search when query provided
     let query = supabase.from('customers').select('*').order('created_at', { ascending: false });
     if (q && q.trim().length >= 2) {
-      query = query.or(
-        `full_name.ilike.%${q.trim()}%,ci.ilike.%${q.trim()}%,phone.ilike.%${q.trim()}%`
-      );
+      query = query.or(`full_name.ilike.%${q.trim()}%,ci.ilike.%${q.trim()}%,phone.ilike.%${q.trim()}%`);
     }
     const { data: remoteData } = await query.limit(200);
     const remoteIds = new Set((remoteData ?? []).map((c: any) => c.id));
 
-    // Merge local-only customers from localStorage sales (not yet in Supabase)
     const localCustomers: Customer[] = [];
     const seen = new Set<string>();
     for (const sale of getSales()) {
@@ -564,7 +554,6 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
       if (!key || seen.has(key)) continue;
       seen.add(key);
       const fullName = `${sale.cliente.nombre} ${sale.cliente.apellido}`.trim();
-      // Only add if not already in Supabase results
       const alreadyInRemote = (remoteData ?? []).some(
         (c: any) =>
           (c.full_name ?? '').toLowerCase() === key ||
@@ -572,12 +561,12 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
           (sale.cliente.telefono && c.phone === sale.cliente.telefono)
       );
       if (alreadyInRemote) continue;
-      // Apply local fuzzy filter too
       if (q && q.trim().length >= 2) {
+        const qTel = q.replace(/\D/g, '');
         if (
           !fuzzyMatch(fullName, q) &&
           !fuzzyMatch(sale.cliente.ci || '', q) &&
-          !(sale.cliente.telefono || '').includes(q.replace(/\D/g, ''))
+          !(qTel.length >= 3 && (sale.cliente.telefono || '').replace(/\D/g, '').includes(qTel))
         ) continue;
       }
       localCustomers.push({
@@ -594,7 +583,7 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
       } as any);
     }
 
-    setCustomers([...localCustomers, ...(remoteData ?? []).filter((c: any) => !remoteIds.has(c.id) ? false : true)]);
+    setCustomers([...localCustomers, ...(remoteData ?? []).filter((c: any) => remoteIds.has(c.id))]);
     setLoading(false);
   }
 
@@ -602,7 +591,7 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
     setLoadingFicha(true);
     setHistory({ customer, sales: [] });
 
-    // Fetch sales from Supabase
+    // Supabase sales
     const { data: salesData } = await supabase
       .from('sales')
       .select('id, sale_number, created_at, total, deposit, balance, status, seller_name, payment_method, notes, branches(name)')
@@ -612,68 +601,37 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
     const supabaseSales: SaleEntry[] = [];
     for (const s of (salesData ?? [])) {
       const [{ data: egs }, { data: pays }] = await Promise.all([
-        supabase
-          .from('sale_eyeglasses')
+        supabase.from('sale_eyeglasses')
           .select('id, frame_description, crystals, treatments, prescription_text, photo_url, price')
-          .eq('sale_id', s.id)
-          .order('sort_order'),
-        supabase
-          .from('sale_payments')
+          .eq('sale_id', s.id).order('sort_order'),
+        supabase.from('sale_payments')
           .select('id, amount, method, paid_at, reference, receipt_url')
-          .eq('sale_id', s.id)
-          .order('paid_at'),
+          .eq('sale_id', s.id).order('paid_at'),
       ]);
-      // Build initial seña row from sale itself if no payments recorded
       const payRows: SalePaymentEntry[] = [];
       if ((pays ?? []).length === 0 && Number(s.deposit) > 0) {
-        payRows.push({
-          id: `init-${s.id}`,
-          paid_at: s.created_at,
-          amount: Number(s.deposit),
-          method: s.payment_method ?? 'efectivo',
-          tipo: 'sena',
-          reference: 'Seña inicial',
-        });
+        payRows.push({ id: `init-${s.id}`, paid_at: s.created_at, amount: Number(s.deposit), method: s.payment_method ?? 'efectivo', tipo: 'sena', reference: 'Seña inicial' });
       } else {
         (pays ?? []).forEach((p: any, i: number) => {
-          payRows.push({
-            id: String(p.id),
-            paid_at: p.paid_at,
-            amount: Number(p.amount),
-            method: p.method ?? '',
-            tipo: i === 0 ? 'sena' : 'abono',
-            reference: p.reference ?? undefined,
-            receipt_url: p.receipt_url ?? undefined,
-          });
+          payRows.push({ id: String(p.id), paid_at: p.paid_at, amount: Number(p.amount), method: p.method ?? '', tipo: i === 0 ? 'sena' : 'abono', reference: p.reference ?? undefined, receipt_url: p.receipt_url ?? undefined });
         });
       }
       supabaseSales.push({
-        id: s.id,
-        sale_number: s.sale_number,
-        created_at: s.created_at,
-        total: Number(s.total),
-        deposit: Number(s.deposit),
-        balance: Number(s.balance),
-        status: s.status,
-        seller_name: s.seller_name ?? '',
-        payment_method: s.payment_method ?? '',
-        notes: s.notes ?? '',
-        branches: (s as any).branches,
+        id: s.id, sale_number: s.sale_number, created_at: s.created_at,
+        total: Number(s.total), deposit: Number(s.deposit), balance: Number(s.balance),
+        status: s.status, seller_name: s.seller_name ?? '', payment_method: s.payment_method ?? '',
+        notes: s.notes ?? '', branches: (s as any).branches,
         eyeglasses: (egs ?? []).map((eg: any) => ({
-          id: eg.id,
-          frame_description: eg.frame_description ?? '',
-          crystals: eg.crystals ?? '',
-          treatments: eg.treatments ?? '',
-          prescription_text: eg.prescription_text ?? '',
-          photo_url: eg.photo_url ?? '',
-          price: Number(eg.price),
+          id: eg.id, frame_description: eg.frame_description ?? '', crystals: eg.crystals ?? '',
+          treatments: eg.treatments ?? '', prescription_text: eg.prescription_text ?? '',
+          photo_url: eg.photo_url ?? '', price: Number(eg.price),
         })),
         payments: payRows,
       });
     }
 
-    // Also include localStorage sales matching by name
-    const fullNameLower = customer.full_name.toLowerCase();
+    // localStorage sales — con receta estructurada
+    const fullNameLower   = customer.full_name.toLowerCase();
     const allLocalPayments = getPayments();
     const localSales: SaleEntry[] = getSales()
       .filter(v => {
@@ -685,37 +643,18 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
           .filter(p => p.saleId === v.id)
           .sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime())
           .map(p => ({
-            id: String(p.id),
-            paid_at: p.fecha,
-            amount: p.monto,
-            method: p.metodo,
-            tipo: p.tipo,
-            reference: p.tipo === 'abono' ? 'Abono' : 'Seña inicial',
-            receipt_url: p.receipt_url ?? undefined,
+            id: String(p.id), paid_at: p.fecha, amount: p.monto, method: p.metodo, tipo: p.tipo,
+            reference: p.tipo === 'abono' ? 'Abono' : 'Seña inicial', receipt_url: p.receipt_url ?? undefined,
           }));
-        // If no payments recorded, synthesize seña row
         if (salePayments.length === 0 && Number(v.sena) > 0) {
-          salePayments.push({
-            id: `init-${v.id}`,
-            paid_at: v.fecha,
-            amount: Number(v.sena),
-            method: v.metodoPago,
-            tipo: 'sena',
-            reference: 'Seña inicial',
-          });
+          salePayments.push({ id: `init-${v.id}`, paid_at: v.fecha, amount: Number(v.sena), method: v.metodoPago, tipo: 'sena', reference: 'Seña inicial' });
         }
         return {
-          id: String(v.id),
-          sale_number: `VTA-${v.id}`,
-          created_at: v.fecha,
-          total: Number(v.total),
-          deposit: Number(v.sena),
-          balance: Number(v.saldo),
-          status: v.estadoTrabajo,
-          seller_name: v.vendedora,
-          payment_method: v.metodoPago,
-          notes: v.observaciones,
-          branches: v.sucursalVenta ? { name: v.sucursalVenta } : null,
+          id: String(v.id), sale_number: `VTA-${v.id}`, created_at: v.fecha,
+          total: Number(v.total), deposit: Number(v.sena), balance: Number(v.saldo),
+          status: v.estadoTrabajo, seller_name: v.vendedora, payment_method: v.metodoPago,
+          notes: v.observaciones, branches: v.sucursalVenta ? { name: v.sucursalVenta } : null,
+          // ── Mapear receta estructurada desde anteojos ──
           eyeglasses: (v.anteojos as any[]).map((eg: any, i) => ({
             id: String(i),
             frame_description: eg.frame_description ?? '',
@@ -724,38 +663,39 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
             prescription_text: eg.prescription_text ?? '',
             photo_url: eg.photo_url ?? '',
             price: Number(eg.price) || 0,
+            // pasar receta estructurada tal cual
+            prescription: eg.prescription ?? null,
+            showReceta: eg.showReceta ?? false,
           })),
           payments: salePayments,
         };
       });
 
-    // Merge, sort newest first
     const allSales = [...supabaseSales, ...localSales].sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
-
     setHistory({ customer, sales: allSales });
     setLoadingFicha(false);
   }, []);
 
-  // Debounce Supabase re-query on search change
   useEffect(() => {
     const t = setTimeout(() => load(search), 280);
     return () => clearTimeout(t);
-  }, [search]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [search]);
 
-  // Client-side fuzzy filter as immediate feedback while query is in-flight
-  const filtered = customers.filter(c =>
-    !search ||
-    fuzzyMatch(c.full_name || '', search) ||
-    fuzzyMatch(c.ci || '', search) ||
-    (c.phone || '').includes(search.replace(/\D/g, ''))
-  );
+  const filtered = customers.filter(c => {
+    if (!search) return true;
+    const qTel = search.replace(/\D/g, '');
+    return (
+      fuzzyMatch(c.full_name || '', search) ||
+      fuzzyMatch(c.ci || '', search) ||
+      (qTel.length >= 3 && (c.phone || '').replace(/\D/g, '').includes(qTel))
+    );
+  });
 
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
 
-      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-light tracking-wider text-white">Clientes</h1>
@@ -763,30 +703,20 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
         </div>
       </div>
 
-      {/* Universal search bar */}
       <div className="relative">
         <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2" style={{ color: 'rgba(197,160,89,0.55)' }} />
-        <input
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Buscar por nombre, C.I. o teléfono para ver el historial completo..."
+        <input value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="Buscar por nombre, C.I. o celular..."
           className="w-full pl-11 pr-5 py-3.5 rounded-2xl text-sm bg-transparent text-white outline-none"
-          style={{
-            border: '1px solid rgba(197,160,89,0.28)',
-            background: 'rgba(197,160,89,0.04)',
-            boxShadow: search ? '0 0 0 2px rgba(197,160,89,0.12)' : 'none',
-          }}
+          style={{ border: '1px solid rgba(197,160,89,0.28)', background: 'rgba(197,160,89,0.04)', boxShadow: search ? '0 0 0 2px rgba(197,160,89,0.12)' : 'none' }}
           onFocus={e => { e.currentTarget.style.borderColor = 'rgba(197,160,89,0.5)'; }}
           onBlur={e => { e.currentTarget.style.borderColor = 'rgba(197,160,89,0.28)'; }}
         />
       </div>
 
-      {/* Table */}
       <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid rgba(197,160,89,0.12)' }}>
         {loading ? (
-          <div className="p-6 space-y-2">
-            {[...Array(6)].map((_, i) => <div key={i} className="h-12 rounded shimmer" />)}
-          </div>
+          <div className="p-6 space-y-2">{[...Array(6)].map((_, i) => <div key={i} className="h-12 rounded shimmer" />)}</div>
         ) : filtered.length === 0 ? (
           <div className="text-center py-16">
             <UserPlus size={32} style={{ color: 'rgba(197,160,89,0.2)', margin: '0 auto 12px' }} />
@@ -808,8 +738,7 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
               {filtered.map((customer, i) => {
                 const phone = customer.whatsapp || customer.phone;
                 return (
-                  <tr key={customer.id}
-                    className="transition-colors cursor-pointer"
+                  <tr key={customer.id} className="transition-colors cursor-pointer"
                     style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.008)' }}
                     onMouseEnter={e => { (e.currentTarget as HTMLTableRowElement).style.background = 'rgba(197,160,89,0.04)'; }}
                     onMouseLeave={e => { (e.currentTarget as HTMLTableRowElement).style.background = i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.008)'; }}
@@ -824,21 +753,15 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <button
-                          onClick={e => { e.stopPropagation(); openFicha(customer); }}
-                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-light transition-all"
-                          style={{ background: 'rgba(197,160,89,0.08)', color: '#C5A059', border: '1px solid rgba(197,160,89,0.22)' }}
-                          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(197,160,89,0.16)'; }}
-                          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(197,160,89,0.08)'; }}>
+                        <button onClick={e => { e.stopPropagation(); openFicha(customer); }}
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-light"
+                          style={{ background: 'rgba(197,160,89,0.08)', color: '#C5A059', border: '1px solid rgba(197,160,89,0.22)' }}>
                           <Clock size={11} /> Ver ficha
                         </button>
                         {phone && (
                           <a href={waLink(phone)} target="_blank" rel="noopener noreferrer"
                             onClick={e => e.stopPropagation()}
-                            className="p-1.5 rounded-lg transition-all"
-                            style={{ color: 'rgba(37,211,102,0.5)' }}
-                            onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.color = '#25d366'; }}
-                            onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.color = 'rgba(37,211,102,0.5)'; }}>
+                            className="p-1.5 rounded-lg" style={{ color: 'rgba(37,211,102,0.5)' }}>
                             <MessageCircle size={14} />
                           </a>
                         )}
@@ -852,7 +775,6 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
         )}
       </div>
 
-      {/* Client ficha modal */}
       {history && (
         <ClientFicha
           history={loadingFicha ? { ...history, sales: [] } : history}
@@ -861,7 +783,6 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
         />
       )}
 
-      {/* Loading overlay for ficha */}
       {loadingFicha && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center pointer-events-none">
           <div className="px-4 py-3 rounded-xl text-xs font-light"
