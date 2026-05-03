@@ -77,7 +77,6 @@ function branchMatch(stored: string, selected: string): boolean {
   return n(stored).includes(n(selected)) || n(selected).includes(n(stored));
 }
 
-// ── Restricción de caja vendedora: lunes-sábado, cierre 13:30 ─────────────────
 function getWeekRange(): { start: string; end: string; isClosed: boolean } {
   const now  = new Date();
   const day  = now.getDay();
@@ -121,12 +120,9 @@ export default function CashPage() {
   const isVendedora = profile?.role === 'vendedora';
   const weekRange   = isVendedora ? getWeekRange() : null;
 
-
-
   useEffect(() => {
     if (isVendedora && profile?.branch_id && !selectedBranch) setSelectedBranch(profile.branch_id);
     else if (activeBranch && !selectedBranch) setSelectedBranch(activeBranch.name);
-    // Vendedora siempre ve el día de hoy
     if (isVendedora) setSelectedDate(new Date().toISOString().slice(0, 10));
   }, [activeBranch, selectedBranch, isVendedora, profile?.branch_id]);
 
@@ -285,7 +281,6 @@ export default function CashPage() {
               {SUCURSALES.map(s => <option key={s} value={s} style={{ background: '#111' }}>{s}</option>)}
             </select>
           )}
-          {/* Admin: puede elegir cualquier fecha */}
           {!isVendedora && (
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg"
               style={{ background: 'rgba(197,160,89,0.07)', border: '1px solid rgba(197,160,89,0.18)' }}>
@@ -294,7 +289,6 @@ export default function CashPage() {
                 className="bg-transparent text-xs text-white border-none outline-none" />
             </div>
           )}
-          {/* Vendedora: solo ve hoy */}
           {isVendedora && weekRange && !weekRange.isClosed && (
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg"
               style={{ background: 'rgba(197,160,89,0.07)', border: '1px solid rgba(197,160,89,0.18)' }}>
@@ -320,7 +314,6 @@ export default function CashPage() {
         </div>
       )}
 
-      {/* Caja cerrada para vendedora */}
       {isVendedora && weekRange?.isClosed && (
         <div className="flex flex-col items-center justify-center py-16 text-center rounded-2xl"
           style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.2)' }}>
@@ -334,8 +327,6 @@ export default function CashPage() {
           </p>
         </div>
       )}
-
-
 
       {/* Tarjetas por método */}
       <div className="grid grid-cols-3 lg:grid-cols-5 gap-3">
@@ -598,6 +589,12 @@ export default function CashPage() {
                     onMouseEnter={e => { if (!isExp) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.02)'; }}
                     onMouseLeave={e => { if (!isExp) (e.currentTarget as HTMLElement).style.background = i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)'; }}
                     onClick={() => setExpandedPay(isExp ? null : p.id)}>
+
+                    {/* ── NÚMERO DE ORDEN ── */}
+                    <div className="shrink-0 w-6 text-center">
+                      <span className="text-xs font-light" style={{ color: 'rgba(197,160,89,0.5)' }}>{i + 1}</span>
+                    </div>
+
                     <div className="text-xs font-light w-14 shrink-0" style={{ color: 'rgba(255,255,255,0.38)' }}>
                       {new Date(p.paid_at).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
                     </div>
