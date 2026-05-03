@@ -23,6 +23,7 @@ type EyeglassItem = {
   showReceta: boolean;
   prescription: Prescription;
   price: string;
+  saleType: 'completa' | 'media';  // 1 punto o 0.5 puntos
 };
 
 type PaymentEntry = {
@@ -89,7 +90,7 @@ function rxToText(rx: Prescription): string {
 }
 
 function newEyeglass(): EyeglassItem {
-  return { _id: uid(), frame_description: '', photo_url: '', crystals: '', treatments: '', showReceta: false, prescription: emptyRx(), price: '' };
+  return { _id: uid(), frame_description: '', photo_url: '', crystals: '', treatments: '', showReceta: false, prescription: emptyRx(), price: '', saleType: 'completa' };
 }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
@@ -948,6 +949,31 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: { eg: EyeglassItem;
           <div><p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Cristales</p>{textInp(eg.crystals, v => onUpdate({ crystals: v }), 'monofocal, multifocal...')}</div>
           <div><p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Tratamiento</p>{textInp(eg.treatments, v => onUpdate({ treatments: v }), 'antirreflejo, filtro azul...')}</div>
         </div>
+        {/* Tipo de venta */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="text-xs font-light shrink-0" style={{ color: 'rgba(255,255,255,0.4)' }}>Tipo de venta:</p>
+          <button
+            onClick={() => onUpdate({ saleType: 'completa' })}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+            style={{
+              background: (eg.saleType ?? 'completa') === 'completa' ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.03)',
+              border: `1px solid ${(eg.saleType ?? 'completa') === 'completa' ? 'rgba(16,185,129,0.5)' : 'rgba(255,255,255,0.08)'}`,
+              color: (eg.saleType ?? 'completa') === 'completa' ? '#10b981' : 'rgba(255,255,255,0.38)',
+            }}>
+            ✓ 1 venta completa
+          </button>
+          <button
+            onClick={() => onUpdate({ saleType: 'media' })}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+            style={{
+              background: eg.saleType === 'media' ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.03)',
+              border: `1px solid ${eg.saleType === 'media' ? 'rgba(245,158,11,0.5)' : 'rgba(255,255,255,0.08)'}`,
+              color: eg.saleType === 'media' ? '#f59e0b' : 'rgba(255,255,255,0.38)',
+            }}>
+            ½ media venta
+          </button>
+        </div>
+
         <div className="flex items-end gap-3">
           <div className="flex-1">
             <button onClick={() => onUpdate({ showReceta: !eg.showReceta })}
