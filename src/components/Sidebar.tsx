@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   LayoutDashboard, ShoppingCart, Users, FlaskConical,
   Glasses, Building2, ChevronLeft, ChevronRight,
   Bell, LogOut, Settings, Eye, Trophy, ChevronDown,
-  DollarSign, BarChart3, AlertCircle, Search
+  DollarSign, BarChart3, AlertCircle, Search, X
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useBranch } from '../context/BranchContext';
@@ -46,6 +46,17 @@ function getVisiblePages(role: string): Page[] {
   }
 }
 
+// Hook para detectar si es móvil
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+  return isMobile;
+}
+
 export default function Sidebar({ current, onChange }: Props) {
   const [collapsed,     setCollapsed]     = useState(false);
   const [branchOpen,    setBranchOpen]    = useState(false);
@@ -55,10 +66,25 @@ export default function Sidebar({ current, onChange }: Props) {
   const { profile, signOut } = useAuth();
   const { branches, activeBranch, setActiveBranchId } = useBranch();
 
+  const isMobile     = useIsMobile();
   const role         = profile?.role ?? '';
   const visiblePages = getVisiblePages(role);
   const isAdmin      = role === 'admin' || role === 'gerente';
   const isLab        = role === 'laboratorio';
+
+  // En móvil mostramos barra inferior, no el sidebar lateral
+  if (isMobile) {
+    return (
+      <MobileNav
+        current={current}
+        onChange={onChange}
+        role={role}
+        visiblePages={visiblePages}
+        profile={profile}
+        signOut={signOut}
+      />
+    );
+  }
 
   return (
     <aside
@@ -200,5 +226,159 @@ export default function Sidebar({ current, onChange }: Props) {
         </button>
       </div>
     </aside>
+  );
+}
+
+// ── Navegación móvil ──────────────────────────────────────────────────────────
+type MobileNavProps = {
+  current: Page;
+  onChange: (p: Page) => void;
+  role: string;
+  visiblePages: Page[];
+  profile: any;
+  signOut: () => void;
+};
+
+const MOBILE_ICONS: Record<string, React.ReactNode> = {
+  dashboard:   <LayoutDashboard size={20} />,
+  pos:         <ShoppingCart    size={20} />,
+  customers:   <Users           size={20} />,
+  crm:         <Bell            size={20} />,
+  lab:         <FlaskConical    size={20} />,
+  commissions: <Trophy          size={20} />,
+  cash:        <DollarSign      size={20} />,
+  balances:    <AlertCircle     size={20} />,
+  reports:     <BarChart3       size={20} />,
+  simulator:   <Eye             size={20} />,
+  branches:    <Building2       size={20} />,
+  settings:    <Settings        size={20} />,
+};
+
+const MOBILE_LABELS: Record<string, string> = {
+  dashboard:   'Inicio',
+  pos:         'Ventas',
+  customers:   'Clientes',
+  crm:         'CRM',
+  lab:         'Lab',
+  commissions: 'Premios',
+  cash:        'Caja',
+  balances:    'Saldos',
+  reports:     'Reportes',
+  simulator:   'Simul.',
+  branches:    'Sucursales',
+  settings:    'Config.',
+};
+
+function MobileNav({ current, onChange, role, visiblePages, profile, signOut }: MobileNavProps) {
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  // Páginas principales en la barra inferior (max 4 + menú)
+  const primaryPages: Page[] = (() => {
+    if (role === 'laboratorio') return ['lab'];
+    if (role === 'vendedora')   return ['pos', 'lab', 'balances', 'cash'];
+    return ['dashboard', 'pos', 'cash', 'balances'];
+  })();
+
+  // El resto va al menú hamburguesa
+  const secondaryPages = visiblePages.filter(p => !primaryPages.includes(p));
+
+  return (
+    <>
+      {/* Header móvil */}
+      <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 py-3"
+        style={{ background: 'rgba(10,9,7,0.97)', borderBottom: '1px solid rgba(197,160,89,0.15)', backdropFilter: 'blur(12px)' }}>
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-full flex items-center justify-center"
+            style={{ background: 'rgba(197,160,89,0.15)', border: '1px solid rgba(197,160,89,0.3)' }}>
+            <Glasses size={14} style={{ color: '#C5A059' }} />
+          </div>
+          <div>
+            <p className="text-xs font-medium tracking-wider text-white leading-tight">Óptica Yolanda</p>
+            <p className="text-xs font-light" style={{ color: 'rgba(197,160,89,0.6)', fontSize: 10 }}>Elite V10</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.5)' }}>{profile?.full_name?.split(' ')[0]}</span>
+          <button onClick={() => setMenuOpen(!menuOpen)}
+            className="flex flex-col gap-1 p-2 rounded-lg"
+            style={{ background: menuOpen ? 'rgba(197,160,89,0.15)' : 'rgba(255,255,255,0.06)' }}>
+            {menuOpen ? <X size={18} style={{ color: '#C5A059' }} /> : (
+              <>
+                <span className="block w-5 h-0.5 rounded" style={{ background: 'rgba(197,160,89,0.8)' }} />
+                <span className="block w-5 h-0.5 rounded" style={{ background: 'rgba(197,160,89,0.8)' }} />
+                <span className="block w-5 h-0.5 rounded" style={{ background: 'rgba(197,160,89,0.8)' }} />
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Menú lateral completo (slide) */}
+      {menuOpen && (
+        <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)}>
+          <div className="fixed top-0 right-0 bottom-0 w-64 flex flex-col"
+            style={{ background: 'rgba(10,9,7,0.98)', borderLeft: '1px solid rgba(197,160,89,0.15)' }}
+            onClick={e => e.stopPropagation()}>
+            <div className="px-4 pt-16 pb-4" style={{ borderBottom: '1px solid rgba(197,160,89,0.1)' }}>
+              <p className="text-xs font-light text-white">{profile?.full_name}</p>
+              <p className="text-xs font-light mt-0.5 capitalize" style={{ color: 'rgba(197,160,89,0.6)' }}>{profile?.role}</p>
+            </div>
+            <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
+              {visiblePages.map(page => {
+                const active = current === page;
+                return (
+                  <button key={page} onClick={() => { onChange(page); setMenuOpen(false); }}
+                    className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left"
+                    style={{ background: active ? 'rgba(197,160,89,0.12)' : 'transparent', color: active ? '#C5A059' : 'rgba(255,255,255,0.55)' }}>
+                    <span style={{ opacity: active ? 1 : 0.7 }}>{MOBILE_ICONS[page]}</span>
+                    <span className="text-sm font-light">{MOBILE_LABELS[page] ?? page}</span>
+                    {active && <span className="ml-auto w-1.5 h-1.5 rounded-full" style={{ background: '#C5A059' }} />}
+                  </button>
+                );
+              })}
+            </nav>
+            <div className="p-3" style={{ borderTop: '1px solid rgba(197,160,89,0.1)' }}>
+              <button onClick={signOut}
+                className="w-full flex items-center gap-3 px-3 py-3 rounded-xl"
+                style={{ color: 'rgba(239,68,68,0.7)', background: 'rgba(239,68,68,0.06)' }}>
+                <LogOut size={18} />
+                <span className="text-sm font-light">Cerrar Sesión</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Spacer para el header fijo */}
+      <div className="h-14 shrink-0" />
+
+      {/* Barra inferior de navegación */}
+      <div className="fixed bottom-0 left-0 right-0 z-50 flex items-center"
+        style={{ background: 'rgba(10,9,7,0.97)', borderTop: '1px solid rgba(197,160,89,0.15)', backdropFilter: 'blur(12px)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
+        {primaryPages.filter(p => visiblePages.includes(p)).map(page => {
+          const active = current === page;
+          return (
+            <button key={page} onClick={() => onChange(page)}
+              className="flex-1 flex flex-col items-center justify-center py-2.5 gap-0.5"
+              style={{ color: active ? '#C5A059' : 'rgba(255,255,255,0.38)' }}>
+              <span style={{ opacity: active ? 1 : 0.6 }}>{MOBILE_ICONS[page]}</span>
+              <span style={{ fontSize: 9, fontWeight: 300, letterSpacing: '0.05em' }}>{MOBILE_LABELS[page]}</span>
+              {active && <span className="w-1 h-1 rounded-full" style={{ background: '#C5A059' }} />}
+            </button>
+          );
+        })}
+        {secondaryPages.length > 0 && (
+          <button onClick={() => setMenuOpen(true)}
+            className="flex-1 flex flex-col items-center justify-center py-2.5 gap-0.5"
+            style={{ color: 'rgba(255,255,255,0.38)' }}>
+            <ChevronDown size={20} style={{ opacity: 0.6 }} />
+            <span style={{ fontSize: 9, fontWeight: 300 }}>Más</span>
+          </button>
+        )}
+      </div>
+
+      {/* Spacer para la barra inferior */}
+      <div className="h-16 shrink-0" />
+    </>
   );
 }
