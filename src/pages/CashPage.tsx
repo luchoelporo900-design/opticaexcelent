@@ -91,6 +91,7 @@ export default function CashPage() {
   const [methodFilter,   setMethodFilter]   = useState<string>('all');
   const [expandedPay,    setExpandedPay]    = useState<string | null>(null);
   const [reviewed,       setReviewed]       = useState<Set<string>>(getReviewed());
+  const [lightboxUrl,    setLightboxUrl]    = useState<string | null>(null);
 
   const [showAddExp,  setShowAddExp]  = useState(false);
   const [expDesc,     setExpDesc]     = useState('');
@@ -194,11 +195,22 @@ export default function CashPage() {
     return getSales().find(v => v.id === saleId) ?? null;
   }
 
-  // Obtener comprobante de pago
-  function getReceiptUrl(payId: string): string | null {
+  // Obtener comprobante de pago — busca por id, por saleId, y en la venta original
+  function getReceiptUrl(payId: string, saleId?: number): string | null {
     const allPays = getPayments();
-    const pay = allPays.find(p => String(p.id) === payId);
-    return (pay as any)?.receipt_url ?? null;
+    // 1) Buscar por id exacto
+    let pay = allPays.find((p: any) => String(p.id) === payId);
+    // 2) Si no encontró (fila fallback ls-xxx), buscar cualquier pago de ese saleId
+    if (!pay && saleId) {
+      pay = allPays.find((p: any) => p.saleId === saleId);
+    }
+    if (pay && (pay as any).receipt_url) return (pay as any).receipt_url;
+    // 3) Buscar comprobante guardado directamente en la venta
+    if (saleId) {
+      const sale = getSales().find((v: any) => v.id === saleId);
+      if (sale && (sale as any).paymentReceipt) return (sale as any).paymentReceipt;
+    }
+    return null;
   }
 
   async function addExpense() {
@@ -528,7 +540,7 @@ export default function CashPage() {
               const isExp      = expandedPay === p.id;
               const isRev      = reviewed.has(p.id);
               const sale       = isExp ? getSaleDetail(p.sale_id) : null;
-              const receiptUrl = isExp ? getReceiptUrl(p.id) : null;
+              const receiptUrl = isExp ? getReceiptUrl(p.id, p.sale_id) : null;
               const lensPhotos = sale ? (sale.anteojos as any[]).filter((eg: any) => eg.photo_url) : [];
               const hasReceta  = sale ? (sale.anteojos as any[]).some((eg: any) => eg.showReceta) : false;
 
@@ -590,11 +602,11 @@ export default function CashPage() {
                             Comprobante de pago
                           </p>
                           <img src={receiptUrl} alt="comprobante"
-                            className="h-40 object-cover rounded-xl border cursor-pointer"
-                            style={{ borderColor: 'rgba(197,160,89,0.3)' }}
-                            onClick={() => window.open(receiptUrl, '_blank')} />
+                            className="h-48 object-contain rounded-xl border cursor-pointer w-full"
+                            style={{ borderColor: 'rgba(197,160,89,0.3)', maxWidth: 360, background: 'rgba(255,255,255,0.03)' }}
+                            onClick={() => setLightboxUrl(receiptUrl)} />
                           <p className="text-xs mt-1 font-light" style={{ color: 'rgba(255,255,255,0.3)' }}>
-                            Clic para ver en tamaño completo
+                            Clic para ampliar
                           </p>
                         </div>
                       ) : (
@@ -686,6 +698,21 @@ export default function CashPage() {
           </div>
         )}
       </div>
+
+      {/* Lightbox comprobante */}
+      {lightboxUrl && (
+        <div className="fixed inset-0 z-[999] flex items-center justify-center p-6"
+          style={{ background: 'rgba(0,0,0,0.92)' }}
+          onClick={() => setLightboxUrl(null)}>
+          <div className="relative max-w-xl w-full" onClick={e => e.stopPropagation()}>
+            <p className="text-xs font-light mb-3 tracking-widest uppercase text-center" style={{ color: 'rgba(197,160,89,0.7)' }}>
+              Comprobante de pago — Clic fuera para cerrar
+            </p>
+            <img src={lightboxUrl} alt="comprobante" className="w-full rounded-2xl"
+              style={{ border: '1px solid rgba(197,160,89,0.3)', maxHeight: '80vh', objectFit: 'contain', background: '#111' }} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
