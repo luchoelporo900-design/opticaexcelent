@@ -87,6 +87,7 @@ export default function ReportPage() {
   const [expandedSale,   setExpandedSale]   = useState<string | null>(null);
   const [reviewed,       setReviewed]       = useState<Set<string>>(getReviewed());
   const [lightbox,       setLightbox]       = useState<string | null>(null);
+  const [alerts,         setAlerts]         = useState<any[]>([]);
   const [allSellers,     setAllSellers]     = useState<string[]>([]);
 
   const load = useCallback(() => {
@@ -159,7 +160,13 @@ export default function ReportPage() {
     setPhotos(photoRows);
 
     // Sales list sorted desc
-    setSalesList([...ventas].sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()));
+    setSalesList([...ventas].sort((a, b) => a.id - b.id)); // Ordenado por número de venta asc
+
+    // Cargar alertas de entregas pendientes de verificar
+    try {
+      const rawAlerts = JSON.parse(localStorage.getItem('optica_delivery_alerts') || '[]');
+      setAlerts(rawAlerts.filter((a: any) => !a.reviewed));
+    } catch {}
 
     setLoading(false);
   }, [selectedDate, scope, sellerFilter, branchFilter]);
@@ -170,6 +177,15 @@ export default function ReportPage() {
     window.addEventListener('optica_ventas_updated', h);
     return () => window.removeEventListener('optica_ventas_updated', h);
   }, [load]);
+
+  function dismissAlert(alertId: number) {
+    try {
+      const all = JSON.parse(localStorage.getItem('optica_delivery_alerts') || '[]');
+      const updated = all.map((a: any) => a.id === alertId ? { ...a, reviewed: true } : a);
+      localStorage.setItem('optica_delivery_alerts', JSON.stringify(updated));
+      setAlerts(prev => prev.filter(a => a.id !== alertId));
+    } catch {}
+  }
 
   function handleReviewPayment(payId: string) {
     markReviewed(payId);
@@ -262,6 +278,37 @@ export default function ReportPage() {
         )}
       </div>
 
+      {/* Alertas de entregas pendientes de verificar */}
+      {alerts.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-light tracking-widest uppercase" style={{ color: '#f59e0b' }}>
+            🔔 {alerts.length} entrega{alerts.length > 1 ? 's' : ''} pendiente{alerts.length > 1 ? 's' : ''} de verificar
+          </p>
+          {alerts.map(alert => (
+            <div key={alert.id} className="flex items-center gap-3 px-4 py-3 rounded-xl flex-wrap"
+              style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.3)' }}>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-white font-light">
+                  📦 <strong>{alert.customer}</strong> · {alert.saleNumber}
+                </p>
+                <p className="text-xs font-light mt-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>
+                  Entregado por {alert.vendedora} · {new Date(alert.timestamp).toLocaleDateString('es-PY')} {new Date(alert.timestamp).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
+                  · Total: Gs. {Number(alert.total).toLocaleString('es-PY')}
+                </p>
+              </div>
+              <p className="text-xs font-light" style={{ color: '#f59e0b' }}>
+                Verificá el pago del saldo en la sección de cobros
+              </p>
+              <button onClick={() => dismissAlert(alert.id)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium shrink-0"
+                style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.35)' }}>
+                <Heart size={11} />Ya verifiqué
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* KPIs */}
       <div className="grid grid-cols-3 gap-4">
         {[
@@ -340,6 +387,8 @@ export default function ReportPage() {
         ) : (
           <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
             {salesList.map((v, i) => {
+              const saleNum = i + 1; // Número correlativo 1, 2, 3...
+
               const saleKey  = String(v.id);
               const isExp    = expandedSale === saleKey;
               const salePays = getPayments().filter(p => p.saleId === v.id);
@@ -352,6 +401,8 @@ export default function ReportPage() {
                     onClick={() => setExpandedSale(isExp ? null : saleKey)}>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
+                        <span className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium text-black shrink-0"
+                          style={{ background: '#C5A059', fontSize: 10 }}>{saleNum}</span>
                         <span className="text-xs font-mono" style={{ color: '#C5A059' }}>VTA-{v.id}</span>
                         <span className="text-xs text-white font-light">{v.cliente.nombre} {v.cliente.apellido}</span>
                         <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.35)' }}>{v.sucursalVenta}</span>
@@ -366,6 +417,12 @@ export default function ReportPage() {
                         ? <p className="text-xs font-light" style={{ color: '#f59e0b' }}>Debe {fmt(Number(v.saldo))}</p>
                         : <p className="text-xs font-light" style={{ color: '#10b981' }}>✓ Pagado</p>}
                     </div>
+                    {v.estadoTrabajo === 'entregado' && (
+                      <span className="text-xs px-2 py-0.5 rounded-full shrink-0"
+                        style={{ background: 'rgba(107,114,128,0.15)', color: '#9ca3af', border: '1px solid rgba(107,114,128,0.3)' }}>
+                        📦 Entregado
+                      </span>
+                    )}
                     <span className="text-xs px-2 py-0.5 rounded-full shrink-0 ml-1"
                       style={{ background: v.metodoPago === 'efectivo' ? 'rgba(34,197,94,0.12)' : 'rgba(59,130,246,0.12)', color: v.metodoPago === 'efectivo' ? '#22c55e' : '#3b82f6' }}>
                       {v.metodoPago}
@@ -431,7 +488,11 @@ export default function ReportPage() {
                                       {new Date(p.fecha).toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' })} {new Date(p.fecha).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
                                     </span>
                                     {isRev
-                                      ? <Heart size={13} fill="#ef4444" style={{ color: '#ef4444', flexShrink: 0 }} />
+                                      ? <div className="flex items-center gap-1 px-2 py-1 rounded-full"
+                                          style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)' }}>
+                                          <Heart size={11} fill="#ef4444" style={{ color: '#ef4444' }} />
+                                          <span className="text-xs font-light" style={{ color: '#ef4444' }}>Verificado</span>
+                                        </div>
                                       : <button onClick={() => handleReviewPayment(String(p.id))}
                                           className="flex items-center gap-1 px-2 py-1 rounded text-xs font-light"
                                           style={{ background: 'rgba(239,68,68,0.08)', color: 'rgba(239,68,68,0.6)', border: '1px solid rgba(239,68,68,0.2)' }}>
