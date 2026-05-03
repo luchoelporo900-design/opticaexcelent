@@ -33,17 +33,6 @@ type PaymentEntry = {
   reference: string;
 };
 
-type RecentSale = {
-  id: string; sale_number: string; created_at: string;
-  total: number; deposit: number; balance: number; status: SaleStatus;
-  seller_name: string; customer_first_name: string; customer_last_name: string;
-  customers: { full_name: string; ci: string; phone?: string } | null;
-  branches: { name: string } | null;
-  delivered_at?: string | null;
-  delivery_type?: 'retiro' | 'delivery' | 'encomienda' | null;
-  _local?: boolean;
-  _phone?: string;
-};
 
 // ── Sucursales fijas ───────────────────────────────────────────────────────────
 const FIXED_BRANCHES = [
@@ -161,6 +150,7 @@ export default function POSPage() {
   const [notes,  setNotes]  = useState('');
 
   const [saving,    setSaving]    = useState(false);
+  const [paidToast, setPaidToast] = useState('');
   const [saved,     setSaved]     = useState('');
   const [saveErr,   setSaveErr]   = useState('');
 
@@ -172,7 +162,6 @@ export default function POSPage() {
   const [xPayRef,        setXPayRef]        = useState('');
   const [xPayReceipt,    setXPayReceipt]    = useState('');
   const [xPayWarn,       setXPayWarn]       = useState(false);
-  const [updStatus,      setUpdStatus]      = useState<string | null>(null);
 
   type DeliveryMode = 'retiro' | 'delivery' | 'encomienda';
   const [closeFor,           setCloseFor]           = useState<string | null>(null);
@@ -254,7 +243,6 @@ export default function POSPage() {
 
       setSaved(`Venta ${saleNum} guardada con éxito.`);
       resetForm();
-      loadSales();
       window.dispatchEvent(new Event('optica_ventas_updated'));
       setTimeout(() => setSaved(''), 6000);
     } catch (err: any) {
@@ -281,19 +269,7 @@ export default function POSPage() {
     }
   }
 
-  function updateSaleStatus(saleId: string, s: SaleStatus) {
-    setSales(prev => prev.map(sale => sale.id === saleId ? { ...sale, status: s } : sale));
-    if (saleId.startsWith('local-')) {
-      // update localStorage
-      const numId = Number(saleId.replace('local-', ''));
-      const all = getSales();
-      const updated = all.map(v => v.id === numId ? { ...v, estadoTrabajo: s } : v);
-      localStorage.setItem('optica_yolanda_ventas', JSON.stringify(updated));
-      return;
-    }
-    setUpdStatus(saleId);
-    setTimeout(() => setUpdStatus(null), 1000);
-  }
+
 
   async function registerXPay(saleId: string) {
     const amt = parseFloat(xPayAmt);
@@ -314,16 +290,13 @@ export default function POSPage() {
           cliente: `${localSale.cliente.nombre} ${localSale.cliente.apellido}`.trim(),
           tipo: 'abono', receipt_url: xPayReceipt || undefined,
         });
-        setSales(prev => prev.map(s =>
-          s.id === saleId ? { ...s, deposit: newDeposit, balance: newBalance, status: newBalance <= 0 && s.status !== 'entregado' ? 'pagado_total' : s.status } : s
-        ));
         if (newBalance <= 0) {
           setPaidToast(`Venta saldada · ${localSale.cliente.nombre} ${localSale.cliente.apellido} — Saldo en 0`);
           setTimeout(() => setPaidToast(''), 6000);
         }
       }
     }
-    setAddPayFor(null); setXPayAmt(''); setXPayRef(''); setXPayReceipt(''); setXPayWarn(false); loadSales();
+    setAddPayFor(null); setXPayAmt(''); setXPayRef(''); setXPayReceipt(''); setXPayWarn(false);
   }
 
   async function closeSale(saleId: string, balance: number) {
@@ -348,17 +321,8 @@ export default function POSPage() {
     }
     setCloseFor(null); setCloseAmt(''); setCloseRef('');
     setCloseReceipt(''); setCloseReceiptWarn(false); setCloseDelivery('retiro');
-    setClosingSale(false); loadSales();
+    setClosingSale(false);
   }
-
-    if (sfFilter !== 'todos' && s.status !== sfFilter) return false;
-    if (listSearch) {
-      const q = listSearch.toLowerCase();
-      const name = (s.customers?.full_name ?? `${s.customer_first_name} ${s.customer_last_name}`).toLowerCase();
-      return name.includes(q) || s.sale_number.includes(q) || (s.seller_name ?? '').toLowerCase().includes(q);
-    }
-    return true;
-  });
 
   const branchOpts = [
     <option key="" value="" style={{ background: '#0a0908' }}>— Seleccionar —</option>,
