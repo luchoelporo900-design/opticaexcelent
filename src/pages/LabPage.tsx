@@ -367,12 +367,11 @@ export default function LabPage() {
                             {/* OD */}
                             <div>
                               <p className="text-xs font-light mb-1.5" style={{ color: '#C5A059' }}>OD — Ojo Derecho</p>
-                              <div className="grid grid-cols-4 gap-2">
+                              <div className="grid grid-cols-3 gap-2">
                                 {[
                                   { label: 'Esfera',   val: eg.prescription.od_esfera },
                                   { label: 'Cilindro', val: eg.prescription.od_cilindro },
                                   { label: 'Eje',      val: eg.prescription.od_eje },
-                                  { label: 'Altura',   val: eg.prescription.od_altura },
                                 ].map(f => (
                                   <div key={f.label} className="text-center">
                                     <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.35)' }}>{f.label}</p>
@@ -388,12 +387,11 @@ export default function LabPage() {
                             {/* OI */}
                             <div>
                               <p className="text-xs font-light mb-1.5" style={{ color: '#C5A059' }}>OI — Ojo Izquierdo</p>
-                              <div className="grid grid-cols-4 gap-2">
+                              <div className="grid grid-cols-3 gap-2">
                                 {[
                                   { label: 'Esfera',   val: eg.prescription.oi_esfera },
                                   { label: 'Cilindro', val: eg.prescription.oi_cilindro },
                                   { label: 'Eje',      val: eg.prescription.oi_eje },
-                                  { label: 'Altura',   val: eg.prescription.oi_altura },
                                 ].map(f => (
                                   <div key={f.label} className="text-center">
                                     <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.35)' }}>{f.label}</p>
@@ -406,12 +404,13 @@ export default function LabPage() {
                               </div>
                             </div>
 
-                            {/* ADD / DP / Obs */}
-                            <div className="grid grid-cols-3 gap-2">
+                            {/* ADD / DP / Altura / Obs */}
+                            <div className="grid grid-cols-4 gap-2">
                               {[
-                                { label: 'ADD', val: eg.prescription.add },
-                                { label: 'DP',  val: eg.prescription.dp  },
-                                { label: 'Obs', val: eg.prescription.obs },
+                                { label: 'ADD',    val: eg.prescription.add },
+                                { label: 'DP',     val: eg.prescription.dp  },
+                                { label: 'Altura', val: eg.prescription.od_altura },
+                                { label: 'Obs',    val: eg.prescription.obs },
                               ].map(f => (
                                 <div key={f.label} className="text-center">
                                   <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.35)' }}>{f.label}</p>
