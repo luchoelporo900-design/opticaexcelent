@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
-import { RefreshCw, Search, CheckCircle, Package, MessageCircle, ChevronDown } from 'lucide-react';
+import { RefreshCw, Search, CheckCircle, Package, MessageCircle, ChevronDown, Printer, X } from 'lucide-react';
 import { getSales } from '../lib/salesStorage';
 import { useAuth } from '../context/AuthContext';
-import { getStoredUsers } from '../context/AuthContext';
 
 const LS_LAB_KEY = 'optica_lab_orders';
 const SUCURSALES = ['Azara', 'Fernando', 'Caacupé', 'La Fina'];
@@ -12,7 +11,7 @@ type LabStatus = 'enviado' | 'proceso' | 'listo' | 'entregado';
 type LabHistoryEntry = {
   status: LabStatus;
   timestamp: string;
-  by: string; // nombre del usuario que cambió el estado
+  by: string;
 };
 
 type LabOrder = {
@@ -21,6 +20,7 @@ type LabOrder = {
   sale_number: string;
   customer_name: string;
   customer_phone: string;
+  customer_ci: string;
   seller_name: string;
   seller_phone?: string;
   branch_name: string;
@@ -50,9 +50,13 @@ function saveLabOrders(orders: LabOrder[]) {
   localStorage.setItem(LS_LAB_KEY, JSON.stringify(orders));
 }
 
+function normalize(s: string) {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+}
+
 function syncFromSales(): LabOrder[] {
-  const sales    = getSales();
-  const existing = getLabOrders();
+  const sales     = getSales();
+  const existing  = getLabOrders();
   const existingIds = new Set(existing.map(o => o.id));
   const newOnes: LabOrder[] = [];
 
@@ -61,8 +65,9 @@ function syncFromSales(): LabOrder[] {
     if (!existingIds.has(id)) {
       newOnes.push({
         id, sale_id: v.id, sale_number: `VTA-${v.id}`,
-        customer_name: `${v.cliente.nombre} ${v.cliente.apellido}`.trim(),
+        customer_name:  `${v.cliente.nombre} ${v.cliente.apellido}`.trim(),
         customer_phone: v.cliente.telefono || '',
+        customer_ci:    v.cliente.ci || '',
         seller_name: v.vendedora, branch_name: v.sucursalVenta,
         seller_phone: (() => {
           try {
@@ -77,13 +82,14 @@ function syncFromSales(): LabOrder[] {
         history: [{ status: 'enviado' as LabStatus, timestamp: v.fecha, by: v.vendedora }],
       });
     } else {
-      // Sync anteojos from sale in case they were updated
       const idx = existing.findIndex(o => o.id === id);
-      if (idx >= 0) existing[idx].anteojos = (v.anteojos as any[]) || [];
+      if (idx >= 0) {
+        existing[idx].anteojos    = (v.anteojos as any[]) || [];
+        existing[idx].customer_ci = v.cliente.ci || '';
+      }
     }
   }
 
-  // Sync status: if sale is 'entregado' in sales, mark lab order as entregado
   const updated = [...existing, ...newOnes].map(o => {
     const sale = sales.find(v => v.id === o.sale_id);
     if (sale?.estadoTrabajo === 'entregado' && o.status !== 'entregado') {
@@ -96,7 +102,6 @@ function syncFromSales(): LabOrder[] {
   return updated;
 }
 
-// WhatsApp a la VENDEDORA para avisarle que el trabajo está listo
 function buildWhatsAppUrlForSeller(sellerPhone: string, sellerName: string, customerName: string, saleNumber: string) {
   if (!sellerPhone) return null;
   const clean = sellerPhone.replace(/\D/g, '');
@@ -109,19 +114,119 @@ function buildWhatsAppUrlForSeller(sellerPhone: string, sellerName: string, cust
   return `https://wa.me/${full}?text=${msg}`;
 }
 
-function fmt(n: number) {
-  return n.toLocaleString('es-PY', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+// ── Función imprimir ────────────────────────────────────────────────────────
+function printOrders(orders: LabOrder[]) {
+  const now = new Date().toLocaleString('es-PY');
+  const rows = orders.map((o, idx) => {
+    const statusLabel = statusConfig[o.status]?.label ?? o.status;
+    const fecha = new Date(o.created_at).toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit', year: '2-digit' });
+
+    const lentes = o.anteojos.map((eg: any, i: number) => {
+      const receta = (eg.showReceta && eg.prescription) ? `
+        <div style="margin-top:6px;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:11px;">
+          <strong>Receta óptica</strong><br/>
+          <table style="width:100%;margin-top:4px;border-collapse:collapse;">
+            <tr>
+              <td style="padding:2px 6px;font-weight:600;color:#555;">OD</td>
+              <td style="padding:2px 4px;">Esf: <strong>${eg.prescription.od_esfera || '—'}</strong></td>
+              <td style="padding:2px 4px;">Cil: <strong>${eg.prescription.od_cilindro || '—'}</strong></td>
+              <td style="padding:2px 4px;">Eje: <strong>${eg.prescription.od_eje || '—'}</strong></td>
+              ${eg.prescription.od_altura ? `<td style="padding:2px 4px;">Alt: <strong>${eg.prescription.od_altura}</strong></td>` : ''}
+            </tr>
+            <tr>
+              <td style="padding:2px 6px;font-weight:600;color:#555;">OI</td>
+              <td style="padding:2px 4px;">Esf: <strong>${eg.prescription.oi_esfera || '—'}</strong></td>
+              <td style="padding:2px 4px;">Cil: <strong>${eg.prescription.oi_cilindro || '—'}</strong></td>
+              <td style="padding:2px 4px;">Eje: <strong>${eg.prescription.oi_eje || '—'}</strong></td>
+              ${eg.prescription.oi_altura ? `<td style="padding:2px 4px;">Alt: <strong>${eg.prescription.oi_altura}</strong></td>` : ''}
+            </tr>
+          </table>
+          ${eg.prescription.add  ? `<span style="margin-right:10px;">ADD: <strong>${eg.prescription.add}</strong></span>` : ''}
+          ${eg.prescription.dp   ? `<span style="margin-right:10px;">DP: <strong>${eg.prescription.dp}</strong></span>` : ''}
+          ${eg.prescription.obs  ? `<span>Obs: <strong>${eg.prescription.obs}</strong></span>` : ''}
+        </div>` : '';
+
+      return `
+        <div style="margin-top:8px;padding:8px;border:1px solid #e0d8c8;border-radius:4px;background:#fffdf7;">
+          <strong style="font-size:12px;">Armazón ${i + 1}</strong>
+          ${eg.frame_description ? `<div style="font-size:12px;margin-top:2px;">${eg.frame_description}</div>` : ''}
+          ${eg.crystals   ? `<div style="font-size:11px;color:#3b82f6;margin-top:2px;">Cristales: ${eg.crystals}</div>` : ''}
+          ${eg.treatments ? `<div style="font-size:11px;color:#10b981;margin-top:2px;">Tratamientos: ${eg.treatments}</div>` : ''}
+          ${receta}
+        </div>`;
+    }).join('');
+
+    return `
+      <div style="page-break-inside:avoid;margin-bottom:16px;padding:12px 14px;border:1px solid #c8b87a;border-radius:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
+          <div>
+            <span style="font-family:monospace;font-size:13px;color:#8a6a00;font-weight:600;">${o.sale_number}</span>
+            <span style="margin-left:8px;font-size:11px;padding:2px 8px;border-radius:20px;background:#f3ead8;color:#8a6a00;">${statusLabel}</span>
+            <span style="margin-left:6px;font-size:11px;color:#666;">${o.branch_name}</span>
+          </div>
+          <div style="font-size:11px;color:#888;">${fecha}</div>
+        </div>
+        <div style="margin-top:6px;">
+          <strong style="font-size:14px;">${o.customer_name}</strong>
+          ${o.customer_ci    ? `<span style="margin-left:10px;font-size:11px;color:#8a6a00;">CI: ${o.customer_ci}</span>` : ''}
+          ${o.customer_phone ? `<span style="margin-left:10px;font-size:11px;color:#666;">📞 ${o.customer_phone}</span>` : ''}
+        </div>
+        <div style="font-size:11px;color:#888;margin-top:2px;">Vendedora: ${o.seller_name}</div>
+        ${lentes}
+        ${o.notes ? `<div style="margin-top:8px;font-size:11px;color:#666;padding:6px 8px;background:#f9f9f9;border-radius:4px;">📝 ${o.notes}</div>` : ''}
+      </div>`;
+  }).join('');
+
+  const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Laboratorio — Óptica Yolanda</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; color: #111; margin: 0; padding: 20px; background: #fff; }
+    @media print {
+      body { padding: 10px; }
+      .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding-bottom:12px;border-bottom:2px solid #c8b87a;">
+    <div>
+      <h1 style="margin:0;font-size:20px;color:#8a6a00;">🔬 Óptica Yolanda</h1>
+      <p style="margin:4px 0 0;font-size:13px;color:#555;">Panel de Laboratorio · ${orders.length} pedido${orders.length !== 1 ? 's' : ''}</p>
+    </div>
+    <div style="text-align:right;font-size:11px;color:#888;">
+      Impreso el ${now}
+    </div>
+  </div>
+  ${rows}
+  <div class="no-print" style="margin-top:20px;text-align:center;">
+    <button onclick="window.print()" style="padding:10px 24px;background:#8a6a00;color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer;">
+      🖨️ Imprimir ahora
+    </button>
+  </div>
+</body>
+</html>`;
+
+  const win = window.open('', '_blank');
+  if (!win) return;
+  win.document.write(html);
+  win.document.close();
+  setTimeout(() => win.print(), 500);
 }
 
 export default function LabPage() {
   const { profile } = useAuth();
-  const isLab      = profile?.role === 'laboratorio';
-  const isAdmin    = profile?.role === 'admin' || profile?.role === 'gerente';
+  const isLab       = profile?.role === 'laboratorio';
+  const isAdmin     = profile?.role === 'admin' || profile?.role === 'gerente';
   const isVendedora = profile?.role === 'vendedora';
 
   const [orders,       setOrders]       = useState<LabOrder[]>([]);
   const [branchFilter, setBranchFilter] = useState('todos');
   const [statusFilter, setStatusFilter] = useState<string>('todos');
+  const [sellerFilter, setSellerFilter] = useState('todos');
   const [search,       setSearch]       = useState('');
   const [expandedId,   setExpandedId]   = useState<string | null>(null);
   const [notes,        setNotes]        = useState<Record<string, string>>({});
@@ -129,12 +234,10 @@ export default function LabPage() {
 
   useEffect(() => { load(); }, []);
 
-  function load() {
-    setOrders(syncFromSales());
-  }
+  function load() { setOrders(syncFromSales()); }
 
   function updateStatus(id: string, status: LabStatus) {
-    const now = new Date().toISOString();
+    const now    = new Date().toISOString();
     const byName = profile?.full_name ?? 'Laboratorio';
     const updated = getLabOrders().map(o =>
       o.id === id ? {
@@ -144,40 +247,57 @@ export default function LabPage() {
     );
     saveLabOrders(updated);
     setOrders(updated);
-    // Also update sale status in localStorage
     const order = updated.find(o => o.id === id);
     if (order) {
       const allSales = getSales();
       const newStatus = status === 'listo' ? 'listo' : status === 'proceso' ? 'en_laboratorio' : status === 'entregado' ? 'entregado' : 'en_laboratorio';
-      const updatedSales = allSales.map(v =>
-        v.id === order.sale_id ? { ...v, estadoTrabajo: newStatus } : v
-      );
+      const updatedSales = allSales.map(v => v.id === order.sale_id ? { ...v, estadoTrabajo: newStatus } : v);
       localStorage.setItem('optica_yolanda_ventas', JSON.stringify(updatedSales));
       window.dispatchEvent(new Event('optica_ventas_updated'));
     }
   }
 
-  // Filtro por rol
+  // Lista de vendedoras únicas
+  const allSellers = [...new Set(orders.map(o => o.seller_name).filter(Boolean))].sort();
+
   const roleFiltered = orders.filter(o => {
     if (isVendedora) return o.seller_name === profile?.full_name;
     return true;
   });
 
-  // Vendedora no ve entregados
-  const visibleStatuses = isVendedora
-    ? ['enviado', 'proceso', 'listo']
-    : STATUS_FLOW;
+  const visibleStatuses = isVendedora ? ['enviado', 'proceso', 'listo'] : STATUS_FLOW;
 
+  // ── Búsqueda mejorada: nombre, CI, celular, vendedora, número de venta ──
   const filtered = roleFiltered.filter(o => {
     if (!visibleStatuses.includes(o.status)) return false;
     if (statusFilter !== 'todos' && o.status !== statusFilter) return false;
     if (branchFilter !== 'todos' && o.branch_name !== branchFilter) return false;
-    if (search && !o.sale_number.toLowerCase().includes(search.toLowerCase()) &&
-        !o.customer_name.toLowerCase().includes(search.toLowerCase())) return false;
+    if (sellerFilter !== 'todos' && o.seller_name !== sellerFilter) return false;
+    if (search) {
+      const q      = normalize(search);
+      const qNum   = search.replace(/\D/g, '');
+      const name   = normalize(o.customer_name);
+      const ci     = normalize(o.customer_ci || '');
+      const seller = normalize(o.seller_name || '');
+      const phone  = (o.customer_phone || '').replace(/\D/g, '');
+      const vtaId  = o.sale_number.toLowerCase();
+      return (
+        name.includes(q) ||
+        ci.includes(q) ||
+        seller.includes(q) ||
+        vtaId.includes(search.toLowerCase()) ||
+        (qNum.length >= 3 && phone.includes(qNum))
+      );
+    }
     return true;
   });
 
   const countByStatus = (s: string) => roleFiltered.filter(o => o.status === s).length;
+  const hasFilters = search || branchFilter !== 'todos' || sellerFilter !== 'todos' || statusFilter !== 'todos';
+
+  function clearFilters() {
+    setSearch(''); setBranchFilter('todos'); setSellerFilter('todos'); setStatusFilter('todos');
+  }
 
   return (
     <div className="p-6 space-y-5" onClick={() => lightbox && setLightbox(null)}>
@@ -185,8 +305,7 @@ export default function LabPage() {
       {/* Lightbox */}
       {lightbox && (
         <div className="fixed inset-0 z-[999] flex items-center justify-center p-6"
-          style={{ background: 'rgba(0,0,0,0.93)' }}
-          onClick={() => setLightbox(null)}>
+          style={{ background: 'rgba(0,0,0,0.93)' }} onClick={() => setLightbox(null)}>
           <img src={lightbox} alt="foto" className="max-w-xl w-full rounded-2xl object-contain"
             style={{ maxHeight: '80vh', border: '1px solid rgba(197,160,89,0.3)' }}
             onClick={e => e.stopPropagation()} />
@@ -202,11 +321,20 @@ export default function LabPage() {
             {isVendedora ? `Mis pedidos · ${profile?.full_name}` : 'Seguimiento de pedidos · Todas las sucursales'}
           </p>
         </div>
-        <button onClick={load}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-light border"
-          style={{ borderColor: 'rgba(197,160,89,0.3)', color: '#C5A059', background: 'rgba(197,160,89,0.08)' }}>
-          <RefreshCw size={14} /> Actualizar
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Botón imprimir — muestra los pedidos filtrados */}
+          <button
+            onClick={() => printOrders(filtered)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-light border"
+            style={{ borderColor: 'rgba(197,160,89,0.3)', color: '#C5A059', background: 'rgba(197,160,89,0.08)' }}>
+            <Printer size={14} /> Imprimir ({filtered.length})
+          </button>
+          <button onClick={load}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-light border"
+            style={{ borderColor: 'rgba(197,160,89,0.3)', color: '#C5A059', background: 'rgba(197,160,89,0.08)' }}>
+            <RefreshCw size={14} /> Actualizar
+          </button>
+        </div>
       </div>
 
       {/* Tarjetas de estado */}
@@ -225,21 +353,60 @@ export default function LabPage() {
         })}
       </div>
 
-      {/* Filtros */}
+      {/* ── Filtros mejorados ── */}
       <div className="flex flex-wrap gap-3 items-center">
+
+        {/* Búsqueda universal */}
         <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'rgba(197,160,89,0.5)' }} />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar pedido o cliente..."
-            className="pl-9 pr-4 py-2 rounded-lg text-xs bg-transparent text-white outline-none border"
-            style={{ borderColor: 'rgba(197,160,89,0.25)', background: 'rgba(255,255,255,0.03)' }} />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Nombre, C.I., celular o venta..."
+            className="pl-9 pr-4 py-2 rounded-lg text-xs bg-transparent text-white outline-none border w-52"
+            style={{ borderColor: 'rgba(197,160,89,0.25)', background: 'rgba(255,255,255,0.03)' }}
+          />
         </div>
+
+        {/* Filtro por vendedora */}
         {(isLab || isAdmin) && (
-          <select value={branchFilter} onChange={e => setBranchFilter(e.target.value)}
+          <select
+            value={sellerFilter}
+            onChange={e => setSellerFilter(e.target.value)}
+            className="px-3 py-2 rounded-lg text-xs font-light bg-transparent outline-none border"
+            style={{ borderColor: 'rgba(197,160,89,0.25)', background: '#111', color: sellerFilter !== 'todos' ? '#C5A059' : 'rgba(255,255,255,0.6)' }}>
+            <option value="todos" style={{ background: '#111' }}>Todas las vendedoras</option>
+            {allSellers.map(s => <option key={s} value={s} style={{ background: '#111' }}>{s}</option>)}
+          </select>
+        )}
+
+        {/* Filtro por sucursal */}
+        {(isLab || isAdmin) && (
+          <select
+            value={branchFilter}
+            onChange={e => setBranchFilter(e.target.value)}
             className="px-3 py-2 rounded-lg text-xs font-light bg-transparent text-white outline-none border"
-            style={{ borderColor: 'rgba(197,160,89,0.25)', background: '#111' }}>
-            <option value="todos">Todas las sucursales</option>
+            style={{ borderColor: 'rgba(197,160,89,0.25)', background: '#111', color: branchFilter !== 'todos' ? '#C5A059' : 'rgba(255,255,255,0.6)' }}>
+            <option value="todos" style={{ background: '#111' }}>Todas las sucursales</option>
             {SUCURSALES.map(s => <option key={s} value={s} style={{ background: '#111' }}>{s}</option>)}
           </select>
+        )}
+
+        {/* Limpiar filtros */}
+        {hasFilters && (
+          <button
+            onClick={clearFilters}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light"
+            style={{ background: 'rgba(239,68,68,0.08)', color: 'rgba(239,68,68,0.7)', border: '1px solid rgba(239,68,68,0.2)' }}>
+            <X size={12} />Limpiar
+          </button>
+        )}
+
+        {/* Contador */}
+        {hasFilters && (
+          <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.35)' }}>
+            {filtered.length} resultado{filtered.length !== 1 ? 's' : ''}
+          </span>
         )}
       </div>
 
@@ -247,14 +414,25 @@ export default function LabPage() {
       {filtered.length === 0 ? (
         <div className="rounded-xl border p-12 text-center" style={{ background: 'rgba(255,255,255,0.02)', borderColor: 'rgba(197,160,89,0.15)' }}>
           <Package size={32} className="mx-auto mb-3 opacity-20" style={{ color: '#C5A059' }} />
-          <p className="text-sm font-light" style={{ color: 'rgba(255,255,255,0.3)' }}>No hay pedidos para mostrar</p>
+          <p className="text-sm font-light" style={{ color: 'rgba(255,255,255,0.3)' }}>
+            {hasFilters ? 'No se encontraron pedidos' : 'No hay pedidos para mostrar'}
+          </p>
+          {hasFilters && (
+            <button onClick={clearFilters}
+              className="mt-3 text-xs font-light px-3 py-1.5 rounded-lg"
+              style={{ color: '#C5A059', border: '1px solid rgba(197,160,89,0.3)', background: 'rgba(197,160,89,0.06)' }}>
+              Limpiar filtros
+            </button>
+          )}
         </div>
       ) : (
         <div className="space-y-3">
           {filtered.map(order => {
-            const cfg      = statusConfig[order.status];
-            const isExp    = expandedId === order.id;
-            const waUrl    = order.status === 'listo' ? buildWhatsAppUrlForSeller(order.seller_phone || '', order.seller_name, order.customer_name, order.sale_number) : null;
+            const cfg        = statusConfig[order.status];
+            const isExp      = expandedId === order.id;
+            const waUrl      = order.status === 'listo'
+              ? buildWhatsAppUrlForSeller(order.seller_phone || '', order.seller_name, order.customer_name, order.sale_number)
+              : null;
             const nextStatus = STATUS_FLOW[STATUS_FLOW.indexOf(order.status) + 1];
             const canAdvance = (isLab || isAdmin) && nextStatus && order.status !== 'entregado';
 
@@ -275,7 +453,13 @@ export default function LabPage() {
                       )}
                     </div>
                     <p className="text-white font-light">{order.customer_name}</p>
-                    {order.customer_phone && <p className="text-xs font-light mt-0.5" style={{ color: 'rgba(255,255,255,0.35)' }}>📞 {order.customer_phone}</p>}
+                    {/* CI siempre visible */}
+                    {order.customer_ci && (
+                      <p className="text-xs font-light mt-0.5" style={{ color: 'rgba(197,160,89,0.6)' }}>CI: {order.customer_ci}</p>
+                    )}
+                    {order.customer_phone && (
+                      <p className="text-xs font-light mt-0.5" style={{ color: 'rgba(255,255,255,0.35)' }}>📞 {order.customer_phone}</p>
+                    )}
                     <p className="text-xs font-light mt-0.5" style={{ color: 'rgba(255,255,255,0.3)' }}>
                       {new Date(order.created_at).toLocaleDateString('es-PY')}
                     </p>
@@ -286,7 +470,9 @@ export default function LabPage() {
                         return (
                           <div key={s} className="flex items-center gap-1">
                             <div className="w-2 h-2 rounded-full" style={{ background: done ? statusConfig[s as LabStatus].color : 'rgba(255,255,255,0.15)' }} />
-                            {i < STATUS_FLOW.length - 1 && <div className="w-6 h-px" style={{ background: done && i < STATUS_FLOW.indexOf(order.status) ? '#C5A059' : 'rgba(255,255,255,0.1)' }} />}
+                            {i < STATUS_FLOW.length - 1 && (
+                              <div className="w-6 h-px" style={{ background: done && i < STATUS_FLOW.indexOf(order.status) ? '#C5A059' : 'rgba(255,255,255,0.1)' }} />
+                            )}
                           </div>
                         );
                       })}
@@ -295,20 +481,27 @@ export default function LabPage() {
 
                   {/* Acciones rápidas */}
                   <div className="flex flex-col gap-2 shrink-0" onClick={e => e.stopPropagation()}>
+                    {/* Imprimir solo este pedido */}
+                    <button
+                      onClick={() => printOrders([order])}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-light"
+                      style={{ background: 'rgba(197,160,89,0.08)', color: 'rgba(197,160,89,0.7)', border: '1px solid rgba(197,160,89,0.2)' }}>
+                      <Printer size={12} />Imprimir
+                    </button>
                     {waUrl && (
                       <a href={waUrl} target="_blank" rel="noopener noreferrer"
                         className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium"
                         style={{ background: 'rgba(37,211,102,0.15)', color: '#25d366', border: '1px solid rgba(37,211,102,0.35)' }}>
-                        <MessageCircle size={13} />Avisar cliente
+                        <MessageCircle size={13} />Avisar vendedora
                       </a>
                     )}
                     {canAdvance && (
                       <button onClick={() => updateStatus(order.id, nextStatus)}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
                         style={{ background: statusConfig[nextStatus].bg, color: statusConfig[nextStatus].color, border: `1px solid ${statusConfig[nextStatus].color}40` }}>
-                        {nextStatus === 'proceso' && '▶ En Proceso'}
-                        {nextStatus === 'listo'   && '✓ Marcar Listo'}
-                        {nextStatus === 'entregado' && '📦 Entregado'}
+                        {nextStatus === 'proceso'    && '▶ En Proceso'}
+                        {nextStatus === 'listo'      && '✓ Marcar Listo'}
+                        {nextStatus === 'entregado'  && '📦 Entregado'}
                       </button>
                     )}
                     {(isLab || isAdmin) && (
@@ -323,7 +516,7 @@ export default function LabPage() {
                   <ChevronDown size={14} style={{ color: 'rgba(255,255,255,0.3)', transform: isExp ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0, marginTop: 4 }} />
                 </div>
 
-                {/* Panel expandido — receta + fotos */}
+                {/* Panel expandido */}
                 {isExp && (
                   <div className="border-t px-4 py-4 space-y-4"
                     style={{ borderColor: 'rgba(197,160,89,0.1)', background: 'rgba(197,160,89,0.02)' }}>
@@ -335,7 +528,6 @@ export default function LabPage() {
                         <div key={i} className="rounded-xl p-4 space-y-3"
                           style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(197,160,89,0.14)' }}>
 
-                          {/* Foto + descripción */}
                           <div className="flex items-start gap-3">
                             {eg.photo_url ? (
                               <img src={eg.photo_url} alt="armazón"
@@ -352,21 +544,9 @@ export default function LabPage() {
                               <p className="text-xs font-light" style={{ color: 'rgba(197,160,89,0.7)' }}>Anteojo {i + 1}</p>
                               {eg.frame_description && <p className="text-sm text-white font-light">📦 {eg.frame_description}</p>}
                               <div className="flex gap-2 flex-wrap">
-                                {eg.crystals && (
-                                  <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(59,130,246,0.12)', color: '#3b82f6' }}>
-                                    🔬 {eg.crystals}
-                                  </span>
-                                )}
-                                {eg.treatments && (
-                                  <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(16,185,129,0.12)', color: '#10b981' }}>
-                                    ✨ {eg.treatments}
-                                  </span>
-                                )}
-                                {eg.saleType === 'media' && (
-                                  <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(245,158,11,0.12)', color: '#f59e0b' }}>
-                                    ½ venta
-                                  </span>
-                                )}
+                                {eg.crystals && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(59,130,246,0.12)', color: '#3b82f6' }}>🔬 {eg.crystals}</span>}
+                                {eg.treatments && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(16,185,129,0.12)', color: '#10b981' }}>✨ {eg.treatments}</span>}
+                                {eg.saleType === 'media' && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(245,158,11,0.12)', color: '#f59e0b' }}>½ venta</span>}
                               </div>
                             </div>
                           </div>
@@ -376,9 +556,7 @@ export default function LabPage() {
                             <div className="rounded-lg p-3 space-y-2"
                               style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.14)' }}>
                               <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.65)' }}>Receta óptica</p>
-
                               <div className="grid grid-cols-2 gap-3">
-                                {/* OD */}
                                 <div>
                                   <p className="text-xs font-light mb-1.5" style={{ color: '#C5A059' }}>OD — Ojo Derecho</p>
                                   <div className="grid grid-cols-3 gap-1.5">
@@ -397,7 +575,6 @@ export default function LabPage() {
                                     ))}
                                   </div>
                                 </div>
-                                {/* OI */}
                                 <div>
                                   <p className="text-xs font-light mb-1.5" style={{ color: '#C5A059' }}>OI — Ojo Izquierdo</p>
                                   <div className="grid grid-cols-3 gap-1.5">
@@ -417,8 +594,6 @@ export default function LabPage() {
                                   </div>
                                 </div>
                               </div>
-
-                              {/* ADD / DP / Altura / Obs */}
                               <div className="grid grid-cols-4 gap-1.5">
                                 {[
                                   { label: 'ADD',    val: eg.prescription.add },
@@ -441,27 +616,23 @@ export default function LabPage() {
                       ))
                     )}
 
-                    {/* Observaciones */}
                     {order.notes && (
                       <div className="px-3 py-2.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
                         <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.5)' }}>📝 {order.notes}</p>
                       </div>
                     )}
 
-                    {/* Historial del pedido */}
                     {order.history && order.history.length > 0 && (
                       <div>
-                        <p className="text-xs font-light tracking-widest uppercase mb-2" style={{ color: 'rgba(197,160,89,0.55)' }}>
-                          📋 Historial del pedido
-                        </p>
+                        <p className="text-xs font-light tracking-widest uppercase mb-2" style={{ color: 'rgba(197,160,89,0.55)' }}>📋 Historial del pedido</p>
                         <div className="space-y-1.5">
                           {order.history.map((h, i) => {
-                            const cfg = statusConfig[h.status];
+                            const hcfg = statusConfig[h.status];
                             return (
                               <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-lg"
                                 style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)' }}>
-                                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: cfg.color }} />
-                                <span className="text-xs font-light flex-1" style={{ color: cfg.color }}>{cfg.label}</span>
+                                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: hcfg.color }} />
+                                <span className="text-xs font-light flex-1" style={{ color: hcfg.color }}>{hcfg.label}</span>
                                 <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>{h.by}</span>
                                 <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.25)' }}>
                                   {new Date(h.timestamp).toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' })}
@@ -474,7 +645,6 @@ export default function LabPage() {
                       </div>
                     )}
 
-                    {/* Botón marcar listo — solo para lab/admin */}
                     {(isLab || isAdmin) && order.status === 'proceso' && (
                       <button onClick={e => { e.stopPropagation(); updateStatus(order.id, 'listo'); }}
                         className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium"
@@ -483,7 +653,6 @@ export default function LabPage() {
                       </button>
                     )}
 
-                    {/* Ya está listo — avisar */}
                     {order.status === 'listo' && (
                       <div className="space-y-2">
                         <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl"
@@ -498,7 +667,7 @@ export default function LabPage() {
                             <MessageCircle size={14} />Avisar a {order.seller_name} que está listo
                           </a>
                         )}
-                        {!waUrl && order.status === 'listo' && (
+                        {!waUrl && (
                           <p className="text-xs font-light text-center" style={{ color: 'rgba(255,255,255,0.3)' }}>
                             La vendedora no tiene teléfono registrado
                           </p>
