@@ -2,11 +2,18 @@ import { useEffect, useState } from 'react';
 import { RefreshCw, Search, CheckCircle, Package, MessageCircle, ChevronDown } from 'lucide-react';
 import { getSales } from '../lib/salesStorage';
 import { useAuth } from '../context/AuthContext';
+import { getStoredUsers } from '../context/AuthContext';
 
 const LS_LAB_KEY = 'optica_lab_orders';
 const SUCURSALES = ['Azara', 'Fernando', 'Caacupé', 'La Fina'];
 
 type LabStatus = 'enviado' | 'proceso' | 'listo' | 'entregado';
+
+type LabHistoryEntry = {
+  status: LabStatus;
+  timestamp: string;
+  by: string; // nombre del usuario que cambió el estado
+};
 
 type LabOrder = {
   id: string;
@@ -15,12 +22,14 @@ type LabOrder = {
   customer_name: string;
   customer_phone: string;
   seller_name: string;
+  seller_phone?: string;
   branch_name: string;
   status: LabStatus;
   notes: string;
   created_at: string;
   updated_at: string;
   anteojos: any[];
+  history: LabHistoryEntry[];
 };
 
 const STATUS_FLOW: LabStatus[] = ['enviado', 'proceso', 'listo', 'entregado'];
@@ -55,9 +64,17 @@ function syncFromSales(): LabOrder[] {
         customer_name: `${v.cliente.nombre} ${v.cliente.apellido}`.trim(),
         customer_phone: v.cliente.telefono || '',
         seller_name: v.vendedora, branch_name: v.sucursalVenta,
+        seller_phone: (() => {
+          try {
+            const users = JSON.parse(localStorage.getItem('optica_users') || '[]');
+            const seller = users.find((u: any) => u.full_name === v.vendedora);
+            return seller?.phone || seller?.email?.split('@')[0] || '';
+          } catch { return ''; }
+        })(),
         status: 'enviado', notes: String(v.observaciones || ''),
         created_at: v.fecha, updated_at: v.fecha,
         anteojos: (v.anteojos as any[]) || [],
+        history: [{ status: 'enviado' as LabStatus, timestamp: v.fecha, by: v.vendedora }],
       });
     } else {
       // Sync anteojos from sale in case they were updated
@@ -79,11 +96,16 @@ function syncFromSales(): LabOrder[] {
   return updated;
 }
 
-function buildWhatsAppUrl(phone: string, customerName: string) {
-  if (!phone) return null;
-  const clean = phone.replace(/\D/g, '');
+// WhatsApp a la VENDEDORA para avisarle que el trabajo está listo
+function buildWhatsAppUrlForSeller(sellerPhone: string, sellerName: string, customerName: string, saleNumber: string) {
+  if (!sellerPhone) return null;
+  const clean = sellerPhone.replace(/\D/g, '');
   const full  = clean.startsWith('595') ? clean : `595${clean.replace(/^0/, '')}`;
-  const msg   = encodeURIComponent(`Hola ${customerName.split(' ')[0]}! 👓\n\nTe saludamos desde *Óptica Yolanda*.\n\n✅ Tus lentes ya están *listos para retirar*.\n\n¡Te esperamos!`);
+  const msg   = encodeURIComponent(
+    `Hola ${sellerName.split(' ')[0]}! 🔬\n\n` +
+    `El trabajo de *${customerName}* (${saleNumber}) ya está *listo para retirar*.\n\n` +
+    `Podés coordinar la entrega con el cliente. ✅`
+  );
   return `https://wa.me/${full}?text=${msg}`;
 }
 
@@ -112,8 +134,13 @@ export default function LabPage() {
   }
 
   function updateStatus(id: string, status: LabStatus) {
+    const now = new Date().toISOString();
+    const byName = profile?.full_name ?? 'Laboratorio';
     const updated = getLabOrders().map(o =>
-      o.id === id ? { ...o, status, updated_at: new Date().toISOString(), notes: notes[id] ?? o.notes } : o
+      o.id === id ? {
+        ...o, status, updated_at: now, notes: notes[id] ?? o.notes,
+        history: [...(o.history || []), { status, timestamp: now, by: byName }],
+      } : o
     );
     saveLabOrders(updated);
     setOrders(updated);
@@ -227,7 +254,7 @@ export default function LabPage() {
           {filtered.map(order => {
             const cfg      = statusConfig[order.status];
             const isExp    = expandedId === order.id;
-            const waUrl    = order.status === 'listo' ? buildWhatsAppUrl(order.customer_phone, order.customer_name) : null;
+            const waUrl    = order.status === 'listo' ? buildWhatsAppUrlForSeller(order.seller_phone || '', order.seller_name, order.customer_name, order.sale_number) : null;
             const nextStatus = STATUS_FLOW[STATUS_FLOW.indexOf(order.status) + 1];
             const canAdvance = (isLab || isAdmin) && nextStatus && order.status !== 'entregado';
 
@@ -421,6 +448,32 @@ export default function LabPage() {
                       </div>
                     )}
 
+                    {/* Historial del pedido */}
+                    {order.history && order.history.length > 0 && (
+                      <div>
+                        <p className="text-xs font-light tracking-widest uppercase mb-2" style={{ color: 'rgba(197,160,89,0.55)' }}>
+                          📋 Historial del pedido
+                        </p>
+                        <div className="space-y-1.5">
+                          {order.history.map((h, i) => {
+                            const cfg = statusConfig[h.status];
+                            return (
+                              <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-lg"
+                                style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: cfg.color }} />
+                                <span className="text-xs font-light flex-1" style={{ color: cfg.color }}>{cfg.label}</span>
+                                <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>{h.by}</span>
+                                <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.25)' }}>
+                                  {new Date(h.timestamp).toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' })}
+                                  {' '}{new Date(h.timestamp).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Botón marcar listo — solo para lab/admin */}
                     {(isLab || isAdmin) && order.status === 'proceso' && (
                       <button onClick={e => { e.stopPropagation(); updateStatus(order.id, 'listo'); }}
@@ -442,8 +495,13 @@ export default function LabPage() {
                           <a href={waUrl} target="_blank" rel="noopener noreferrer"
                             className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-light"
                             style={{ background: 'rgba(37,211,102,0.10)', color: '#25d366', border: '1px solid rgba(37,211,102,0.3)' }}>
-                            <MessageCircle size={14} />Avisar al cliente por WhatsApp
+                            <MessageCircle size={14} />Avisar a {order.seller_name} que está listo
                           </a>
+                        )}
+                        {!waUrl && order.status === 'listo' && (
+                          <p className="text-xs font-light text-center" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                            La vendedora no tiene teléfono registrado
+                          </p>
                         )}
                       </div>
                     )}
