@@ -129,16 +129,12 @@ export default function CashPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-
-    // Para vendedora: filtrar por su nombre (no por sucursal)
-    // Para admin: filtrar por sucursal seleccionada
     const sellerFilter = isVendedora ? profile?.full_name : null;
 
     const localPayments = getPaymentsForDate(selectedDate).filter(p => {
       if (sellerFilter) return p.vendedora === sellerFilter;
       return !selectedBranch || branchMatch(p.sucursal || '', selectedBranch);
     });
-
     const localRows: PaymentRow[] = localPayments.map(p => ({
       id: String(p.id), sale_number: `VTA-${p.saleId}`, customer_name: p.cliente,
       amount: Number(p.monto), method: p.metodo as PaymentMethod, paid_at: p.fecha,
@@ -151,7 +147,6 @@ export default function CashPage() {
       if (sellerFilter) return v.vendedora === sellerFilter;
       return !selectedBranch || branchMatch(v.sucursalCobro || v.sucursalVenta || '', selectedBranch);
     });
-
     const recordedIds = new Set(localPayments.map(p => p.saleId));
     const fallbackRows: PaymentRow[] = localSales.filter(v => !recordedIds.has(v.id)).map(v => {
       const paid = Math.max(0, (Number(v.total) || 0) - (Number(v.saldo) || 0));
@@ -169,7 +164,6 @@ export default function CashPage() {
       if (sellerFilter) return e.vendedora === sellerFilter;
       return !selectedBranch || branchMatch(e.sucursal || '', selectedBranch);
     });
-
     buildAndCommit([...localRows, ...fallbackRows], localExpenses.map(e => ({
       id: String(e.id), description: e.descripcion, category: e.categoria,
       amount: Number(e.monto), method: e.metodo, expense_date: e.fecha, branch_name: e.sucursal,
@@ -189,35 +183,26 @@ export default function CashPage() {
     setReviewed(getReviewed());
   }
 
-  // Obtener datos completos de la venta para el detalle
   function getSaleDetail(saleId?: number, saleNumber?: string) {
     if (saleId) {
       const found = getSales().find(v => v.id === saleId);
       if (found) return found;
     }
-    // Fallback: buscar por número de venta (ej: "VTA-1234567890")
     if (saleNumber) {
-      const numStr = saleNumber.replace('VTA-', '');
-      const numId  = Number(numStr);
+      const numId = Number(saleNumber.replace('VTA-', ''));
       if (!isNaN(numId)) return getSales().find(v => v.id === numId) ?? null;
     }
     return null;
   }
 
-  // Obtener comprobante de pago — busca por id, por saleId, y en la venta original
   function getReceiptUrl(payId: string, saleId?: number): string | null {
     const allPays = getPayments();
-    // 1) Buscar por id exacto
     let pay = allPays.find((p: any) => String(p.id) === payId);
-    // 2) Si no encontró (fila fallback ls-xxx), buscar cualquier pago de ese saleId
-    if (!pay && saleId) {
-      pay = allPays.find((p: any) => p.saleId === saleId);
-    }
+    if (!pay && saleId) pay = allPays.find((p: any) => p.saleId === saleId);
     if (pay && (pay as any).receipt_url) return (pay as any).receipt_url;
-    // 3) Buscar comprobante guardado directamente en la venta
     if (saleId) {
       const sale = getSales().find((v: any) => v.id === saleId);
-      if (sale && (sale as any).paymentReceipt) return (sale as any).paymentReceipt;
+      if (sale && (sale as any).receipt_url) return (sale as any).receipt_url;
     }
     return null;
   }
@@ -605,18 +590,14 @@ export default function CashPage() {
                         </div>
                       </div>
 
-                      {/* Todos los comprobantes de esta venta */}
+                      {/* Todos los comprobantes */}
                       {(() => {
                         const allPays = getPayments().filter((pay: any) => pay.saleId === p.sale_id);
-                        const hasAny  = allPays.some((pay: any) => pay.receipt_url);
                         return (
                           <div>
-                            <p className="text-xs font-light tracking-widest uppercase mb-2" style={{ color: 'rgba(197,160,89,0.55)' }}>
-                              Comprobantes de pago
-                            </p>
+                            <p className="text-xs font-light tracking-widest uppercase mb-2" style={{ color: 'rgba(197,160,89,0.55)' }}>Comprobantes de pago</p>
                             {allPays.length === 0 && (
-                              <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg"
-                                style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                              <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
                                 <Eye size={13} style={{ color: 'rgba(255,255,255,0.3)' }} />
                                 <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.3)' }}>Sin comprobantes adjuntos</p>
                               </div>
@@ -624,21 +605,15 @@ export default function CashPage() {
                             {allPays.map((pay: any, idx: number) => {
                               const mc2 = METHODS.find(m => m.id === pay.metodo)?.color ?? '#C5A059';
                               return (
-                                <div key={pay.id} className="mb-3 rounded-xl overflow-hidden"
-                                  style={{ border: '1px solid rgba(197,160,89,0.12)', background: 'rgba(255,255,255,0.02)' }}>
-                                  <div className="flex items-center gap-2 px-3 py-2"
-                                    style={{ borderBottom: pay.receipt_url ? '1px solid rgba(197,160,89,0.1)' : 'none' }}>
-                                    <span className="w-4 h-4 rounded-full flex items-center justify-center text-xs font-medium text-black shrink-0"
-                                      style={{ background: mc2, fontSize: 9 }}>{idx + 1}</span>
+                                <div key={pay.id} className="mb-3 rounded-xl overflow-hidden" style={{ border: '1px solid rgba(197,160,89,0.12)', background: 'rgba(255,255,255,0.02)' }}>
+                                  <div className="flex items-center gap-2 px-3 py-2" style={{ borderBottom: pay.receipt_url ? '1px solid rgba(197,160,89,0.1)' : 'none' }}>
+                                    <span className="w-4 h-4 rounded-full flex items-center justify-center text-xs font-medium text-black shrink-0" style={{ background: mc2, fontSize: 9 }}>{idx + 1}</span>
                                     <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: `${mc2}18`, color: mc2 }}>{pay.metodo}</span>
                                     <span className="text-xs text-white font-light">Gs. {Number(pay.monto).toLocaleString('es-PY')}</span>
                                     <span className="text-xs font-light ml-auto" style={{ color: 'rgba(255,255,255,0.35)' }}>
-                                      {new Date(pay.fecha).toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' })}
-                                      {' '}{new Date(pay.fecha).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
+                                      {new Date(pay.fecha).toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' })} {new Date(pay.fecha).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
                                     </span>
-                                    <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(197,160,89,0.08)', color: 'rgba(197,160,89,0.6)' }}>
-                                      {pay.tipo === 'sena' ? 'Seña' : 'Abono'}
-                                    </span>
+                                    <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(197,160,89,0.08)', color: 'rgba(197,160,89,0.6)' }}>{pay.tipo === 'sena' ? 'Seña' : 'Abono'}</span>
                                   </div>
                                   {pay.receipt_url ? (
                                     <div className="p-2">
@@ -661,12 +636,10 @@ export default function CashPage() {
                         );
                       })()}
 
-                      {/* Anteojos: fotos + descripción */}
+                      {/* Lentes vendidos */}
                       {allAnteojos.length > 0 && (
                         <div>
-                          <p className="text-xs font-light tracking-widest uppercase mb-2" style={{ color: 'rgba(197,160,89,0.55)' }}>
-                            Lentes vendidos
-                          </p>
+                          <p className="text-xs font-light tracking-widest uppercase mb-2" style={{ color: 'rgba(197,160,89,0.55)' }}>Lentes vendidos</p>
                           <div className="space-y-2">
                             {allAnteojos.map((eg: any, photoIdx: number) => (
                               <div key={photoIdx} className="flex items-start gap-3 rounded-xl p-3"
@@ -683,20 +656,10 @@ export default function CashPage() {
                                   </div>
                                 )}
                                 <div className="flex-1 min-w-0 space-y-1">
-                                  {eg.frame_description && (
-                                    <p className="text-xs text-white font-light">📦 {eg.frame_description}</p>
-                                  )}
-                                  {eg.crystals && (
-                                    <p className="text-xs font-light" style={{ color: '#3b82f6' }}>🔬 {eg.crystals}</p>
-                                  )}
-                                  {eg.treatments && (
-                                    <p className="text-xs font-light" style={{ color: '#10b981' }}>✨ {eg.treatments}</p>
-                                  )}
-                                  {eg.price && (
-                                    <p className="text-xs font-light" style={{ color: '#C5A059' }}>
-                                      Gs. {Number(eg.price).toLocaleString('es-PY')}
-                                    </p>
-                                  )}
+                                  {eg.frame_description && <p className="text-xs text-white font-light">📦 {eg.frame_description}</p>}
+                                  {eg.crystals   && <p className="text-xs font-light" style={{ color: '#3b82f6' }}>🔬 {eg.crystals}</p>}
+                                  {eg.treatments && <p className="text-xs font-light" style={{ color: '#10b981' }}>✨ {eg.treatments}</p>}
+                                  {eg.price      && <p className="text-xs font-light" style={{ color: '#C5A059' }}>Gs. {Number(eg.price).toLocaleString('es-PY')}</p>}
                                 </div>
                               </div>
                             ))}
@@ -769,14 +732,13 @@ export default function CashPage() {
         )}
       </div>
 
-      {/* Lightbox comprobante */}
       {lightboxUrl && (
         <div className="fixed inset-0 z-[999] flex items-center justify-center p-6"
           style={{ background: 'rgba(0,0,0,0.92)' }}
           onClick={() => setLightboxUrl(null)}>
           <div className="relative max-w-xl w-full" onClick={e => e.stopPropagation()}>
             <p className="text-xs font-light mb-3 tracking-widest uppercase text-center" style={{ color: 'rgba(197,160,89,0.7)' }}>
-              Comprobante de pago — Clic fuera para cerrar
+              Clic fuera para cerrar
             </p>
             <img src={lightboxUrl} alt="comprobante" className="w-full rounded-2xl"
               style={{ border: '1px solid rgba(197,160,89,0.3)', maxHeight: '80vh', objectFit: 'contain', background: '#111' }} />
