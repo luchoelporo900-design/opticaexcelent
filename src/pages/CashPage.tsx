@@ -96,7 +96,6 @@ export default function CashPage() {
   const { activeBranch } = useBranch();
   const { profile } = useAuth();
 
-  const weekRange = isVendedora ? getWeekRange() : null;
   const [selectedDate,   setSelectedDate]   = useState(new Date().toISOString().slice(0, 10));
   const [selectedBranch, setSelectedBranch] = useState<string>('');
   const [summary,        setSummary]        = useState<DailySummary>(emptyAgg());
@@ -120,6 +119,7 @@ export default function CashPage() {
 
   const isAdmin    = profile?.role === 'admin' || profile?.role === 'gerente';
   const isVendedora = profile?.role === 'vendedora';
+  const weekRange   = isVendedora ? getWeekRange() : null;
 
 
 
