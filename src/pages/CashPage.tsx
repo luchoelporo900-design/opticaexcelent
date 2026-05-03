@@ -550,8 +550,9 @@ export default function CashPage() {
               const isRev      = reviewed.has(p.id);
               const sale       = isExp ? getSaleDetail(p.sale_id, p.sale_number) : null;
               const receiptUrl = isExp ? getReceiptUrl(p.id, p.sale_id) : null;
-              const lensPhotos = sale ? (sale.anteojos as any[]).filter((eg: any) => eg.photo_url) : [];
-              const hasReceta  = sale ? (sale.anteojos as any[]).some((eg: any) => eg.showReceta) : false;
+              const allAnteojos = sale ? (sale.anteojos as any[]) : [];
+              const lensPhotos  = allAnteojos.filter((eg: any) => eg.photo_url);
+              const hasReceta   = allAnteojos.some((eg: any) => eg.showReceta);
 
               return (
                 <div key={p.id}>
@@ -660,18 +661,44 @@ export default function CashPage() {
                         );
                       })()}
 
-                      {/* Fotos del armazón */}
-                      {lensPhotos.length > 0 && (
+                      {/* Anteojos: fotos + descripción */}
+                      {allAnteojos.length > 0 && (
                         <div>
                           <p className="text-xs font-light tracking-widest uppercase mb-2" style={{ color: 'rgba(197,160,89,0.55)' }}>
-                            Foto del armazón
+                            Lentes vendidos
                           </p>
-                          <div className="flex gap-2 flex-wrap">
-                            {lensPhotos.map((eg: any, photoIdx: number) => (
-                              <img key={photoIdx} src={eg.photo_url} alt={`armazón ${photoIdx+1}`}
-                                className="h-28 w-36 object-cover rounded-xl border cursor-pointer"
-                                style={{ borderColor: 'rgba(197,160,89,0.3)' }}
-                                onClick={() => setLightboxUrl(eg.photo_url)} />
+                          <div className="space-y-2">
+                            {allAnteojos.map((eg: any, photoIdx: number) => (
+                              <div key={photoIdx} className="flex items-start gap-3 rounded-xl p-3"
+                                style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(197,160,89,0.12)' }}>
+                                {eg.photo_url ? (
+                                  <img src={eg.photo_url} alt={`armazón ${photoIdx+1}`}
+                                    className="h-20 w-24 object-cover rounded-lg border cursor-pointer shrink-0"
+                                    style={{ borderColor: 'rgba(197,160,89,0.3)' }}
+                                    onClick={() => setLightboxUrl(eg.photo_url)} />
+                                ) : (
+                                  <div className="h-20 w-24 rounded-lg flex items-center justify-center shrink-0"
+                                    style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(197,160,89,0.1)' }}>
+                                    <span className="text-xs font-light text-center px-1" style={{ color: 'rgba(255,255,255,0.2)' }}>Sin foto</span>
+                                  </div>
+                                )}
+                                <div className="flex-1 min-w-0 space-y-1">
+                                  {eg.frame_description && (
+                                    <p className="text-xs text-white font-light">📦 {eg.frame_description}</p>
+                                  )}
+                                  {eg.crystals && (
+                                    <p className="text-xs font-light" style={{ color: '#3b82f6' }}>🔬 {eg.crystals}</p>
+                                  )}
+                                  {eg.treatments && (
+                                    <p className="text-xs font-light" style={{ color: '#10b981' }}>✨ {eg.treatments}</p>
+                                  )}
+                                  {eg.price && (
+                                    <p className="text-xs font-light" style={{ color: '#C5A059' }}>
+                                      Gs. {Number(eg.price).toLocaleString('es-PY')}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
                             ))}
                           </div>
                         </div>
