@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { RefreshCw, Plus, Check, X, Search, ChevronDown, DollarSign, Phone, Camera } from 'lucide-react';
+import { RefreshCw, Plus, Check, X, Search, ChevronDown, DollarSign, Phone, Camera, Package } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { getSales, updateSaleBalance, recordPayment, getPayments } from '../lib/salesStorage';
+import { getSales, updateSaleBalance, recordPayment, getPayments, closeSaleLocal } from '../lib/salesStorage';
 
 type PaymentMethod = 'efectivo' | 'transferencia' | 'tarjeta' | 'qr' | 'giro';
 
@@ -46,50 +46,46 @@ async function compressImage(dataUrl: string): Promise<string> {
 
 export default function BalancesPage() {
   const { profile } = useAuth();
-  const isAdmin    = profile?.role === 'admin' || profile?.role === 'gerente';
+  const isAdmin     = profile?.role === 'admin' || profile?.role === 'gerente';
   const isVendedora = profile?.role === 'vendedora';
 
-  const [rows,        setRows]        = useState<any[]>([]);
-  const [loading,     setLoading]     = useState(true);
-  const [searchText,  setSearchText]  = useState('');
-  const [expandedId,  setExpandedId]  = useState<string | null>(null);
+  const [rows,       setRows]       = useState<any[]>([]);
+  const [loading,    setLoading]    = useState(true);
+  const [searchText, setSearchText] = useState('');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  // Payment form
-  const [addPayFor,   setAddPayFor]   = useState<string | null>(null);
-  const [payAmt,      setPayAmt]      = useState('');
-  const [payMethod,   setPayMethod]   = useState<PaymentMethod>('efectivo');
-  const [payBranch,   setPayBranch]   = useState('');
-  const [payReceipt,  setPayReceipt]  = useState('');
-  const [savingPay,   setSavingPay]   = useState(false);
-  const [paySuccess,  setPaySuccess]  = useState('');
+  const [addPayFor,  setAddPayFor]  = useState<string | null>(null);
+  const [payAmt,     setPayAmt]     = useState('');
+  const [payMethod,  setPayMethod]  = useState<PaymentMethod>('efectivo');
+  const [payBranch,  setPayBranch]  = useState('');
+  const [payReceipt, setPayReceipt] = useState('');
+  const [savingPay,  setSavingPay]  = useState(false);
+  const [paySuccess, setPaySuccess] = useState('');
   const receiptRef = useRef<HTMLInputElement | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
     const all = getSales().filter(v => {
-      // Entregadas y canceladas no aparecen
       if (v.estadoTrabajo === 'entregado' || v.estadoTrabajo === 'cancelado') return false;
-      // Vendedora solo ve sus propias ventas
       if (isVendedora && v.vendedora !== profile?.full_name) return false;
       return true;
     });
-
     setRows(all.map(v => ({
-      id:                   String(v.id),
-      sale_number:          `VTA-${v.id}`,
-      created_at:           v.fecha,
-      total:                Number(v.total),
-      deposit:              Number(v.sena),
-      balance:              Number(v.saldo),
-      status:               v.estadoTrabajo,
-      seller_name:          v.vendedora,
-      customer_first_name:  v.cliente.nombre,
-      customer_last_name:   v.cliente.apellido,
-      customer_phone:       v.cliente.telefono,
-      branch_name:          v.sucursalVenta,
-      cobro_branch:         v.sucursalCobro,
-      anteojos:             v.anteojos || [],
-      observaciones:        v.observaciones || '',
+      id:                  String(v.id),
+      sale_number:         `VTA-${v.id}`,
+      created_at:          v.fecha,
+      total:               Number(v.total),
+      deposit:             Number(v.sena),
+      balance:             Number(v.saldo),
+      status:              v.estadoTrabajo,
+      seller_name:         v.vendedora,
+      customer_first_name: v.cliente.nombre,
+      customer_last_name:  v.cliente.apellido,
+      customer_phone:      v.cliente.telefono,
+      branch_name:         v.sucursalVenta,
+      cobro_branch:        v.sucursalCobro,
+      anteojos:            v.anteojos || [],
+      observaciones:       v.observaciones || '',
     })));
     setLoading(false);
   }, [profile, isVendedora]);
@@ -116,30 +112,34 @@ export default function BalancesPage() {
     const amt = parseFloat(payAmt);
     if (!amt || amt <= 0) return;
     setSavingPay(true);
-
     const saleIdNum  = Number(row.id);
     const newDeposit = row.deposit + amt;
     const newBalance = Math.max(0, row.total - newDeposit);
     updateSaleBalance(saleIdNum, newBalance, newDeposit);
-
     recordPayment({
-      id:          Date.now(),
-      saleId:      saleIdNum,
-      fecha:       new Date().toISOString(),
-      monto:       amt,
-      metodo:      payMethod,
-      sucursal:    payBranch || row.cobro_branch || row.branch_name,
-      vendedora:   row.seller_name || '',
-      cliente:     `${row.customer_first_name} ${row.customer_last_name}`.trim(),
-      tipo:        'abono',
-      receipt_url: payReceipt || undefined,
+      id: Date.now(), saleId: saleIdNum, fecha: new Date().toISOString(),
+      monto: amt, metodo: payMethod,
+      sucursal: payBranch || row.cobro_branch || row.branch_name,
+      vendedora: row.seller_name || '',
+      cliente: `${row.customer_first_name} ${row.customer_last_name}`.trim(),
+      tipo: 'abono', receipt_url: payReceipt || undefined,
     });
-
     setPaySuccess(`Pago de Gs. ${fmt(amt)} registrado.`);
     setAddPayFor(null); setPayAmt(''); setPayReceipt('');
     setSavingPay(false);
     setTimeout(() => setPaySuccess(''), 4000);
     load();
+  }
+
+  // ── Marcar como entregado ─────────────────────────────────────────────────
+  function markDelivered(rowId: string) {
+    const saleIdNum = Number(rowId);
+    closeSaleLocal(saleIdNum, 'retiro');
+    setPaySuccess('✓ Lentes entregados — venta cerrada.');
+    setExpandedId(null);
+    setTimeout(() => setPaySuccess(''), 4000);
+    load();
+    window.dispatchEvent(new Event('optica_ventas_updated'));
   }
 
   function getPayHistory(saleId: string) {
@@ -150,38 +150,26 @@ export default function BalancesPage() {
     if (!searchText) return true;
     const q    = searchText.toLowerCase();
     const name = `${r.customer_first_name} ${r.customer_last_name}`;
-    return (
-      name.toLowerCase().includes(q) ||
-      r.sale_number.toLowerCase().includes(q) ||
-      (r.seller_name ?? '').toLowerCase().includes(q)
-    );
+    return name.toLowerCase().includes(q) || r.sale_number.toLowerCase().includes(q) || (r.seller_name ?? '').toLowerCase().includes(q);
   });
 
   const totalPending = rows.filter(r => Number(r.balance) > 0).reduce((s, r) => s + Number(r.balance), 0);
   const today        = new Date().toISOString().slice(0, 10);
-
-  // Vendedora: cobros del día (solo sus ventas de hoy)
   const todayPayments = isVendedora
-    ? getPayments().filter(p =>
-        p.vendedora === profile?.full_name &&
-        (p.fecha || '').startsWith(today)
-      )
+    ? getPayments().filter(p => p.vendedora === profile?.full_name && (p.fecha || '').startsWith(today))
     : [];
   const todayTotal = todayPayments.reduce((s, p) => s + Number(p.monto), 0);
 
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
 
-      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-light tracking-wider text-white">
             {isVendedora ? 'Mis Ventas Activas' : 'Saldos Pendientes'}
           </h1>
           <p className="text-xs text-gold-muted mt-0.5 tracking-wide">
-            {isVendedora
-              ? `${profile?.full_name} · ventas no entregadas`
-              : 'Ventas activas pendientes de entrega o cobro'}
+            {isVendedora ? `${profile?.full_name} · ventas no entregadas` : 'Ventas activas pendientes de entrega o cobro'}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -208,9 +196,7 @@ export default function BalancesPage() {
         </div>
       )}
 
-      {/* Tarjetas resumen */}
       <div className="grid grid-cols-3 gap-4">
-        {/* Vendedora ve cobros del día, no el total del mes */}
         <div className="rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(197,160,89,0.22)' }}>
           <p className="text-xs font-light mb-2" style={{ color: 'rgba(255,255,255,0.4)' }}>
             {isVendedora ? 'Mis cobros de hoy' : 'Ventas activas'}
@@ -229,7 +215,6 @@ export default function BalancesPage() {
         </div>
       </div>
 
-      {/* Lista */}
       <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
         {loading ? (
           <div className="p-6 space-y-2">{[...Array(4)].map((_, i) => <div key={i} className="h-14 rounded shimmer" />)}</div>
@@ -253,20 +238,17 @@ export default function BalancesPage() {
 
             <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
               {filtered.map(row => {
-                const sc        = STATUS_CONFIG[row.status] ?? STATUS_CONFIG.pendiente;
-                const isExp     = expandedId === row.id;
-                const isPayOpen = addPayFor === row.id;
+                const sc         = STATUS_CONFIG[row.status] ?? STATUS_CONFIG.pendiente;
+                const isExp      = expandedId === row.id;
+                const isPayOpen  = addPayFor === row.id;
                 const clientName = `${row.customer_first_name} ${row.customer_last_name}`.trim() || '—';
                 const payHistory = isExp ? getPayHistory(row.id) : [];
-                const lensPhotos = isExp
-                  ? (row.anteojos as any[]).filter((eg: any) => eg.photo_url)
-                  : [];
+                const lensPhotos = isExp ? (row.anteojos as any[]).filter((eg: any) => eg.photo_url) : [];
+                const isPaid     = Number(row.balance) <= 0;
 
                 return (
                   <div key={row.id}>
-                    {/* Fila principal */}
-                    <div
-                      className="grid items-center gap-3 px-5 py-3.5 cursor-pointer transition-colors"
+                    <div className="grid items-center gap-3 px-5 py-3.5 cursor-pointer transition-colors"
                       style={{ gridTemplateColumns: '1fr 140px 100px 120px 36px', background: isExp ? 'rgba(197,160,89,0.03)' : 'transparent' }}
                       onMouseEnter={e => { if (!isExp) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.015)'; }}
                       onMouseLeave={e => { if (!isExp) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
@@ -283,13 +265,11 @@ export default function BalancesPage() {
 
                       <div>
                         <p className="text-xs text-white font-light">Gs. {fmt(Number(row.total))}</p>
-                        <p className="text-xs font-light mt-0.5" style={{ color: '#10b981' }}>
-                          Pagó {fmt(Number(row.deposit))}
-                        </p>
+                        <p className="text-xs font-light mt-0.5" style={{ color: '#10b981' }}>Pagó {fmt(Number(row.deposit))}</p>
                       </div>
 
-                      <p className="text-sm font-light" style={{ color: Number(row.balance) > 0 ? '#f59e0b' : '#10b981' }}>
-                        {Number(row.balance) > 0 ? `Gs. ${fmt(Number(row.balance))}` : '✓ Pagado'}
+                      <p className="text-sm font-light" style={{ color: isPaid ? '#10b981' : '#f59e0b' }}>
+                        {isPaid ? '✓ Pagado' : `Gs. ${fmt(Number(row.balance))}`}
                       </p>
 
                       <span className="px-2 py-1 rounded text-xs font-light inline-block"
@@ -297,73 +277,53 @@ export default function BalancesPage() {
                         {sc.label}
                       </span>
 
-                      <ChevronDown size={14} style={{
-                        color: 'rgba(255,255,255,0.3)',
-                        transform: isExp ? 'rotate(180deg)' : 'none',
-                        transition: 'transform 0.2s',
-                      }} />
+                      <ChevronDown size={14} style={{ color: 'rgba(255,255,255,0.3)', transform: isExp ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
                     </div>
 
-                    {/* Panel expandido */}
                     {isExp && (
                       <div className="px-5 pb-5 space-y-4" style={{ background: 'rgba(197,160,89,0.02)' }}>
 
-                        {/* Info contacto */}
                         {row.customer_phone && (
                           <p className="text-xs font-light flex items-center gap-1.5 pt-2" style={{ color: 'rgba(255,255,255,0.44)' }}>
                             <Phone size={10} />{row.customer_phone}
                           </p>
                         )}
 
-                        {/* Fotos del lente */}
                         {lensPhotos.length > 0 && (
                           <div>
-                            <p className="text-xs font-light tracking-widest uppercase mb-2" style={{ color: 'rgba(197,160,89,0.55)' }}>
-                              Fotos del lente
-                            </p>
+                            <p className="text-xs font-light tracking-widest uppercase mb-2" style={{ color: 'rgba(197,160,89,0.55)' }}>Fotos del lente</p>
                             <div className="flex gap-2 flex-wrap">
                               {lensPhotos.map((eg: any, i: number) => (
                                 <img key={i} src={eg.photo_url} alt={`lente ${i+1}`}
                                   className="h-20 w-24 object-cover rounded-lg border cursor-pointer"
                                   style={{ borderColor: 'rgba(197,160,89,0.25)' }}
-                                  onClick={() => window.open(eg.photo_url, '_blank')}
-                                />
+                                  onClick={() => window.open(eg.photo_url, '_blank')} />
                               ))}
                             </div>
                           </div>
                         )}
 
-                        {/* Historial de pagos */}
                         {payHistory.length > 0 && (
                           <div>
-                            <p className="text-xs font-light tracking-widest uppercase mb-2" style={{ color: 'rgba(197,160,89,0.55)' }}>
-                              Historial de pagos
-                            </p>
+                            <p className="text-xs font-light tracking-widest uppercase mb-2" style={{ color: 'rgba(197,160,89,0.55)' }}>Historial de pagos</p>
                             <div className="space-y-2">
                               {payHistory.map(p => {
                                 const mc = PAYMENT_METHODS.find(m => m.id === p.metodo)?.color ?? '#C5A059';
                                 return (
                                   <div key={p.id} className="flex items-center gap-3 flex-wrap">
-                                    <span className="px-2 py-0.5 rounded-full text-xs font-light"
-                                      style={{ background: `${mc}18`, color: mc }}>{p.metodo}</span>
+                                    <span className="px-2 py-0.5 rounded-full text-xs font-light" style={{ background: `${mc}18`, color: mc }}>{p.metodo}</span>
                                     <span className="text-xs text-white font-light">Gs. {fmt(Number(p.monto))}</span>
                                     <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.35)' }}>
                                       {new Date(p.fecha).toLocaleDateString('es-PY')} · {p.sucursal}
                                     </span>
-                                    <span className="text-xs px-2 py-0.5 rounded-full"
-                                      style={{ background: 'rgba(197,160,89,0.08)', color: 'rgba(197,160,89,0.7)' }}>
+                                    <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(197,160,89,0.08)', color: 'rgba(197,160,89,0.7)' }}>
                                       {p.tipo === 'abono' ? 'Abono' : 'Seña'}
                                     </span>
-                                    {/* Comprobante de pago */}
                                     {(p as any).receipt_url && (
-                                      <img
-                                        src={(p as any).receipt_url}
-                                        alt="comprobante"
+                                      <img src={(p as any).receipt_url} alt="comprobante"
                                         className="h-10 w-14 object-cover rounded border cursor-pointer"
                                         style={{ borderColor: 'rgba(197,160,89,0.25)' }}
-                                        onClick={() => window.open((p as any).receipt_url, '_blank')}
-                                        title="Ver comprobante"
-                                      />
+                                        onClick={() => window.open((p as any).receipt_url, '_blank')} />
                                     )}
                                   </div>
                                 );
@@ -372,31 +332,23 @@ export default function BalancesPage() {
                           </div>
                         )}
 
-                        {/* Formulario de abono */}
-                        {Number(row.balance) > 0 && (
+                        {/* Formulario de abono — solo si hay saldo */}
+                        {!isPaid && (
                           <div className="pt-3" style={{ borderTop: '1px solid rgba(197,160,89,0.10)' }}>
                             {isPayOpen ? (
                               <div className="space-y-3">
                                 <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.6)' }}>
                                   Registrar abono — saldo Gs. {fmt(Number(row.balance))}
                                 </p>
-
-                                {/* Método */}
                                 <div className="flex gap-1.5 flex-wrap">
                                   {PAYMENT_METHODS.map(m => (
                                     <button key={m.id} onClick={() => setPayMethod(m.id)}
                                       className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-light"
-                                      style={{
-                                        background: payMethod === m.id ? `${m.color}18` : 'rgba(255,255,255,0.03)',
-                                        border: `1px solid ${payMethod === m.id ? m.color + '44' : 'rgba(255,255,255,0.07)'}`,
-                                        color: payMethod === m.id ? m.color : 'rgba(255,255,255,0.38)',
-                                      }}>
+                                      style={{ background: payMethod === m.id ? `${m.color}18` : 'rgba(255,255,255,0.03)', border: `1px solid ${payMethod === m.id ? m.color + '44' : 'rgba(255,255,255,0.07)'}`, color: payMethod === m.id ? m.color : 'rgba(255,255,255,0.38)' }}>
                                       {m.label}
                                     </button>
                                   ))}
                                 </div>
-
-                                {/* Monto + sucursal */}
                                 <div className="flex gap-2 items-center flex-wrap">
                                   <input value={payAmt} onChange={e => setPayAmt(e.target.value)}
                                     type="number" placeholder={`Monto (máx. Gs. ${fmt(Number(row.balance))})`}
@@ -409,20 +361,14 @@ export default function BalancesPage() {
                                     {SUCURSALES.map(s => <option key={s} value={s} style={{ background: '#111' }}>{s}</option>)}
                                   </select>
                                 </div>
-
-                                {/* Foto comprobante */}
                                 <div>
                                   <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>
                                     Foto del comprobante <span style={{ color: 'rgba(255,255,255,0.25)' }}>(opcional)</span>
                                   </p>
                                   {payReceipt ? (
                                     <div className="relative inline-block">
-                                      <img src={payReceipt} alt="comprobante"
-                                        className="h-24 w-32 object-cover rounded-lg border"
-                                        style={{ borderColor: 'rgba(197,160,89,0.25)' }} />
-                                      <button onClick={() => setPayReceipt('')}
-                                        className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center"
-                                        style={{ background: '#ef4444' }}>
+                                      <img src={payReceipt} alt="comprobante" className="h-24 w-32 object-cover rounded-lg border" style={{ borderColor: 'rgba(197,160,89,0.25)' }} />
+                                      <button onClick={() => setPayReceipt('')} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: '#ef4444' }}>
                                         <X size={10} color="#fff" />
                                       </button>
                                     </div>
@@ -435,21 +381,14 @@ export default function BalancesPage() {
                                   )}
                                   <input ref={receiptRef} type="file" accept="image/*" className="hidden" onChange={handleReceiptPhoto} />
                                 </div>
-
-                                {/* Botones */}
                                 <div className="flex gap-2">
                                   <button onClick={() => registerPayment(row)} disabled={savingPay || !payAmt}
                                     className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium"
-                                    style={{
-                                      background: !payAmt ? 'rgba(197,160,89,0.08)' : '#C5A059',
-                                      color: !payAmt ? 'rgba(197,160,89,0.4)' : '#000',
-                                      cursor: !payAmt ? 'not-allowed' : 'pointer',
-                                    }}>
+                                    style={{ background: !payAmt ? 'rgba(197,160,89,0.08)' : '#C5A059', color: !payAmt ? 'rgba(197,160,89,0.4)' : '#000', cursor: !payAmt ? 'not-allowed' : 'pointer' }}>
                                     <DollarSign size={12} />{savingPay ? 'Guardando...' : 'Confirmar pago'}
                                   </button>
                                   <button onClick={() => { setAddPayFor(null); setPayAmt(''); setPayReceipt(''); }}
-                                    className="px-4 py-2 rounded-lg text-xs font-light"
-                                    style={{ color: 'rgba(255,255,255,0.4)' }}>
+                                    className="px-4 py-2 rounded-lg text-xs font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>
                                     <X size={12} className="inline mr-1" />Cancelar
                                   </button>
                                 </div>
@@ -466,18 +405,28 @@ export default function BalancesPage() {
                           </div>
                         )}
 
-                        {/* Si ya está pagado pero no entregado */}
-                        {Number(row.balance) <= 0 && (
-                          <div className="pt-3" style={{ borderTop: '1px solid rgba(197,160,89,0.10)' }}>
+                        {/* Pagado — botón para marcar como entregado */}
+                        {isPaid && (
+                          <div className="pt-3 space-y-2" style={{ borderTop: '1px solid rgba(197,160,89,0.10)' }}>
                             <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl"
                               style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)' }}>
                               <Check size={14} style={{ color: '#10b981' }} />
                               <p className="text-xs font-light" style={{ color: '#10b981' }}>
-                                Pago completo — pendiente de entrega al cliente
+                                Pago completo — marcar cuando retiren los lentes
                               </p>
                             </div>
+                            <button
+                              onClick={e => { e.stopPropagation(); markDelivered(row.id); }}
+                              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium transition-all"
+                              style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.35)' }}
+                              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(34,197,94,0.22)'; }}
+                              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(34,197,94,0.12)'; }}>
+                              <Package size={15} />
+                              ✓ Marcar como Entregado
+                            </button>
                           </div>
                         )}
+
                       </div>
                     )}
                   </div>
