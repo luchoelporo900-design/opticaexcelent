@@ -399,18 +399,31 @@ export default function ReportPage() {
                   <div className="flex items-center gap-3 px-5 py-3.5 cursor-pointer"
                     style={{ background: isExp ? 'rgba(197,160,89,0.03)' : i%2===0?'transparent':'rgba(255,255,255,0.008)' }}
                     onClick={() => setExpandedSale(isExp ? null : saleKey)}>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium text-black shrink-0"
-                          style={{ background: '#C5A059', fontSize: 10 }}>{saleNum}</span>
-                        <span className="text-xs font-mono" style={{ color: '#C5A059' }}>VTA-{v.id}</span>
-                        <span className="text-xs text-white font-light">{v.cliente.nombre} {v.cliente.apellido}</span>
-                        <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.35)' }}>{v.sucursalVenta}</span>
-                      </div>
-                      <p className="text-xs font-light mt-0.5" style={{ color: 'rgba(255,255,255,0.3)' }}>
-                        {v.vendedora} · {new Date(v.fecha).toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit', year: '2-digit' })} {new Date(v.fecha).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
-                      </p>
-                    </div>
+                    {(() => {
+                      const salePaysForRow = getPayments().filter(p => p.saleId === v.id);
+                      const anyVerified    = salePaysForRow.some(p => reviewed.has(String(p.id)));
+                      return (
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium text-black shrink-0"
+                              style={{ background: '#C5A059', fontSize: 10 }}>{saleNum}</span>
+                            <span className="text-xs font-mono" style={{ color: '#C5A059' }}>VTA-{v.id}</span>
+                            <span className="text-xs text-white font-light">{v.cliente.nombre} {v.cliente.apellido}</span>
+                            <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.35)' }}>{v.sucursalVenta}</span>
+                            {anyVerified && (
+                              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full"
+                                style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)' }}>
+                                <Heart size={9} fill="#ef4444" style={{ color: '#ef4444' }} />
+                                <span className="text-xs font-light" style={{ color: '#ef4444', fontSize: 9 }}>Verificado</span>
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs font-light mt-0.5" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                            {v.vendedora} · {new Date(v.fecha).toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit', year: '2-digit' })} {new Date(v.fecha).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        </div>
+                      );
+                    })()}
                     <div className="text-right shrink-0">
                       <p className="text-xs text-white font-light">Gs. {fmt(Number(v.total))}</p>
                       {Number(v.saldo) > 0
