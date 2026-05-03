@@ -1,41 +1,43 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Search, RefreshCw, ChevronDown, Package, Clock, CheckCircle, XCircle, FlaskConical, ShoppingBag, MessageCircle, Filter } from 'lucide-react';
+import { Search, RefreshCw, ChevronDown, Package, Clock, CheckCircle, XCircle, FlaskConical, ShoppingBag, MessageCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { getSales } from '../lib/salesStorage';
 
 type SaleStatus = 'pendiente' | 'en_proceso' | 'en_laboratorio' | 'listo' | 'pagado_total' | 'entregado' | 'cancelado';
 
 const STATUS_CFG: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
-  pendiente:      { label: 'Pendiente',      color: '#f59e0b', icon: <Clock       size={11} /> },
-  en_proceso:     { label: 'En Proceso',     color: '#f59e0b', icon: <Clock       size={11} /> },
+  pendiente:      { label: 'Pendiente',      color: '#f59e0b', icon: <Clock        size={11} /> },
+  en_proceso:     { label: 'En Proceso',     color: '#f59e0b', icon: <Clock        size={11} /> },
   en_laboratorio: { label: 'Laboratorio',    color: '#3b82f6', icon: <FlaskConical size={11} /> },
-  listo:          { label: 'Listo',          color: '#10b981', icon: <CheckCircle size={11} /> },
-  pagado_total:   { label: 'Pagado Total',   color: '#22c55e', icon: <CheckCircle size={11} /> },
-  entregado:      { label: 'Entregado',      color: '#6b7280', icon: <Package     size={11} /> },
-  cancelado:      { label: 'Cancelado',      color: '#ef4444', icon: <XCircle     size={11} /> },
+  listo:          { label: 'Listo',          color: '#10b981', icon: <CheckCircle  size={11} /> },
+  pagado_total:   { label: 'Pagado Total',   color: '#22c55e', icon: <CheckCircle  size={11} /> },
+  entregado:      { label: 'Entregado',      color: '#6b7280', icon: <Package      size={11} /> },
+  cancelado:      { label: 'Cancelado',      color: '#ef4444', icon: <XCircle      size={11} /> },
 };
 
 function fmt(n: number) {
   return n.toLocaleString('es-PY', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
 
+function normalize(s: string) {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+}
+
 export default function SalesHistoryPage() {
   const { profile } = useAuth();
-  const isAdmin    = profile?.role === 'admin' || profile?.role === 'gerente';
+  const isAdmin     = profile?.role === 'admin' || profile?.role === 'gerente';
   const isVendedora = profile?.role === 'vendedora';
 
-  const [sales,       setSales]       = useState<any[]>([]);
-  const [loading,     setLoading]     = useState(true);
-  const [search,      setSearch]      = useState('');
-  const [statusFilter,setStatusFilter]= useState<string>('todos');
-  const [expandedId,  setExpandedId]  = useState<string | null>(null);
+  const [sales,        setSales]        = useState<any[]>([]);
+  const [loading,      setLoading]      = useState(true);
+  const [search,       setSearch]       = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('todos');
+  const [expandedId,   setExpandedId]   = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
     let all = getSales();
-    // Vendedora solo ve sus ventas
     if (isVendedora) all = all.filter(v => v.vendedora === profile?.full_name);
-    // Ordenar por fecha descendente
     all = all.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
     setSales(all);
     setLoading(false);
@@ -48,12 +50,23 @@ export default function SalesHistoryPage() {
     return () => window.removeEventListener('optica_ventas_updated', h);
   }, [load]);
 
+  // Búsqueda por nombre, CI, celular o número de venta
   const filtered = sales.filter(v => {
     if (statusFilter !== 'todos' && v.estadoTrabajo !== statusFilter) return false;
     if (search) {
-      const q    = search.toLowerCase();
-      const name = `${v.cliente.nombre} ${v.cliente.apellido}`.toLowerCase();
-      return name.includes(q) || String(v.id).includes(q) || (v.vendedora || '').toLowerCase().includes(q);
+      const q    = normalize(search);
+      const name = normalize(`${v.cliente.nombre} ${v.cliente.apellido}`);
+      const ci   = normalize(v.cliente.ci || '');
+      const tel  = (v.cliente.telefono || '').replace(/\D/g, '');
+      const qTel = search.replace(/\D/g, '');
+      const vtaId = String(v.id);
+      return (
+        name.includes(q) ||
+        ci.includes(q) ||
+        (qTel.length >= 3 && tel.includes(qTel)) ||
+        vtaId.includes(q) ||
+        (v.vendedora || '').toLowerCase().includes(q)
+      );
     }
     return true;
   });
@@ -79,9 +92,12 @@ export default function SalesHistoryPage() {
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg border"
             style={{ borderColor: 'rgba(197,160,89,0.2)', background: 'rgba(255,255,255,0.02)' }}>
             <Search size={13} style={{ color: 'rgba(197,160,89,0.5)' }} />
-            <input value={search} onChange={e => setSearch(e.target.value)}
-              placeholder="Cliente, venta..."
-              className="bg-transparent text-xs text-white outline-none w-36" />
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Nombre, C.I., celular o venta..."
+              className="bg-transparent text-xs text-white outline-none w-44"
+            />
           </div>
           <button onClick={load} disabled={loading}
             className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-light"
@@ -143,7 +159,7 @@ export default function SalesHistoryPage() {
           <div className="text-center py-16">
             <ShoppingBag size={32} style={{ color: 'rgba(197,160,89,0.2)', margin: '0 auto 12px' }} />
             <p className="text-sm font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>
-              {search ? 'Sin resultados' : 'No hay ventas registradas'}
+              {search ? 'Sin resultados para esa búsqueda' : 'No hay ventas registradas'}
             </p>
           </div>
         ) : (
@@ -160,7 +176,7 @@ export default function SalesHistoryPage() {
 
             <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
               {filtered.map((v, saleIdx) => {
-                const saleNum = saleIdx + 1;
+                const saleNum  = saleIdx + 1;
                 const key      = String(v.id);
                 const isExp    = expandedId === key;
                 const sc       = STATUS_CFG[v.estadoTrabajo] ?? STATUS_CFG.pendiente;
@@ -169,6 +185,7 @@ export default function SalesHistoryPage() {
                 const waUrl    = v.cliente.telefono
                   ? `https://wa.me/595${v.cliente.telefono.replace(/\D/g, '')}?text=${encodeURIComponent(`Hola ${v.cliente.nombre}! Te contactamos de Óptica Yolanda.`)}`
                   : null;
+                const fechaStr = new Date(v.fecha).toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit', year: '2-digit' });
 
                 return (
                   <div key={key}>
@@ -188,7 +205,13 @@ export default function SalesHistoryPage() {
                           <span style={{ color: '#C5A059' }}>VTA-{v.id}</span>
                           {v.sucursalVenta ? ` · ${v.sucursalVenta}` : ''}
                           {isAdmin && v.vendedora ? ` · ${v.vendedora}` : ''}
-                          {' · '}{new Date(v.fecha).toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit', year: '2-digit' })}
+                          {' · '}<span style={{ color: 'rgba(255,255,255,0.5)' }}>{fechaStr}</span>
+                        </p>
+                        {/* CI y celular siempre visibles bajo el nombre */}
+                        <p className="text-xs font-light mt-0.5" style={{ color: 'rgba(255,255,255,0.28)' }}>
+                          {v.cliente.ci   ? <span>CI: <span style={{ color: 'rgba(197,160,89,0.6)' }}>{v.cliente.ci}</span></span> : null}
+                          {v.cliente.ci && v.cliente.telefono ? ' · ' : ''}
+                          {v.cliente.telefono ? <span>📞 {v.cliente.telefono}</span> : null}
                         </p>
                       </div>
 
@@ -225,6 +248,9 @@ export default function SalesHistoryPage() {
                               CI: {v.cliente.ci}
                             </span>
                           )}
+                          <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                            📅 {new Date(v.fecha).toLocaleDateString('es-PY', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}
+                          </span>
                           {waUrl && (
                             <a href={waUrl} target="_blank" rel="noreferrer"
                               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-light"
@@ -256,7 +282,7 @@ export default function SalesHistoryPage() {
                                     </div>
                                   )}
                                   <div className="flex-1 space-y-1">
-                                    <p className="text-xs font-light" style={{ color: 'rgba(197,160,89,0.7)' }}>Anteojo {i + 1}</p>
+                                    <p className="text-xs font-light" style={{ color: 'rgba(197,160,89,0.7)' }}>Armazón {i + 1}</p>
                                     {eg.frame_description && <p className="text-sm text-white font-light">{eg.frame_description}</p>}
                                     <div className="flex gap-2 flex-wrap">
                                       {eg.crystals   && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(59,130,246,0.12)', color: '#3b82f6' }}>{eg.crystals}</span>}
@@ -266,31 +292,47 @@ export default function SalesHistoryPage() {
                                   </div>
                                 </div>
 
-                                {/* Receta */}
-                                {eg.showReceta && eg.prescription && (
+                                {/* ── RECETA ÓPTICA ── siempre visible si existe */}
+                                {eg.prescription && (
                                   <div className="rounded-lg p-3 space-y-2"
-                                    style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.12)' }}>
-                                    <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.6)' }}>Receta óptica</p>
+                                    style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.18)' }}>
+                                    <p className="text-xs font-light tracking-widest uppercase flex items-center gap-1.5"
+                                      style={{ color: 'rgba(197,160,89,0.7)' }}>
+                                      <FlaskConical size={11} style={{ color: '#3b82f6' }} />
+                                      Receta óptica
+                                    </p>
                                     <div className="grid grid-cols-2 gap-3">
                                       <div>
-                                        <p className="text-xs font-light mb-1" style={{ color: '#C5A059' }}>OD</p>
-                                        <p className="text-xs font-mono" style={{ color: 'rgba(255,255,255,0.7)' }}>
+                                        <p className="text-xs font-light mb-1" style={{ color: '#C5A059' }}>OD (ojo derecho)</p>
+                                        <p className="text-xs font-mono" style={{ color: 'rgba(255,255,255,0.75)' }}>
                                           {eg.prescription.od_esfera || '—'} / {eg.prescription.od_cilindro || '—'} x {eg.prescription.od_eje || '—'}
+                                          {eg.prescription.od_altura ? ` · Alt: ${eg.prescription.od_altura}` : ''}
                                         </p>
                                       </div>
                                       <div>
-                                        <p className="text-xs font-light mb-1" style={{ color: '#C5A059' }}>OI</p>
-                                        <p className="text-xs font-mono" style={{ color: 'rgba(255,255,255,0.7)' }}>
+                                        <p className="text-xs font-light mb-1" style={{ color: '#C5A059' }}>OI (ojo izquierdo)</p>
+                                        <p className="text-xs font-mono" style={{ color: 'rgba(255,255,255,0.75)' }}>
                                           {eg.prescription.oi_esfera || '—'} / {eg.prescription.oi_cilindro || '—'} x {eg.prescription.oi_eje || '—'}
+                                          {eg.prescription.oi_altura ? ` · Alt: ${eg.prescription.oi_altura}` : ''}
                                         </p>
                                       </div>
                                     </div>
                                     <div className="flex flex-wrap gap-3 text-xs font-light" style={{ color: 'rgba(255,255,255,0.5)' }}>
-                                      {eg.prescription.add       && <span>ADD: {eg.prescription.add}</span>}
-                                      {eg.prescription.dp        && <span>DP: {eg.prescription.dp}</span>}
-                                      {eg.prescription.od_altura && <span>Altura: {eg.prescription.od_altura}</span>}
-                                      {eg.prescription.obs       && <span>{eg.prescription.obs}</span>}
+                                      {eg.prescription.add && <span>ADD: {eg.prescription.add}</span>}
+                                      {eg.prescription.dp  && <span>DP: {eg.prescription.dp}</span>}
+                                      {eg.prescription.obs && <span>{eg.prescription.obs}</span>}
                                     </div>
+                                  </div>
+                                )}
+
+                                {/* También soporta prescription_text como texto plano */}
+                                {!eg.prescription && eg.prescription_text && (
+                                  <div className="rounded-lg px-3 py-2"
+                                    style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.12)' }}>
+                                    <p className="text-xs font-light tracking-widest uppercase mb-1" style={{ color: 'rgba(197,160,89,0.6)' }}>Receta</p>
+                                    <p className="text-xs font-mono" style={{ color: 'rgba(255,255,255,0.65)', lineHeight: 1.8 }}>
+                                      {eg.prescription_text}
+                                    </p>
                                   </div>
                                 )}
                               </div>
