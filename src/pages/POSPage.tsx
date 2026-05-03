@@ -338,7 +338,7 @@ export default function POSPage() {
         recordPayment({
           id: Date.now(), saleId: numId, fecha: new Date().toISOString(),
           monto: amt, metodo: xPayMethod,
-          sucursal: FIXED_BRANCHES.find(b => b.id === xPayBranch)?.name ?? xPayBranch || FIXED_BRANCHES[0].name,
+          sucursal: (FIXED_BRANCHES.find(b => b.id === xPayBranch)?.name ?? xPayBranch) || FIXED_BRANCHES[0].name,
           vendedora: profile?.full_name ?? '',
           cliente: `${localSale.cliente.nombre} ${localSale.cliente.apellido}`.trim(),
           tipo: 'abono', receipt_url: xPayReceipt || undefined,
