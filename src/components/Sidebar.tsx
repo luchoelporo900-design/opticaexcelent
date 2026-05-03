@@ -3,12 +3,12 @@ import {
   LayoutDashboard, ShoppingCart, Users, FlaskConical,
   Glasses, Building2, ChevronLeft, ChevronRight,
   Bell, LogOut, Settings, Eye, Trophy, ChevronDown,
-  DollarSign, BarChart3, AlertCircle, Search, X
+  DollarSign, BarChart3, AlertCircle, Search, X, ClipboardList
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useBranch } from '../context/BranchContext';
 
-type Page = 'dashboard' | 'pos' | 'customers' | 'lab' | 'simulator' | 'branches' | 'crm' | 'settings' | 'commissions' | 'cash' | 'reports' | 'balances';
+type Page = 'dashboard' | 'pos' | 'customers' | 'lab' | 'simulator' | 'branches' | 'crm' | 'settings' | 'commissions' | 'cash' | 'reports' | 'balances' | 'sales_history';
 
 type Props = {
   current: Page;
@@ -24,6 +24,7 @@ const navItems: { id: Page; label: string; icon: React.ReactNode }[] = [
   { id: 'commissions', label: 'Comisiones',          icon: <Trophy          size={18} /> },
   { id: 'cash',        label: 'Caja',                icon: <DollarSign      size={18} /> },
   { id: 'balances',    label: 'Saldos Pendientes',   icon: <AlertCircle     size={18} /> },
+  { id: 'sales_history', label: 'Mis Ventas',           icon: <ClipboardList   size={18} /> },
   { id: 'reports',     label: 'Reportes',            icon: <BarChart3       size={18} /> },
   { id: 'simulator',   label: 'Simuladores',         icon: <Eye             size={18} /> },
   { id: 'branches',    label: 'Sucursales',          icon: <Building2       size={18} /> },
@@ -34,10 +35,9 @@ function getVisiblePages(role: string): Page[] {
   switch (role) {
     case 'admin':
     case 'gerente':
-      return ['dashboard', 'pos', 'customers', 'crm', 'lab', 'commissions', 'cash', 'balances', 'reports', 'simulator', 'branches', 'settings'];
+      return ['dashboard', 'pos', 'sales_history', 'customers', 'crm', 'lab', 'commissions', 'cash', 'balances', 'reports', 'simulator', 'branches', 'settings'];
     case 'vendedora':
-      // Vendedora ve sus ventas, sus clientes, su caja, sus saldos, sus recordatorios y el laboratorio
-      return ['dashboard', 'pos', 'customers', 'crm', 'lab', 'cash', 'balances'];
+      return ['dashboard', 'pos', 'sales_history', 'customers', 'crm', 'lab', 'cash', 'balances'];
     case 'laboratorio':
       // Laboratorio solo ve el panel de lab
       return ['lab'];
@@ -251,7 +251,8 @@ const MOBILE_ICONS: Record<string, React.ReactNode> = {
   reports:     <BarChart3       size={20} />,
   simulator:   <Eye             size={20} />,
   branches:    <Building2       size={20} />,
-  settings:    <Settings        size={20} />,
+  settings:      <Settings        size={20} />,
+  sales_history: <ClipboardList   size={20} />,
 };
 
 const MOBILE_LABELS: Record<string, string> = {
@@ -266,7 +267,8 @@ const MOBILE_LABELS: Record<string, string> = {
   reports:     'Reportes',
   simulator:   'Simul.',
   branches:    'Sucursales',
-  settings:    'Config.',
+  settings:      'Config.',
+  sales_history: 'Mis Ventas',
 };
 
 function MobileNav({ current, onChange, role, visiblePages, profile, signOut }: MobileNavProps) {
@@ -275,7 +277,7 @@ function MobileNav({ current, onChange, role, visiblePages, profile, signOut }: 
   // Páginas principales en la barra inferior (max 4 + menú)
   const primaryPages: Page[] = (() => {
     if (role === 'laboratorio') return ['lab'];
-    if (role === 'vendedora')   return ['pos', 'lab', 'balances', 'cash'];
+    if (role === 'vendedora')   return ['pos', 'sales_history', 'lab', 'balances'];
     return ['dashboard', 'pos', 'cash', 'balances'];
   })();
 
