@@ -190,9 +190,18 @@ export default function CashPage() {
   }
 
   // Obtener datos completos de la venta para el detalle
-  function getSaleDetail(saleId?: number) {
-    if (!saleId) return null;
-    return getSales().find(v => v.id === saleId) ?? null;
+  function getSaleDetail(saleId?: number, saleNumber?: string) {
+    if (saleId) {
+      const found = getSales().find(v => v.id === saleId);
+      if (found) return found;
+    }
+    // Fallback: buscar por número de venta (ej: "VTA-1234567890")
+    if (saleNumber) {
+      const numStr = saleNumber.replace('VTA-', '');
+      const numId  = Number(numStr);
+      if (!isNaN(numId)) return getSales().find(v => v.id === numId) ?? null;
+    }
+    return null;
   }
 
   // Obtener comprobante de pago — busca por id, por saleId, y en la venta original
@@ -539,7 +548,7 @@ export default function CashPage() {
               const mc         = METHODS.find(m => m.id === p.method)?.color ?? '#C5A059';
               const isExp      = expandedPay === p.id;
               const isRev      = reviewed.has(p.id);
-              const sale       = isExp ? getSaleDetail(p.sale_id) : null;
+              const sale       = isExp ? getSaleDetail(p.sale_id, p.sale_number) : null;
               const receiptUrl = isExp ? getReceiptUrl(p.id, p.sale_id) : null;
               const lensPhotos = sale ? (sale.anteojos as any[]).filter((eg: any) => eg.photo_url) : [];
               const hasReceta  = sale ? (sale.anteojos as any[]).some((eg: any) => eg.showReceta) : false;
@@ -658,11 +667,11 @@ export default function CashPage() {
                             Foto del armazón
                           </p>
                           <div className="flex gap-2 flex-wrap">
-                            {lensPhotos.map((eg: any, idx: number) => (
-                              <img key={idx} src={eg.photo_url} alt={`armazón ${idx+1}`}
-                                className="h-24 w-32 object-cover rounded-xl border cursor-pointer"
-                                style={{ borderColor: 'rgba(197,160,89,0.25)' }}
-                                onClick={() => window.open(eg.photo_url, '_blank')} />
+                            {lensPhotos.map((eg: any, photoIdx: number) => (
+                              <img key={photoIdx} src={eg.photo_url} alt={`armazón ${photoIdx+1}`}
+                                className="h-28 w-36 object-cover rounded-xl border cursor-pointer"
+                                style={{ borderColor: 'rgba(197,160,89,0.3)' }}
+                                onClick={() => setLightboxUrl(eg.photo_url)} />
                             ))}
                           </div>
                         </div>
