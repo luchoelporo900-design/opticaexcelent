@@ -101,14 +101,18 @@ export default function SalesHistoryPage() {
           <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Entregadas</p>
           <p className="text-2xl font-light" style={{ color: '#10b981' }}>{countBy('entregado')}</p>
         </div>
-        <div className="rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(197,160,89,0.2)' }}>
-          <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Total facturado</p>
-          <p className="text-lg font-light" style={{ color: '#C5A059' }}>Gs. {fmt(totalFacturado)}</p>
-        </div>
-        <div className="rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(34,197,94,0.2)' }}>
-          <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Total cobrado</p>
-          <p className="text-lg font-light" style={{ color: '#22c55e' }}>Gs. {fmt(totalCobrado)}</p>
-        </div>
+        {isAdmin && (
+          <>
+            <div className="rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(197,160,89,0.2)' }}>
+              <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Total facturado</p>
+              <p className="text-lg font-light" style={{ color: '#C5A059' }}>Gs. {fmt(totalFacturado)}</p>
+            </div>
+            <div className="rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(34,197,94,0.2)' }}>
+              <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Total cobrado</p>
+              <p className="text-lg font-light" style={{ color: '#22c55e' }}>Gs. {fmt(totalCobrado)}</p>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Filtros por estado */}
@@ -155,7 +159,8 @@ export default function SalesHistoryPage() {
             </div>
 
             <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
-              {filtered.map(v => {
+              {filtered.map((v, saleIdx) => {
+                const saleNum = saleIdx + 1;
                 const key      = String(v.id);
                 const isExp    = expandedId === key;
                 const sc       = STATUS_CFG[v.estadoTrabajo] ?? STATUS_CFG.pendiente;
@@ -174,7 +179,11 @@ export default function SalesHistoryPage() {
                       onClick={() => setExpandedId(isExp ? null : key)}>
 
                       <div className="min-w-0">
-                        <p className="text-sm text-white font-light truncate">{name}</p>
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-medium text-black shrink-0"
+                            style={{ background: '#C5A059', fontSize: 9 }}>{saleNum}</span>
+                          <p className="text-sm text-white font-light truncate">{name}</p>
+                        </div>
                         <p className="text-xs font-light mt-0.5 truncate" style={{ color: 'rgba(255,255,255,0.36)' }}>
                           <span style={{ color: '#C5A059' }}>VTA-{v.id}</span>
                           {v.sucursalVenta ? ` · ${v.sucursalVenta}` : ''}
