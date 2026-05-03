@@ -128,9 +128,16 @@ export default function CashPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const localPayments = getPaymentsForDate(selectedDate).filter(p =>
-      !selectedBranch || branchMatch(p.sucursal || '', selectedBranch)
-    );
+
+    // Para vendedora: filtrar por su nombre (no por sucursal)
+    // Para admin: filtrar por sucursal seleccionada
+    const sellerFilter = isVendedora ? profile?.full_name : null;
+
+    const localPayments = getPaymentsForDate(selectedDate).filter(p => {
+      if (sellerFilter) return p.vendedora === sellerFilter;
+      return !selectedBranch || branchMatch(p.sucursal || '', selectedBranch);
+    });
+
     const localRows: PaymentRow[] = localPayments.map(p => ({
       id: String(p.id), sale_number: `VTA-${p.saleId}`, customer_name: p.cliente,
       amount: Number(p.monto), method: p.metodo as PaymentMethod, paid_at: p.fecha,
@@ -138,10 +145,12 @@ export default function CashPage() {
       branch_name: p.sucursal, sale_id: p.saleId,
     }));
 
-    const localSales = getSales().filter(v =>
-      (v.fecha || '').startsWith(selectedDate) &&
-      (!selectedBranch || branchMatch(v.sucursalCobro || v.sucursalVenta || '', selectedBranch))
-    );
+    const localSales = getSales().filter(v => {
+      if (!(v.fecha || '').startsWith(selectedDate)) return false;
+      if (sellerFilter) return v.vendedora === sellerFilter;
+      return !selectedBranch || branchMatch(v.sucursalCobro || v.sucursalVenta || '', selectedBranch);
+    });
+
     const recordedIds = new Set(localPayments.map(p => p.saleId));
     const fallbackRows: PaymentRow[] = localSales.filter(v => !recordedIds.has(v.id)).map(v => {
       const paid = Math.max(0, (Number(v.total) || 0) - (Number(v.saldo) || 0));
@@ -155,15 +164,17 @@ export default function CashPage() {
       };
     });
 
-    const localExpenses = getExpensesForDate(selectedDate).filter(e =>
-      !selectedBranch || branchMatch(e.sucursal || '', selectedBranch)
-    );
+    const localExpenses = getExpensesForDate(selectedDate).filter(e => {
+      if (sellerFilter) return e.vendedora === sellerFilter;
+      return !selectedBranch || branchMatch(e.sucursal || '', selectedBranch);
+    });
+
     buildAndCommit([...localRows, ...fallbackRows], localExpenses.map(e => ({
       id: String(e.id), description: e.descripcion, category: e.categoria,
       amount: Number(e.monto), method: e.metodo, expense_date: e.fecha, branch_name: e.sucursal,
     })));
     setLoading(false);
-  }, [selectedBranch, selectedDate]);
+  }, [selectedBranch, selectedDate, isVendedora, profile?.full_name]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
@@ -236,7 +247,7 @@ export default function CashPage() {
         <div>
           <h1 className="text-xl font-light tracking-wider text-white">Mi Caja del Día</h1>
           <p className="text-xs text-gold-muted mt-0.5 tracking-wide">
-            {isVendedora ? `${profile?.full_name} · ${profile?.branch_id ?? ''}` : 'Ingresos y movimientos por sede'}
+            {isVendedora ? `${profile?.full_name} · mis cobros del día` : 'Ingresos y movimientos por sede'}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
