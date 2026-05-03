@@ -13,7 +13,7 @@ const PAYMENT_METHODS: { id: PaymentMethod; label: string; color: string }[] = [
   { id: 'giro',          label: 'Giro',         color: '#a78bfa' },
 ];
 
-const SUCURSALES = ['Azara', 'Centro', 'Caacupé', 'Fernando'];
+const SUCURSALES = ['Azara', 'Fernando', 'Caacupé', 'La Fina'];
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   pendiente:      { label: 'Pendiente',   color: '#f59e0b' },

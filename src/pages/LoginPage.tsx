@@ -3,7 +3,7 @@ import { Eye, EyeOff, Glasses, Zap, UserPlus, ChevronLeft, Check } from 'lucide-
 import { useAuth, getStoredUsers, saveStoredUsers, Profile } from '../context/AuthContext';
 
 // Sucursales fijas (ya no se cargan desde Supabase)
-const SUCURSALES = ['Azara', 'Centro', 'Caacupé', 'Fernando'];
+const SUCURSALES = ['Azara', 'Fernando', 'Caacupé', 'La Fina'];
 
 export default function LoginPage() {
   const { signIn, enterDevMode } = useAuth();

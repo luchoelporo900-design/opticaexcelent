@@ -14,7 +14,7 @@ type Channel = 'local' | 'online';
 type Prescription = {
   od_esfera: string; od_cilindro: string; od_eje: string;
   oi_esfera: string; oi_cilindro: string; oi_eje: string;
-  add: string; dp: string; obs: string;
+  add: string; dp: string; altura: string; obs: string;
 };
 
 type EyeglassItem = {
@@ -50,9 +50,9 @@ type RecentSale = {
 // ── Fixed branches (names match BranchContext + localStorage) ─────────────────
 const FIXED_BRANCHES = [
   { id: 'azara',    name: 'Azara' },
-  { id: 'centro',   name: 'Centro' },
-  { id: 'caacupe',  name: 'Caacupé' },
   { id: 'fernando', name: 'Fernando' },
+  { id: 'caacupe',  name: 'Caacupé' },
+  { id: 'lafina',   name: 'La Fina' },
 ];
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -78,13 +78,13 @@ function uid() { return crypto.randomUUID(); }
 function fmt(n: number) { return n.toLocaleString('es-PY', { minimumFractionDigits: 0, maximumFractionDigits: 0 }); }
 
 function emptyRx(): Prescription {
-  return { od_esfera: '', od_cilindro: '', od_eje: '', oi_esfera: '', oi_cilindro: '', oi_eje: '', add: '', dp: '', obs: '' };
+  return { od_esfera: '', od_cilindro: '', od_eje: '', oi_esfera: '', oi_cilindro: '', oi_eje: '', add: '', dp: '', altura: '', obs: '' };
 }
 
 function rxToText(rx: Prescription): string {
   const od = `OD: ${rx.od_esfera || '—'} / ${rx.od_cilindro || '—'} x ${rx.od_eje || '—'}`;
   const oi = `OI: ${rx.oi_esfera || '—'} / ${rx.oi_cilindro || '—'} x ${rx.oi_eje || '—'}`;
-  const extras = [rx.add && `ADD ${rx.add}`, rx.dp && `DP ${rx.dp}`, rx.obs].filter(Boolean).join(' | ');
+  const extras = [rx.add && `ADD ${rx.add}`, rx.dp && `DP ${rx.dp}`, rx.altura && `Alt ${rx.altura}`, rx.obs].filter(Boolean).join(' | ');
   return [od, oi, extras].filter(Boolean).join(' | ');
 }
 
@@ -334,7 +334,7 @@ export default function POSPage() {
       const lastName      = nLast.trim();
       const phone         = nPhone.trim();
       const ci            = nCi.trim();
-      const primaryMethod = payments.find(p => parseFloat(p.amount) > 0)?.method ?? 'efectivo';
+      const primaryMethod = (payments.find(p => parseFloat(p.amount) > 0)?.method ?? payments[0]?.method ?? 'efectivo') as PaymentMethod;
       const deliveredAt   = status === 'entregado' ? new Date().toISOString().split('T')[0] : null;
 
       // Branch name for localStorage (use display name, not ID)
@@ -1535,15 +1535,16 @@ function SimpleEyeglassCard({
 
             {/* Adicionales */}
             <div className="grid grid-cols-3 gap-2">
-              <RxInput label="ADD"  value={eg.prescription.add} onChange={v => updateRx('add', v)} placeholder="+2.00" />
-              <RxInput label="DP"   value={eg.prescription.dp}  onChange={v => updateRx('dp', v)}  placeholder="64" />
-              <div className="col-span-1">
-                <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.35)' }}>Observación</p>
-                <input type="text" value={eg.prescription.obs} onChange={e => updateRx('obs', e.target.value)}
-                  placeholder="Notas..."
-                  className="w-full px-2.5 py-2 rounded-lg bg-transparent text-white text-xs font-light outline-none border"
-                  style={{ borderColor: 'rgba(197,160,89,0.20)' }} />
-              </div>
+              <RxInput label="ADD"    value={eg.prescription.add}    onChange={v => updateRx('add', v)}    placeholder="+2.00" />
+              <RxInput label="DP"     value={eg.prescription.dp}     onChange={v => updateRx('dp', v)}     placeholder="64" />
+              <RxInput label="Altura" value={eg.prescription.altura} onChange={v => updateRx('altura', v)} placeholder="22" />
+            </div>
+            <div>
+              <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.35)' }}>Observación</p>
+              <input type="text" value={eg.prescription.obs} onChange={e => updateRx('obs', e.target.value)}
+                placeholder="Notas..."
+                className="w-full px-2.5 py-2 rounded-lg bg-transparent text-white text-xs font-light outline-none border"
+                style={{ borderColor: 'rgba(197,160,89,0.20)' }} />
             </div>
           </div>
         )}
