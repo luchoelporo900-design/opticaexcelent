@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { BarChart3, Users, Building2, Calendar, RefreshCw, TrendingUp, Award, Printer, Camera, X, ZoomIn, Heart, ChevronDown, Eye } from 'lucide-react';
 import { getSales, getPayments } from '../lib/salesStorage';
 
@@ -22,7 +22,6 @@ function fmt(n: number) {
   return n.toLocaleString('es-PY', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
 
-// Calcular inicio y fin de semana (lunes-sábado)
 function getWeekRange(dateStr: string): { start: string; end: string } {
   const d   = new Date(dateStr + 'T12:00:00');
   const day = d.getDay();
@@ -85,35 +84,30 @@ export default function ReportPage() {
   const [photoBranch,    setPhotoBranch]    = useState('');
   const [salesList,      setSalesList]      = useState<any[]>([]);
   const [expandedSale,   setExpandedSale]   = useState<string | null>(null);
+  const [highlightedSale,setHighlightedSale]= useState<string | null>(null);
   const [reviewed,       setReviewed]       = useState<Set<string>>(getReviewed());
   const [lightbox,       setLightbox]       = useState<string | null>(null);
   const [alerts,         setAlerts]         = useState<any[]>([]);
   const [allSellers,     setAllSellers]     = useState<string[]>([]);
 
+  // Ref para hacer scroll a la venta destacada
+  const saleRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
   const load = useCallback(() => {
     setLoading(true);
     const allVentas = getSales();
-
-    // Get all sellers for filter
     const sellers = [...new Set(allVentas.map(v => v.vendedora).filter(Boolean))].sort();
     setAllSellers(sellers);
 
-    // Build date filter
     let ventas = allVentas.filter(v => v.estadoTrabajo !== 'cancelado');
-
     if (scope === 'day') {
       ventas = ventas.filter(v => (v.fecha || '').startsWith(selectedDate));
     } else if (scope === 'week') {
       const { start, end } = getWeekRange(selectedDate);
-      ventas = ventas.filter(v => {
-        const d = (v.fecha || '').slice(0, 10);
-        return d >= start && d <= end;
-      });
+      ventas = ventas.filter(v => { const d = (v.fecha || '').slice(0, 10); return d >= start && d <= end; });
     } else {
       ventas = ventas.filter(v => (v.fecha || '').startsWith(selectedDate.slice(0, 7)));
     }
-
-    // Apply filters
     if (sellerFilter) ventas = ventas.filter(v => v.vendedora === sellerFilter);
     if (branchFilter) ventas = ventas.filter(v => v.sucursalVenta === branchFilter);
 
@@ -121,7 +115,6 @@ export default function ReportPage() {
     setTotalAmount(ventas.reduce((a, v) => a + (Number(v.total) || 0), 0));
     setTotalCollected(ventas.reduce((a, v) => a + ((Number(v.total) || 0) - (Number(v.saldo) || 0)), 0));
 
-    // By seller
     const sellerMap: Record<string, SellerRow> = {};
     for (const v of ventas) {
       const n = v.vendedora || 'Sin vendedor';
@@ -132,7 +125,6 @@ export default function ReportPage() {
     }
     setBySeller(Object.values(sellerMap).sort((a, b) => b.total - a.total));
 
-    // By branch
     const branchMap: Record<string, BranchRow> = {};
     for (const v of ventas) {
       const n = v.sucursalVenta || 'Sin sucursal';
@@ -143,7 +135,6 @@ export default function ReportPage() {
     }
     setByBranch(Object.values(branchMap).sort((a, b) => b.total - a.total));
 
-    // Photos
     const photoRows: PhotoEntry[] = [];
     for (const v of ventas) {
       for (const eg of (v.anteojos as any[] || [])) {
@@ -158,11 +149,8 @@ export default function ReportPage() {
       }
     }
     setPhotos(photoRows);
+    setSalesList([...ventas].sort((a, b) => a.id - b.id));
 
-    // Sales list sorted desc
-    setSalesList([...ventas].sort((a, b) => a.id - b.id)); // Ordenado por número de venta asc
-
-    // Cargar alertas de entregas pendientes de verificar
     try {
       const rawAlerts = JSON.parse(localStorage.getItem('optica_delivery_alerts') || '[]');
       setAlerts(rawAlerts.filter((a: any) => !a.reviewed));
@@ -177,6 +165,33 @@ export default function ReportPage() {
     window.addEventListener('optica_ventas_updated', h);
     return () => window.removeEventListener('optica_ventas_updated', h);
   }, [load]);
+
+  // Scroll automático cuando se destaca una venta
+  useEffect(() => {
+    if (highlightedSale && saleRefs.current[highlightedSale]) {
+      setTimeout(() => {
+        saleRefs.current[highlightedSale]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 100);
+      // Quitar highlight después de 3 segundos
+      const t = setTimeout(() => setHighlightedSale(null), 3000);
+      return () => clearTimeout(t);
+    }
+  }, [highlightedSale]);
+
+  // Al hacer clic en una alerta: expandir y destacar la venta
+  function handleAlertClick(alert: any) {
+    // Extraer el ID numérico de la venta desde saleNumber (ej: "VTA-1777842184835" → "1777842184835")
+    const saleId = String(alert.saleNumber || '').replace(/^VTA-/i, '');
+    if (!saleId) return;
+    // Cambiar scope a "día" del día de la entrega para que la venta aparezca en la lista
+    if (alert.timestamp) {
+      const alertDate = new Date(alert.timestamp).toISOString().slice(0, 10);
+      setSelectedDate(alertDate);
+      setScope('day');
+    }
+    setExpandedSale(saleId);
+    setHighlightedSale(saleId);
+  }
 
   function dismissAlert(alertId: number) {
     try {
@@ -208,7 +223,6 @@ export default function ReportPage() {
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
 
-      {/* Lightbox */}
       {lightbox && (
         <div className="fixed inset-0 z-[999] flex items-center justify-center p-6" style={{ background: 'rgba(0,0,0,0.93)' }} onClick={() => setLightbox(null)}>
           <img src={lightbox} alt="comprobante" className="max-w-xl w-full rounded-2xl object-contain"
@@ -224,7 +238,6 @@ export default function ReportPage() {
           <p className="text-xs text-gold-muted mt-0.5 tracking-wide capitalize">{dateLabel()}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Scope */}
           <div className="flex rounded-lg overflow-hidden" style={{ border: '1px solid rgba(197,160,89,0.20)' }}>
             {(['day', 'week', 'month'] as const).map(s => (
               <button key={s} onClick={() => setScope(s)}
@@ -234,7 +247,6 @@ export default function ReportPage() {
               </button>
             ))}
           </div>
-          {/* Date picker */}
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ background: 'rgba(197,160,89,0.07)', border: '1px solid rgba(197,160,89,0.18)' }}>
             <Calendar size={13} className="text-gold-muted" />
             <input type={scope === 'month' ? 'month' : 'date'}
@@ -255,7 +267,7 @@ export default function ReportPage() {
         </div>
       </div>
 
-      {/* Filtros vendedora y sucursal */}
+      {/* Filtros */}
       <div className="flex flex-wrap gap-3">
         <select value={sellerFilter} onChange={e => setSellerFilter(e.target.value)}
           className="px-3 py-2 rounded-lg text-xs outline-none border"
@@ -278,7 +290,7 @@ export default function ReportPage() {
         )}
       </div>
 
-      {/* Alertas de entregas pendientes de verificar */}
+      {/* ── ALERTAS — ahora clickeables ── */}
       {alerts.length > 0 && (
         <div className="space-y-2">
           <p className="text-xs font-light tracking-widest uppercase" style={{ color: '#f59e0b' }}>
@@ -287,18 +299,23 @@ export default function ReportPage() {
           {alerts.map(alert => (
             <div key={alert.id} className="flex items-center gap-3 px-4 py-3 rounded-xl flex-wrap"
               style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.3)' }}>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs text-white font-light">
-                  📦 <strong>{alert.customer}</strong> · {alert.saleNumber}
+
+              {/* Botón principal — abre la venta */}
+              <button
+                className="flex-1 min-w-0 text-left group"
+                onClick={() => handleAlertClick(alert)}>
+                <p className="text-xs text-white font-light group-hover:underline" style={{ textDecorationColor: '#f59e0b' }}>
+                  📦 <strong>{alert.customer}</strong> · <span style={{ color: '#C5A059' }}>{alert.saleNumber}</span>
                 </p>
                 <p className="text-xs font-light mt-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>
                   Entregado por {alert.vendedora} · {new Date(alert.timestamp).toLocaleDateString('es-PY')} {new Date(alert.timestamp).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
                   · Total: Gs. {Number(alert.total).toLocaleString('es-PY')}
                 </p>
-              </div>
-              <p className="text-xs font-light" style={{ color: '#f59e0b' }}>
-                Verificá el pago del saldo en la sección de cobros
-              </p>
+                <p className="text-xs mt-1 font-light" style={{ color: '#f59e0b' }}>
+                  👆 Clic para abrir la venta y verificar
+                </p>
+              </button>
+
               <button onClick={() => dismissAlert(alert.id)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium shrink-0"
                 style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.35)' }}>
@@ -339,7 +356,7 @@ export default function ReportPage() {
               <thead><tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                 {['Vendedor','Ventas','Facturado','Cobrado'].map(h => <th key={h} className="px-4 py-2.5 text-left text-xs font-light" style={{ color: 'rgba(255,255,255,0.32)' }}>{h}</th>)}
               </tr></thead>
-              <tbody>{bySeller.map((r,i) => (
+              <tbody>{bySeller.map((r, i) => (
                 <tr key={r.seller_name} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', background: i%2===0?'transparent':'rgba(255,255,255,0.01)' }}>
                   <td className="px-4 py-3 text-xs text-white font-light">{r.seller_name}</td>
                   <td className="px-4 py-3 text-xs" style={{ color: '#3b82f6' }}>{r.sale_count}</td>
@@ -360,7 +377,7 @@ export default function ReportPage() {
               <thead><tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                 {['Sucursal','Ventas','Facturado','Cobrado'].map(h => <th key={h} className="px-4 py-2.5 text-left text-xs font-light" style={{ color: 'rgba(255,255,255,0.32)' }}>{h}</th>)}
               </tr></thead>
-              <tbody>{byBranch.map((r,i) => (
+              <tbody>{byBranch.map((r, i) => (
                 <tr key={r.branch_name} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', background: i%2===0?'transparent':'rgba(255,255,255,0.01)' }}>
                   <td className="px-4 py-3 text-xs text-white font-light">{r.branch_name}</td>
                   <td className="px-4 py-3 text-xs" style={{ color: '#3b82f6' }}>{r.sale_count}</td>
@@ -373,7 +390,7 @@ export default function ReportPage() {
         </div>
       </div>
 
-      {/* Lista de ventas con comprobantes y revisado */}
+      {/* ── Lista de ventas ── */}
       <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
         <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           <div className="flex items-center gap-2">
@@ -387,29 +404,43 @@ export default function ReportPage() {
         ) : (
           <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
             {salesList.map((v, i) => {
-              const saleNum = i + 1; // Número correlativo 1, 2, 3...
-
+              const saleNum  = i + 1;
               const saleKey  = String(v.id);
               const isExp    = expandedSale === saleKey;
+              const isHighlighted = highlightedSale === saleKey;
               const salePays = getPayments().filter(p => p.saleId === v.id);
               const anteojos = (v.anteojos as any[]) || [];
 
               return (
-                <div key={saleKey}>
+                <div
+                  key={saleKey}
+                  ref={el => { saleRefs.current[saleKey] = el; }}
+                  style={{
+                    transition: 'box-shadow 0.4s, outline 0.4s',
+                    outline: isHighlighted ? '2px solid rgba(245,158,11,0.7)' : '2px solid transparent',
+                    borderRadius: isHighlighted ? 12 : 0,
+                    boxShadow: isHighlighted ? '0 0 24px rgba(245,158,11,0.18)' : 'none',
+                  }}>
+
                   <div className="flex items-center gap-3 px-5 py-3.5 cursor-pointer"
-                    style={{ background: isExp ? 'rgba(197,160,89,0.03)' : i%2===0?'transparent':'rgba(255,255,255,0.008)' }}
+                    style={{ background: isHighlighted ? 'rgba(245,158,11,0.05)' : isExp ? 'rgba(197,160,89,0.03)' : i%2===0?'transparent':'rgba(255,255,255,0.008)' }}
                     onClick={() => setExpandedSale(isExp ? null : saleKey)}>
                     {(() => {
-                      const salePaysForRow = getPayments().filter(p => p.saleId === v.id);
-                      const anyVerified    = salePaysForRow.some(p => reviewed.has(String(p.id)));
+                      const anyVerified = salePays.some(p => reviewed.has(String(p.id)));
                       return (
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium text-black shrink-0"
-                              style={{ background: '#C5A059', fontSize: 10 }}>{saleNum}</span>
-                            <span className="text-xs font-mono" style={{ color: '#C5A059' }}>VTA-{v.id}</span>
+                              style={{ background: isHighlighted ? '#f59e0b' : '#C5A059', fontSize: 10 }}>{saleNum}</span>
+                            <span className="text-xs font-mono" style={{ color: isHighlighted ? '#f59e0b' : '#C5A059' }}>VTA-{v.id}</span>
                             <span className="text-xs text-white font-light">{v.cliente.nombre} {v.cliente.apellido}</span>
                             <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.35)' }}>{v.sucursalVenta}</span>
+                            {isHighlighted && (
+                              <span className="text-xs px-2 py-0.5 rounded-full animate-pulse"
+                                style={{ background: 'rgba(245,158,11,0.2)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.4)' }}>
+                                👆 Verificar aquí
+                              </span>
+                            )}
                             {anyVerified && (
                               <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full"
                                 style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)' }}>
@@ -446,7 +477,6 @@ export default function ReportPage() {
                   {isExp && (
                     <div className="px-5 pb-4 space-y-3" style={{ background: 'rgba(197,160,89,0.02)', borderTop: '1px solid rgba(197,160,89,0.08)' }}>
 
-                      {/* Lentes */}
                       {anteojos.length > 0 && (
                         <div className="pt-3">
                           <p className="text-xs font-light tracking-widest uppercase mb-2" style={{ color: 'rgba(197,160,89,0.55)' }}>Lentes</p>
@@ -482,14 +512,13 @@ export default function ReportPage() {
                         </div>
                       )}
 
-                      {/* Pagos con comprobantes y ❤️ */}
                       {salePays.length > 0 && (
                         <div>
                           <p className="text-xs font-light tracking-widest uppercase mb-2" style={{ color: 'rgba(197,160,89,0.55)' }}>Pagos y comprobantes</p>
                           <div className="space-y-2">
                             {salePays.map((p: any) => {
-                              const mc      = METHODS_COLOR[p.metodo] ?? '#C5A059';
-                              const isRev   = reviewed.has(String(p.id));
+                              const mc    = METHODS_COLOR[p.metodo] ?? '#C5A059';
+                              const isRev = reviewed.has(String(p.id));
                               return (
                                 <div key={p.id} className="rounded-xl overflow-hidden"
                                   style={{ border: `1px solid ${isRev ? 'rgba(239,68,68,0.3)' : 'rgba(255,255,255,0.06)'}`, background: 'rgba(255,255,255,0.02)' }}>
@@ -544,7 +573,6 @@ export default function ReportPage() {
         )}
       </div>
 
-      {/* Fotos armazones */}
       {photos.length > 0 && (
         <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
           <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
