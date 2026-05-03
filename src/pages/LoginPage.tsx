@@ -1,31 +1,28 @@
 import { useState, FormEvent } from 'react';
-import { Eye, EyeOff, Glasses, Zap, UserPlus, ChevronLeft, Check } from 'lucide-react';
+import { Eye, EyeOff, Glasses, UserPlus, ChevronLeft, Check } from 'lucide-react';
 import { useAuth, getStoredUsers, saveStoredUsers, Profile } from '../context/AuthContext';
 
-// Sucursales fijas (ya no se cargan desde Supabase)
 const SUCURSALES = ['Azara', 'Fernando', 'Caacupé', 'La Fina'];
 
 export default function LoginPage() {
-  const { signIn, enterDevMode } = useAuth();
+  const { signIn } = useAuth();
 
-  // ── Login state ──────────────────────────────────────────
   const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState('');
 
-  // ── Register state ───────────────────────────────────────
-  const [view,        setView]       = useState<'login' | 'register'>('login');
-  const [regName,     setRegName]    = useState('');
-  const [regEmail,    setRegEmail]   = useState('');
-  const [regPass,     setRegPass]    = useState('');
-  const [regRole,     setRegRole]    = useState<'vendedor' | 'admin'>('vendedor');
-  const [regBranch,   setRegBranch]  = useState('');
+  const [view,        setView]        = useState<'login' | 'register'>('login');
+  const [regName,     setRegName]     = useState('');
+  const [regEmail,    setRegEmail]    = useState('');
+  const [regPass,     setRegPass]     = useState('');
+  const [regRole,     setRegRole]     = useState<'vendedor' | 'admin'>('vendedor');
+  const [regBranch,   setRegBranch]   = useState('');
   const [showRegPass, setShowRegPass] = useState(false);
-  const [regLoading,  setRegLoading] = useState(false);
-  const [regError,    setRegError]   = useState('');
-  const [regOk,       setRegOk]      = useState('');
+  const [regLoading,  setRegLoading]  = useState(false);
+  const [regError,    setRegError]    = useState('');
+  const [regOk,       setRegOk]       = useState('');
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -36,7 +33,6 @@ export default function LoginPage() {
     setLoading(false);
   }
 
-  // ── Registro 100% localStorage — sin Supabase ────────────
   async function handleRegister(e: FormEvent) {
     e.preventDefault();
     setRegError('');
@@ -188,23 +184,12 @@ export default function LoginPage() {
               </div>
 
               <button onClick={() => { setView('register'); setRegError(''); setRegOk(''); }}
-                className="w-full py-2.5 rounded-xl text-sm font-light tracking-wider flex items-center justify-center gap-2 mb-3"
+                className="w-full py-2.5 rounded-xl text-sm font-light tracking-wider flex items-center justify-center gap-2"
                 style={{ background: 'rgba(197,160,89,0.07)', border: '1px solid rgba(197,160,89,0.26)', color: 'rgba(197,160,89,0.80)', transition: 'background 0.22s, border-color 0.22s, color 0.22s' }}
                 onMouseEnter={e => { const b = e.currentTarget; b.style.background='rgba(197,160,89,0.13)'; b.style.borderColor='rgba(197,160,89,0.46)'; b.style.color='#C5A059'; }}
                 onMouseLeave={e => { const b = e.currentTarget; b.style.background='rgba(197,160,89,0.07)'; b.style.borderColor='rgba(197,160,89,0.26)'; b.style.color='rgba(197,160,89,0.80)'; }}>
                 <UserPlus size={13} /> Registrar nuevo usuario
               </button>
-
-              <button onClick={enterDevMode}
-                className="w-full py-2.5 rounded-xl text-sm font-light tracking-wider flex items-center justify-center gap-2"
-                style={{ background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.24)', color: 'rgba(245,158,11,0.72)', transition: 'background 0.22s, border-color 0.22s, color 0.22s' }}
-                onMouseEnter={e => { const b = e.currentTarget; b.style.background='rgba(245,158,11,0.13)'; b.style.borderColor='rgba(245,158,11,0.44)'; b.style.color='#f59e0b'; }}
-                onMouseLeave={e => { const b = e.currentTarget; b.style.background='rgba(245,158,11,0.07)'; b.style.borderColor='rgba(245,158,11,0.24)'; b.style.color='rgba(245,158,11,0.72)'; }}>
-                <Zap size={13} /> Modo Desarrollo — Acceso Inmediato
-              </button>
-              <p className="text-center text-xs mt-2 font-light" style={{ color: 'rgba(255,255,255,0.16)' }}>
-                Sin base de datos · Solo para desarrollo
-              </p>
             </>
           ) : (
             <>
