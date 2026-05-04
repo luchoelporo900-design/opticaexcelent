@@ -3,12 +3,12 @@ import {
   LayoutDashboard, ShoppingCart, Users, FlaskConical,
   Glasses, Building2, ChevronLeft, ChevronRight,
   Bell, LogOut, Settings, Eye, Trophy, ChevronDown,
-  DollarSign, BarChart3, AlertCircle, Search, X, ClipboardList
+  DollarSign, BarChart3, AlertCircle, Search, X, ClipboardList, Package
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useBranch } from '../context/BranchContext';
 
-type Page = 'dashboard' | 'pos' | 'customers' | 'lab' | 'simulator' | 'branches' | 'crm' | 'settings' | 'commissions' | 'cash' | 'reports' | 'balances' | 'sales_history';
+type Page = 'dashboard' | 'pos' | 'customers' | 'lab' | 'simulator' | 'branches' | 'crm' | 'settings' | 'commissions' | 'cash' | 'reports' | 'balances' | 'sales_history' | 'stock';
 
 type Props = {
   current: Page;
@@ -24,7 +24,8 @@ const navItems: { id: Page; label: string; icon: React.ReactNode }[] = [
   { id: 'commissions', label: 'Comisiones',          icon: <Trophy          size={18} /> },
   { id: 'cash',        label: 'Caja',                icon: <DollarSign      size={18} /> },
   { id: 'balances',    label: 'Saldos Pendientes',   icon: <AlertCircle     size={18} /> },
-  { id: 'sales_history', label: 'Mis Ventas',           icon: <ClipboardList   size={18} /> },
+  { id: 'sales_history', label: 'Mis Ventas',        icon: <ClipboardList   size={18} /> },
+  { id: 'stock',       label: 'Stock Armazones',     icon: <Package         size={18} /> },
   { id: 'reports',     label: 'Reportes',            icon: <BarChart3       size={18} /> },
   { id: 'simulator',   label: 'Simuladores',         icon: <Eye             size={18} /> },
   { id: 'branches',    label: 'Sucursales',          icon: <Building2       size={18} /> },
@@ -35,18 +36,16 @@ function getVisiblePages(role: string): Page[] {
   switch (role) {
     case 'admin':
     case 'gerente':
-      return ['dashboard', 'pos', 'sales_history', 'customers', 'crm', 'lab', 'commissions', 'cash', 'balances', 'reports', 'simulator', 'branches', 'settings'];
+      return ['dashboard', 'pos', 'sales_history', 'customers', 'crm', 'lab', 'commissions', 'cash', 'balances', 'stock', 'reports', 'simulator', 'branches', 'settings'];
     case 'vendedora':
-      return ['dashboard', 'pos', 'sales_history', 'customers', 'crm', 'lab', 'cash', 'balances'];
+      return ['dashboard', 'pos', 'sales_history', 'customers', 'crm', 'lab', 'cash', 'balances', 'stock'];
     case 'laboratorio':
-      // Laboratorio solo ve el panel de lab
       return ['lab'];
     default:
       return ['dashboard'];
   }
 }
 
-// Hook para detectar si es móvil
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   useEffect(() => {
@@ -72,7 +71,6 @@ export default function Sidebar({ current, onChange }: Props) {
   const isAdmin      = role === 'admin' || role === 'gerente';
   const isLab        = role === 'laboratorio';
 
-  // En móvil mostramos barra inferior, no el sidebar lateral
   if (isMobile) {
     return (
       <MobileNav
@@ -157,7 +155,7 @@ export default function Sidebar({ current, onChange }: Props) {
         </div>
       )}
 
-      {/* Búsqueda cliente — no para laboratorio */}
+      {/* Búsqueda cliente */}
       {!collapsed && !isLab && (
         <div className="px-3 pt-2.5 pb-2 animate-fade-in">
           <form onSubmit={e => { e.preventDefault(); if (searchQuery.trim()) { onChange('customers', searchQuery.trim()); setSearchQuery(''); } }}>
@@ -240,48 +238,48 @@ type MobileNavProps = {
 };
 
 const MOBILE_ICONS: Record<string, React.ReactNode> = {
-  dashboard:   <LayoutDashboard size={20} />,
-  pos:         <ShoppingCart    size={20} />,
-  customers:   <Users           size={20} />,
-  crm:         <Bell            size={20} />,
-  lab:         <FlaskConical    size={20} />,
-  commissions: <Trophy          size={20} />,
-  cash:        <DollarSign      size={20} />,
-  balances:    <AlertCircle     size={20} />,
-  reports:     <BarChart3       size={20} />,
-  simulator:   <Eye             size={20} />,
-  branches:    <Building2       size={20} />,
-  settings:      <Settings        size={20} />,
-  sales_history: <ClipboardList   size={20} />,
+  dashboard:    <LayoutDashboard size={20} />,
+  pos:          <ShoppingCart    size={20} />,
+  customers:    <Users           size={20} />,
+  crm:          <Bell            size={20} />,
+  lab:          <FlaskConical    size={20} />,
+  commissions:  <Trophy          size={20} />,
+  cash:         <DollarSign      size={20} />,
+  balances:     <AlertCircle     size={20} />,
+  reports:      <BarChart3       size={20} />,
+  simulator:    <Eye             size={20} />,
+  branches:     <Building2       size={20} />,
+  settings:     <Settings        size={20} />,
+  sales_history:<ClipboardList   size={20} />,
+  stock:        <Package         size={20} />,
 };
 
 const MOBILE_LABELS: Record<string, string> = {
-  dashboard:   'Inicio',
-  pos:         'Ventas',
-  customers:   'Clientes',
-  crm:         'CRM',
-  lab:         'Lab',
-  commissions: 'Premios',
-  cash:        'Caja',
-  balances:    'Saldos',
-  reports:     'Reportes',
-  simulator:   'Simul.',
-  branches:    'Sucursales',
-  settings:      'Config.',
-  sales_history: 'Mis Ventas',
+  dashboard:    'Inicio',
+  pos:          'Ventas',
+  customers:    'Clientes',
+  crm:          'CRM',
+  lab:          'Lab',
+  commissions:  'Premios',
+  cash:         'Caja',
+  balances:     'Saldos',
+  reports:      'Reportes',
+  simulator:    'Simul.',
+  branches:     'Sucursales',
+  settings:     'Config.',
+  sales_history:'Mis Ventas',
+  stock:        'Stock',
 };
 
 function MobileNav({ current, onChange, role, visiblePages, profile, signOut }: MobileNavProps) {
   const [menuOpen, setMenuOpen] = useState(false);
 
-  // Páginas principales en la barra inferior (max 4 + menú)
   const primaryPages: Page[] = (() => {
     if (role === 'laboratorio') return ['lab'];
-    if (role === 'vendedora')   return ['pos', 'sales_history', 'lab', 'balances'];
+    if (role === 'vendedora')   return ['pos', 'sales_history', 'cash', 'balances'];
     return ['dashboard', 'pos', 'cash', 'balances'];
   })();
 
-  // El resto va al menú hamburguesa
   const secondaryPages = visiblePages.filter(p => !primaryPages.includes(p));
 
   return (
@@ -315,7 +313,7 @@ function MobileNav({ current, onChange, role, visiblePages, profile, signOut }: 
         </div>
       </div>
 
-      {/* Menú lateral completo (slide) */}
+      {/* Menú lateral completo */}
       {menuOpen && (
         <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)}>
           <div className="fixed top-0 right-0 bottom-0 w-64 flex flex-col"
@@ -351,10 +349,9 @@ function MobileNav({ current, onChange, role, visiblePages, profile, signOut }: 
         </div>
       )}
 
-      {/* Spacer para el header fijo */}
       <div className="h-14 shrink-0" />
 
-      {/* Barra inferior de navegación */}
+      {/* Barra inferior */}
       <div className="fixed bottom-0 left-0 right-0 z-50 flex items-center"
         style={{ background: 'rgba(10,9,7,0.97)', borderTop: '1px solid rgba(197,160,89,0.15)', backdropFilter: 'blur(12px)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
         {primaryPages.filter(p => visiblePages.includes(p)).map(page => {
@@ -379,7 +376,6 @@ function MobileNav({ current, onChange, role, visiblePages, profile, signOut }: 
         )}
       </div>
 
-      {/* Spacer para la barra inferior */}
       <div className="h-16 shrink-0" />
     </>
   );
