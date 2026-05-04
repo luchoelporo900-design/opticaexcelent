@@ -6,7 +6,8 @@ import {
 } from 'lucide-react';
 import { useBranch } from '../context/BranchContext';
 import { useAuth } from '../context/AuthContext';
-import { getSales, getPaymentsForDate, saveExpense, getExpensesForDate, getPayments } from '../lib/salesStorage';
+import { useData } from '../context/DataContext';
+import { saveExpense } from '../lib/salesStorage';
 
 type PaymentMethod = 'efectivo' | 'transferencia' | 'tarjeta' | 'qr' | 'giro';
 
@@ -94,18 +95,20 @@ function getWeekRange(): { start: string; end: string; isClosed: boolean } {
 export default function CashPage() {
   const { activeBranch } = useBranch();
   const { profile } = useAuth();
+  const { sales: allSales, payments: allPayments, expenses: allExpenses, refresh } = useData();
 
-  const [selectedDate,   setSelectedDate]   = useState(new Date().toISOString().slice(0, 10));
-  const [selectedBranch, setSelectedBranch] = useState<string>('');
-  const [summary,        setSummary]        = useState<DailySummary>(emptyAgg());
-  const [payments,       setPayments]       = useState<PaymentRow[]>([]);
-  const [expenses,       setExpenses]       = useState<Expense[]>([]);
-  const [bySeller,       setBySeller]       = useState<SellerRow[]>([]);
-  const [loading,        setLoading]        = useState(false);
-  const [methodFilter,   setMethodFilter]   = useState<string>('all');
-  const [expandedPay,    setExpandedPay]    = useState<string | null>(null);
-  const [reviewed,       setReviewed]       = useState<Set<string>>(getReviewed());
-  const [lightboxUrl,    setLightboxUrl]    = useState<string | null>(null);
+  const [selectedDate,    setSelectedDate]    = useState(new Date().toISOString().slice(0, 10));
+  const [selectedBranch,  setSelectedBranch]  = useState<string>('');
+  const [selectedSeller,  setSelectedSeller]  = useState<string>('');
+  const [summary,         setSummary]         = useState<DailySummary>(emptyAgg());
+  const [payments,        setPayments]        = useState<PaymentRow[]>([]);
+  const [expenses,        setExpenses]        = useState<Expense[]>([]);
+  const [bySeller,        setBySeller]        = useState<SellerRow[]>([]);
+  const [loading,         setLoading]         = useState(false);
+  const [methodFilter,    setMethodFilter]    = useState<string>('all');
+  const [expandedPay,     setExpandedPay]     = useState<string | null>(null);
+  const [reviewed,        setReviewed]        = useState<Set<string>>(getReviewed());
+  const [lightboxUrl,     setLightboxUrl]     = useState<string | null>(null);
 
   const [showAddExp,  setShowAddExp]  = useState(false);
   const [expDesc,     setExpDesc]     = useState('');
@@ -116,9 +119,12 @@ export default function CashPage() {
   const [savingExp,   setSavingExp]   = useState(false);
   const [expSuccess,  setExpSuccess]  = useState(false);
 
-  const isAdmin    = profile?.role === 'admin' || profile?.role === 'gerente';
+  const isAdmin     = profile?.role === 'admin' || profile?.role === 'gerente';
   const isVendedora = profile?.role === 'vendedora';
   const weekRange   = isVendedora ? getWeekRange() : null;
+
+  // Lista de vendedoras únicas
+  const allSellers = [...new Set(allSales.map(v => v.vendedora).filter(Boolean))].sort();
 
   useEffect(() => {
     if (isVendedora && profile?.branch_id && !selectedBranch) setSelectedBranch(profile.branch_id);
@@ -143,28 +149,32 @@ export default function CashPage() {
     setBySeller(Object.values(sellerMap).sort((a, b) => b.total - a.total));
   }
 
-  const load = useCallback(async () => {
+  const load = useCallback(() => {
     setLoading(true);
-    const sellerFilter = isVendedora ? profile?.full_name : null;
+    const sellerFilter = isVendedora ? profile?.full_name : selectedSeller || null;
 
-    const localPayments = getPaymentsForDate(selectedDate).filter(p => {
+    // Pagos del día desde Supabase (via DataContext)
+    const dayPayments = allPayments.filter(p => {
+      if (!(p.fecha || '').startsWith(selectedDate)) return false;
       if (sellerFilter) return p.vendedora === sellerFilter;
       return !selectedBranch || branchMatch(p.sucursal || '', selectedBranch);
     });
-    const localRows: PaymentRow[] = localPayments.map(p => ({
+
+    const payRows: PaymentRow[] = dayPayments.map(p => ({
       id: String(p.id), sale_number: `VTA-${p.saleId}`, customer_name: p.cliente,
       amount: Number(p.monto), method: p.metodo as PaymentMethod, paid_at: p.fecha,
       seller_name: p.vendedora, reference: p.tipo === 'abono' ? 'Abono' : '',
       branch_name: p.sucursal, sale_id: p.saleId,
     }));
 
-    const localSales = getSales().filter(v => {
+    // Ventas del día como fallback para ventas sin pago registrado
+    const daySales = allSales.filter(v => {
       if (!(v.fecha || '').startsWith(selectedDate)) return false;
       if (sellerFilter) return v.vendedora === sellerFilter;
       return !selectedBranch || branchMatch(v.sucursalCobro || v.sucursalVenta || '', selectedBranch);
     });
-    const recordedIds = new Set(localPayments.map(p => p.saleId));
-    const fallbackRows: PaymentRow[] = localSales.filter(v => !recordedIds.has(v.id)).map(v => {
+    const recordedIds = new Set(dayPayments.map(p => p.saleId));
+    const fallbackRows: PaymentRow[] = daySales.filter(v => !recordedIds.has(v.id)).map(v => {
       const paid = Math.max(0, (Number(v.total) || 0) - (Number(v.saldo) || 0));
       return {
         id: `ls-${v.id}`, sale_number: `VTA-${v.id}`,
@@ -176,48 +186,38 @@ export default function CashPage() {
       };
     });
 
-    const localExpenses = getExpensesForDate(selectedDate).filter(e => {
+    // Gastos del día desde Supabase
+    const dayExpenses = allExpenses.filter(e => {
+      if ((e.fecha || '') !== selectedDate) return false;
       if (sellerFilter) return e.vendedora === sellerFilter;
       return !selectedBranch || branchMatch(e.sucursal || '', selectedBranch);
     });
-    buildAndCommit([...localRows, ...fallbackRows], localExpenses.map(e => ({
+
+    buildAndCommit([...payRows, ...fallbackRows], dayExpenses.map(e => ({
       id: String(e.id), description: e.descripcion, category: e.categoria,
       amount: Number(e.monto), method: e.metodo, expense_date: e.fecha, branch_name: e.sucursal,
     })));
     setLoading(false);
-  }, [selectedBranch, selectedDate, isVendedora, profile?.full_name]);
+  }, [selectedBranch, selectedDate, selectedSeller, isVendedora, profile?.full_name, allPayments, allSales, allExpenses]);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => {
-    const h = () => load();
-    window.addEventListener('optica_ventas_updated', h);
-    return () => window.removeEventListener('optica_ventas_updated', h);
-  }, [load]);
 
   function handleReview(payId: string) {
     markReviewed(payId);
     setReviewed(getReviewed());
   }
 
-  function getSaleDetail(saleId?: number, saleNumber?: string) {
-    if (saleId) {
-      const found = getSales().find(v => v.id === saleId);
-      if (found) return found;
-    }
-    if (saleNumber) {
-      const numId = Number(saleNumber.replace('VTA-', ''));
-      if (!isNaN(numId)) return getSales().find(v => v.id === numId) ?? null;
-    }
-    return null;
+  function getSaleDetail(saleId?: number) {
+    if (!saleId) return null;
+    return allSales.find(v => v.id === saleId) ?? null;
   }
 
   function getReceiptUrl(payId: string, saleId?: number): string | null {
-    const allPays = getPayments();
-    let pay = allPays.find((p: any) => String(p.id) === payId);
-    if (!pay && saleId) pay = allPays.find((p: any) => p.saleId === saleId);
+    let pay = allPayments.find((p: any) => String(p.id) === payId);
+    if (!pay && saleId) pay = allPayments.find((p: any) => p.saleId === saleId);
     if (pay && (pay as any).receipt_url) return (pay as any).receipt_url;
     if (saleId) {
-      const sale = getSales().find((v: any) => v.id === saleId);
+      const sale = allSales.find((v: any) => v.id === saleId);
       if (sale && (sale as any).receipt_url) return (sale as any).receipt_url;
     }
     return null;
@@ -228,7 +228,7 @@ export default function CashPage() {
     const branchName = expBranch || selectedBranch || activeBranch?.name || '';
     if (!amt || !expDesc.trim() || !branchName) return;
     setSavingExp(true);
-    saveExpense({
+    await saveExpense({
       id: Date.now(), fecha: selectedDate, descripcion: expDesc.trim(),
       categoria: expCategory, monto: Number(amt), metodo: expMethod,
       sucursal: branchName, vendedora: profile?.full_name || '',
@@ -237,7 +237,8 @@ export default function CashPage() {
     setExpMethod('efectivo'); setShowAddExp(false);
     setExpSuccess(true);
     setTimeout(() => setExpSuccess(false), 4000);
-    setSavingExp(false); load();
+    setSavingExp(false);
+    await refresh();
   }
 
   const visiblePayments = isVendedora
@@ -254,10 +255,12 @@ export default function CashPage() {
 
   const netTotal     = visibleSummary.total - visibleSummary.expenses;
   const efectivoNeto = visibleSummary.efectivo - visibleSummary.expenses;
-  const totalPendiente = getSales().filter(v => {
+
+  const totalPendiente = allSales.filter(v => {
     if ((Number(v.saldo) || 0) <= 0) return false;
     if (v.estadoTrabajo === 'entregado' || v.estadoTrabajo === 'cancelado') return false;
     if (selectedBranch && !branchMatch(v.sucursalCobro || v.sucursalVenta || '', selectedBranch)) return false;
+    if (selectedSeller && v.vendedora !== selectedSeller) return false;
     return true;
   }).reduce((s, v) => s + (Number(v.saldo) || 0), 0);
 
@@ -274,12 +277,20 @@ export default function CashPage() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {isAdmin && (
-            <select value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)}
-              className="px-3 py-2 rounded-lg text-xs outline-none border"
-              style={{ background: 'rgba(197,160,89,0.07)', borderColor: 'rgba(197,160,89,0.22)', color: '#C5A059' }}>
-              <option value="" style={{ background: '#111' }}>Todas las sedes</option>
-              {SUCURSALES.map(s => <option key={s} value={s} style={{ background: '#111' }}>{s}</option>)}
-            </select>
+            <>
+              <select value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)}
+                className="px-3 py-2 rounded-lg text-xs outline-none border"
+                style={{ background: 'rgba(197,160,89,0.07)', borderColor: 'rgba(197,160,89,0.22)', color: '#C5A059' }}>
+                <option value="" style={{ background: '#111' }}>Todas las sedes</option>
+                {SUCURSALES.map(s => <option key={s} value={s} style={{ background: '#111' }}>{s}</option>)}
+              </select>
+              <select value={selectedSeller} onChange={e => setSelectedSeller(e.target.value)}
+                className="px-3 py-2 rounded-lg text-xs outline-none border"
+                style={{ background: 'rgba(197,160,89,0.07)', borderColor: 'rgba(197,160,89,0.22)', color: selectedSeller ? '#C5A059' : 'rgba(255,255,255,0.5)' }}>
+                <option value="" style={{ background: '#111' }}>Todas las vendedoras</option>
+                {allSellers.map(s => <option key={s} value={s} style={{ background: '#111' }}>{s}</option>)}
+              </select>
+            </>
           )}
           {!isVendedora && (
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg"
@@ -319,12 +330,8 @@ export default function CashPage() {
           style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.2)' }}>
           <div className="text-4xl mb-4">🔒</div>
           <h2 className="text-xl font-light text-white mb-2">Caja Cerrada</h2>
-          <p className="text-sm font-light" style={{ color: 'rgba(255,255,255,0.5)' }}>
-            La caja se cierra los sábados a las 13:30 hs.
-          </p>
-          <p className="text-sm font-light mt-1" style={{ color: 'rgba(197,160,89,0.7)' }}>
-            Volvé el lunes para comenzar una nueva semana 📅
-          </p>
+          <p className="text-sm font-light" style={{ color: 'rgba(255,255,255,0.5)' }}>La caja se cierra los sábados a las 13:30 hs.</p>
+          <p className="text-sm font-light mt-1" style={{ color: 'rgba(197,160,89,0.7)' }}>Volvé el lunes para comenzar una nueva semana 📅</p>
         </div>
       )}
 
@@ -416,7 +423,7 @@ export default function CashPage() {
         </div>
       )}
 
-      {/* Resumen — admin */}
+      {/* Resumen admin */}
       {isAdmin && (
         <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(197,160,89,0.22)' }}>
           <div className="flex items-center gap-2.5 px-5 py-4"
@@ -544,7 +551,7 @@ export default function CashPage() {
         )}
       </div>
 
-      {/* Cobros del día — con detalle expandible */}
+      {/* Cobros del día */}
       <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
         <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           <div className="flex items-center gap-2">
@@ -552,7 +559,7 @@ export default function CashPage() {
             <span className="text-xs font-light tracking-wider text-white">Cobros del día</span>
             <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(197,160,89,0.12)', color: '#C5A059' }}>{filtered.length}</span>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 flex-wrap">
             {['all', ...METHODS.map(m => m.id)].map(m => (
               <button key={m} onClick={() => setMethodFilter(m)}
                 className="px-2 py-1 rounded text-xs font-light"
@@ -571,34 +578,24 @@ export default function CashPage() {
         ) : (
           <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
             {filtered.map((p, i) => {
-              const mc         = METHODS.find(m => m.id === p.method)?.color ?? '#C5A059';
-              const isExp      = expandedPay === p.id;
-              const isRev      = reviewed.has(p.id);
-              const sale       = isExp ? getSaleDetail(p.sale_id, p.sale_number) : null;
-              const receiptUrl = isExp ? getReceiptUrl(p.id, p.sale_id) : null;
+              const mc    = METHODS.find(m => m.id === p.method)?.color ?? '#C5A059';
+              const isExp = expandedPay === p.id;
+              const isRev = reviewed.has(p.id);
+              const sale  = isExp ? getSaleDetail(p.sale_id) : null;
               const allAnteojos = sale ? (sale.anteojos as any[]) : [];
-              const lensPhotos  = allAnteojos.filter((eg: any) => eg.photo_url);
-              const hasReceta   = allAnteojos.some((eg: any) => eg.showReceta);
 
               return (
                 <div key={p.id}>
-                  {/* Fila principal */}
-                  <div
-                    className="flex items-center gap-3 px-4 py-3 cursor-pointer"
+                  <div className="flex items-center gap-3 px-4 py-3 cursor-pointer"
                     style={{ background: isExp ? 'rgba(197,160,89,0.03)' : i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}
-                    onMouseEnter={e => { if (!isExp) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.02)'; }}
-                    onMouseLeave={e => { if (!isExp) (e.currentTarget as HTMLElement).style.background = i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)'; }}
                     onClick={() => setExpandedPay(isExp ? null : p.id)}>
-
-                    {/* ── NÚMERO DE ORDEN ── */}
                     <div className="shrink-0 w-6 text-center">
                       <span className="text-xs font-light" style={{ color: 'rgba(197,160,89,0.5)' }}>{i + 1}</span>
                     </div>
-
                     <div className="text-xs font-light w-14 shrink-0" style={{ color: 'rgba(255,255,255,0.38)' }}>
                       {new Date(p.paid_at).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
                     </div>
-                    <div className="text-xs font-mono shrink-0 w-36" style={{ color: '#C5A059' }}>#{p.sale_number}</div>
+                    <div className="text-xs font-mono shrink-0 hidden lg:block" style={{ color: '#C5A059', width: 120 }}>#{p.sale_number}</div>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs text-white font-light truncate">{p.customer_name || '—'}</p>
                       <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>{p.seller_name || '—'}</p>
@@ -607,17 +604,14 @@ export default function CashPage() {
                       {METHODS.find(m => m.id === p.method)?.label ?? p.method}
                     </span>
                     {isRev && <Heart size={13} fill="#ef4444" style={{ color: '#ef4444', flexShrink: 0 }} />}
-                    <div className="text-sm font-light text-right shrink-0 w-24" style={{ color: '#22c55e' }}>
+                    <div className="text-sm font-light text-right shrink-0" style={{ color: '#22c55e', minWidth: 80 }}>
                       {fmt(p.amount)} <span className="text-xs" style={{ color: 'rgba(255,255,255,0.28)' }}>Gs.</span>
                     </div>
                     <ChevronDown size={13} style={{ color: 'rgba(255,255,255,0.3)', transform: isExp ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }} />
                   </div>
 
-                  {/* Panel detalle expandido */}
                   {isExp && (
                     <div className="px-5 pb-5 pt-3 space-y-4" style={{ background: 'rgba(197,160,89,0.02)', borderTop: '1px solid rgba(197,160,89,0.08)' }}>
-
-                      {/* Info del cobro */}
                       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                         <div className="rounded-lg p-3" style={{ background: `${mc}10`, border: `1px solid ${mc}30` }}>
                           <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Método</p>
@@ -637,38 +631,27 @@ export default function CashPage() {
                         </div>
                       </div>
 
-                      {/* Todos los comprobantes */}
+                      {/* Comprobantes */}
                       {(() => {
-                        const allPays = getPayments().filter((pay: any) => pay.saleId === p.sale_id);
-                        return (
+                        const salePays = allPayments.filter((pay: any) => pay.saleId === p.sale_id);
+                        return salePays.length > 0 ? (
                           <div>
-                            <p className="text-xs font-light tracking-widest uppercase mb-2" style={{ color: 'rgba(197,160,89,0.55)' }}>Comprobantes de pago</p>
-                            {allPays.length === 0 && (
-                              <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                                <Eye size={13} style={{ color: 'rgba(255,255,255,0.3)' }} />
-                                <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.3)' }}>Sin comprobantes adjuntos</p>
-                              </div>
-                            )}
-                            {allPays.map((pay: any, idx: number) => {
+                            <p className="text-xs font-light tracking-widest uppercase mb-2" style={{ color: 'rgba(197,160,89,0.55)' }}>Comprobantes</p>
+                            {salePays.map((pay: any, idx: number) => {
                               const mc2 = METHODS.find(m => m.id === pay.metodo)?.color ?? '#C5A059';
                               return (
-                                <div key={pay.id} className="mb-3 rounded-xl overflow-hidden" style={{ border: '1px solid rgba(197,160,89,0.12)', background: 'rgba(255,255,255,0.02)' }}>
-                                  <div className="flex items-center gap-2 px-3 py-2" style={{ borderBottom: pay.receipt_url ? '1px solid rgba(197,160,89,0.1)' : 'none' }}>
-                                    <span className="w-4 h-4 rounded-full flex items-center justify-center text-xs font-medium text-black shrink-0" style={{ background: mc2, fontSize: 9 }}>{idx + 1}</span>
+                                <div key={pay.id} className="mb-2 rounded-xl overflow-hidden" style={{ border: '1px solid rgba(197,160,89,0.12)', background: 'rgba(255,255,255,0.02)' }}>
+                                  <div className="flex items-center gap-2 px-3 py-2">
                                     <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: `${mc2}18`, color: mc2 }}>{pay.metodo}</span>
                                     <span className="text-xs text-white font-light">Gs. {Number(pay.monto).toLocaleString('es-PY')}</span>
-                                    <span className="text-xs font-light ml-auto" style={{ color: 'rgba(255,255,255,0.35)' }}>
-                                      {new Date(pay.fecha).toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' })} {new Date(pay.fecha).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
-                                    </span>
-                                    <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(197,160,89,0.08)', color: 'rgba(197,160,89,0.6)' }}>{pay.tipo === 'sena' ? 'Seña' : 'Abono'}</span>
+                                    <span className="text-xs px-1.5 py-0.5 rounded-full ml-auto" style={{ background: 'rgba(197,160,89,0.08)', color: 'rgba(197,160,89,0.6)' }}>{pay.tipo === 'sena' ? 'Seña' : 'Abono'}</span>
                                   </div>
                                   {pay.receipt_url ? (
                                     <div className="p-2">
-                                      <img src={pay.receipt_url} alt={`comprobante ${idx + 1}`}
-                                        className="h-40 object-contain rounded-lg border cursor-pointer w-full"
-                                        style={{ borderColor: 'rgba(197,160,89,0.2)', background: '#111', maxWidth: 320 }}
+                                      <img src={pay.receipt_url} alt={`comprobante ${idx+1}`}
+                                        className="h-32 object-contain rounded-lg border cursor-pointer w-full"
+                                        style={{ borderColor: 'rgba(197,160,89,0.2)', background: '#111', maxWidth: 280 }}
                                         onClick={() => setLightboxUrl(pay.receipt_url)} />
-                                      <p className="text-xs mt-1 font-light" style={{ color: 'rgba(255,255,255,0.25)' }}>Clic para ampliar</p>
                                     </div>
                                   ) : (
                                     <div className="flex items-center gap-2 px-3 py-2">
@@ -680,33 +663,32 @@ export default function CashPage() {
                               );
                             })}
                           </div>
-                        );
+                        ) : null;
                       })()}
 
-                      {/* Lentes vendidos */}
+                      {/* Lentes */}
                       {allAnteojos.length > 0 && (
                         <div>
                           <p className="text-xs font-light tracking-widest uppercase mb-2" style={{ color: 'rgba(197,160,89,0.55)' }}>Lentes vendidos</p>
                           <div className="space-y-2">
-                            {allAnteojos.map((eg: any, photoIdx: number) => (
-                              <div key={photoIdx} className="flex items-start gap-3 rounded-xl p-3"
+                            {allAnteojos.map((eg: any, idx: number) => (
+                              <div key={idx} className="flex items-start gap-3 rounded-xl p-3"
                                 style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(197,160,89,0.12)' }}>
                                 {eg.photo_url ? (
-                                  <img src={eg.photo_url} alt={`armazón ${photoIdx+1}`}
-                                    className="h-20 w-24 object-cover rounded-lg border cursor-pointer shrink-0"
+                                  <img src={eg.photo_url} alt="armazón"
+                                    className="h-16 w-20 object-cover rounded-lg border cursor-pointer shrink-0"
                                     style={{ borderColor: 'rgba(197,160,89,0.3)' }}
                                     onClick={() => setLightboxUrl(eg.photo_url)} />
                                 ) : (
-                                  <div className="h-20 w-24 rounded-lg flex items-center justify-center shrink-0"
+                                  <div className="h-16 w-20 rounded-lg flex items-center justify-center shrink-0"
                                     style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(197,160,89,0.1)' }}>
-                                    <span className="text-xs font-light text-center px-1" style={{ color: 'rgba(255,255,255,0.2)' }}>Sin foto</span>
+                                    <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.2)' }}>Sin foto</span>
                                   </div>
                                 )}
                                 <div className="flex-1 min-w-0 space-y-1">
                                   {eg.frame_description && <p className="text-xs text-white font-light">📦 {eg.frame_description}</p>}
                                   {eg.crystals   && <p className="text-xs font-light" style={{ color: '#3b82f6' }}>🔬 {eg.crystals}</p>}
                                   {eg.treatments && <p className="text-xs font-light" style={{ color: '#10b981' }}>✨ {eg.treatments}</p>}
-                                  {eg.price      && <p className="text-xs font-light" style={{ color: '#C5A059' }}>Gs. {Number(eg.price).toLocaleString('es-PY')}</p>}
                                 </div>
                               </div>
                             ))}
@@ -714,44 +696,6 @@ export default function CashPage() {
                         </div>
                       )}
 
-                      {/* Receta */}
-                      {sale && hasReceta && (
-                        <div>
-                          <p className="text-xs font-light tracking-widest uppercase mb-2" style={{ color: 'rgba(197,160,89,0.55)' }}>
-                            Receta óptica
-                          </p>
-                          {(sale.anteojos as any[]).filter((eg: any) => eg.showReceta).map((eg: any, idx: number) => (
-                            <div key={idx} className="rounded-lg p-3 mb-2 space-y-2"
-                              style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.12)' }}>
-                              {eg.frame_description && <p className="text-xs text-white font-light">Armazón: {eg.frame_description}</p>}
-                              <div className="grid grid-cols-2 gap-3">
-                                <div>
-                                  <p className="text-xs font-light mb-1" style={{ color: '#C5A059' }}>OD</p>
-                                  <p className="text-xs font-mono" style={{ color: 'rgba(255,255,255,0.7)' }}>
-                                    {eg.prescription?.od_esfera} / {eg.prescription?.od_cilindro} x {eg.prescription?.od_eje}
-                                    {eg.prescription?.od_altura ? ` · Alt: ${eg.prescription.od_altura}` : ''}
-                                  </p>
-                                </div>
-                                <div>
-                                  <p className="text-xs font-light mb-1" style={{ color: '#C5A059' }}>OI</p>
-                                  <p className="text-xs font-mono" style={{ color: 'rgba(255,255,255,0.7)' }}>
-                                    {eg.prescription?.oi_esfera} / {eg.prescription?.oi_cilindro} x {eg.prescription?.oi_eje}
-                                    {eg.prescription?.oi_altura ? ` · Alt: ${eg.prescription.oi_altura}` : ''}
-                                  </p>
-                                </div>
-                              </div>
-                              {(eg.prescription?.add || eg.prescription?.dp) && (
-                                <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.5)' }}>
-                                  {eg.prescription?.add && `ADD: ${eg.prescription.add}`}
-                                  {eg.prescription?.dp && ` · DP: ${eg.prescription.dp}`}
-                                </p>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Botón revisado */}
                       <div className="pt-2" style={{ borderTop: '1px solid rgba(197,160,89,0.08)' }}>
                         {isRev ? (
                           <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl w-fit"
@@ -761,12 +705,9 @@ export default function CashPage() {
                           </div>
                         ) : (
                           <button onClick={() => handleReview(p.id)}
-                            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-medium transition-all"
-                            style={{ background: 'rgba(239,68,68,0.08)', color: 'rgba(239,68,68,0.7)', border: '1px solid rgba(239,68,68,0.25)' }}
-                            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(239,68,68,0.18)'; (e.currentTarget as HTMLElement).style.color = '#ef4444'; }}
-                            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(239,68,68,0.08)'; (e.currentTarget as HTMLElement).style.color = 'rgba(239,68,68,0.7)'; }}>
-                            <Heart size={14} />
-                            Marcar como revisado
+                            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-medium"
+                            style={{ background: 'rgba(239,68,68,0.08)', color: 'rgba(239,68,68,0.7)', border: '1px solid rgba(239,68,68,0.25)' }}>
+                            <Heart size={14} />Marcar como revisado
                           </button>
                         )}
                       </div>
@@ -781,12 +722,8 @@ export default function CashPage() {
 
       {lightboxUrl && (
         <div className="fixed inset-0 z-[999] flex items-center justify-center p-6"
-          style={{ background: 'rgba(0,0,0,0.92)' }}
-          onClick={() => setLightboxUrl(null)}>
+          style={{ background: 'rgba(0,0,0,0.92)' }} onClick={() => setLightboxUrl(null)}>
           <div className="relative max-w-xl w-full" onClick={e => e.stopPropagation()}>
-            <p className="text-xs font-light mb-3 tracking-widest uppercase text-center" style={{ color: 'rgba(197,160,89,0.7)' }}>
-              Clic fuera para cerrar
-            </p>
             <img src={lightboxUrl} alt="comprobante" className="w-full rounded-2xl"
               style={{ border: '1px solid rgba(197,160,89,0.3)', maxHeight: '80vh', objectFit: 'contain', background: '#111' }} />
           </div>
