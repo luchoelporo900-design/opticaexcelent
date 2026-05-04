@@ -105,6 +105,29 @@ function trySet(key: string, value: string) {
   try { localStorage.setItem(key, value); } catch { /* ignore */ }
 }
 
+// ── Crear orden de lab automáticamente al registrar venta ─────────────────────
+async function createLabOrder(sale: StoredSale) {
+  try {
+    await supabase.from('lab_orders').upsert({
+      id:             `lab-${sale.id}`,
+      sale_id:        sale.id,
+      sale_number:    `VTA-${sale.id}`,
+      customer_name:  `${sale.cliente.nombre} ${sale.cliente.apellido}`.trim(),
+      customer_phone: sale.cliente.telefono || '',
+      customer_ci:    sale.cliente.ci || '',
+      seller_name:    sale.vendedora,
+      seller_phone:   '',
+      branch_name:    sale.sucursalVenta,
+      status:         'enviado',
+      notes:          String(sale.observaciones || ''),
+      created_at:     sale.fecha,
+      updated_at:     sale.fecha,
+      anteojos:       sale.anteojos,
+      history:        [{ status: 'enviado', timestamp: sale.fecha, by: sale.vendedora }],
+    }, { onConflict: 'id', ignoreDuplicates: true });
+  } catch { /* ignore */ }
+}
+
 // ── Sales ─────────────────────────────────────────────────────────────────────
 export function getSales(): StoredSale[] {
   try {
@@ -115,6 +138,7 @@ export function getSales(): StoredSale[] {
 
 export async function saveSale(sale: StoredSale): Promise<void> {
   await supabase.from('ventas').upsert(saleToRow(sale));
+  await createLabOrder(sale);
   const current = getSales().filter(s => s.id !== sale.id);
   trySet(LS_KEY, JSON.stringify([sale, ...current]));
   if (sale.sena > 0 || sale.total > 0) {
@@ -146,7 +170,12 @@ export async function updateSaleBalance(saleId: number, newBalance: number, newD
 
 export async function closeSaleLocal(saleId: number, deliveryType: 'retiro' | 'delivery' | 'encomienda'): Promise<void> {
   const now = new Date().toISOString();
-  await supabase.from('ventas').update({ saldo: 0, estado_trabajo: 'entregado', delivery_type: deliveryType, delivered_at: now }).eq('id', saleId);
+  await supabase.from('ventas').update({
+    saldo: 0, estado_trabajo: 'entregado', delivery_type: deliveryType, delivered_at: now,
+  }).eq('id', saleId);
+  await supabase.from('lab_orders').update({
+    status: 'entregado', updated_at: now,
+  }).eq('sale_id', saleId);
   const sales = getSales().map(s =>
     s.id === saleId ? { ...s, saldo: 0, sena: s.total, estadoTrabajo: 'entregado', delivery_type: deliveryType, delivered_at: now } : s
   );
