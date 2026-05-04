@@ -223,7 +223,7 @@ export default function POSPage() {
       const delBranchName  = FIXED_BRANCHES.find(b => b.id === delBranch)?.name  ?? delBranch;
       const payBranchName  = FIXED_BRANCHES.find(b => b.id === payBranch)?.name  ?? payBranch;
 
-      saveToStorage({
+await saveToStorage({
         id: saleId,
         fecha: new Date().toISOString(),
         cliente: { nombre: firstName, apellido: lastName, telefono: phone, ci },
@@ -316,7 +316,7 @@ export default function POSPage() {
             tipo: 'abono', receipt_url: closeReceipt || undefined,
           });
         }
-        closeSaleLocal(numId, closeDelivery);
+await closeSaleLocal(numId, closeDelivery);
       }
     }
     setCloseFor(null); setCloseAmt(''); setCloseRef('');
