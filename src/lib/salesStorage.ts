@@ -1,4 +1,6 @@
-export const LS_KEY = 'optica_yolanda_ventas';
+import { supabase } from './supabase';
+
+export const LS_KEY          = 'optica_yolanda_ventas';
 export const LS_PAYMENTS_KEY = 'optica_yolanda_abonos';
 export const LS_EXPENSES_KEY = 'optica_yolanda_gastos';
 
@@ -19,10 +21,9 @@ export type StoredSale = {
   observaciones: string;
   delivery_type?: 'retiro' | 'delivery' | 'encomienda';
   delivered_at?: string;
-  receipt_url?: string;   // ← comprobante del pago inicial
+  receipt_url?: string;
 };
 
-// Represents any single cash movement (initial seña or subsequent abono)
 export type StoredPayment = {
   id: number;
   saleId: number;
@@ -34,6 +35,17 @@ export type StoredPayment = {
   cliente: string;
   tipo: 'sena' | 'abono';
   receipt_url?: string;
+};
+
+export type StoredExpense = {
+  id: number;
+  fecha: string;
+  descripcion: string;
+  categoria: string;
+  monto: number;
+  metodo: string;
+  sucursal: string;
+  vendedora: string;
 };
 
 export type SalesSummary = {
@@ -64,107 +76,81 @@ export function compressImage(dataUrl: string, maxKB = 200): Promise<string> {
   });
 }
 
-// ── localStorage helpers ──────────────────────────────────────────────────────
-function purgeOldSales(): void {
-  try {
-    const cutoff = new Date();
-    cutoff.setMonth(cutoff.getMonth() - 3);
-    const kept = getSales().filter(s => new Date(s.fecha) >= cutoff);
-    localStorage.setItem(LS_KEY, JSON.stringify(kept));
-  } catch { /* ignore */ }
+function saleToRow(sale: StoredSale) {
+  return {
+    id:               sale.id,
+    fecha:            sale.fecha,
+    cliente_nombre:   sale.cliente.nombre,
+    cliente_apellido: sale.cliente.apellido,
+    cliente_telefono: sale.cliente.telefono,
+    cliente_ci:       sale.cliente.ci,
+    sucursal_venta:   sale.sucursalVenta,
+    sucursal_entrega: sale.sucursalEntrega,
+    sucursal_cobro:   sale.sucursalCobro,
+    vendedora:        sale.vendedora,
+    total:            sale.total,
+    sena:             sale.sena,
+    saldo:            sale.saldo,
+    metodo_pago:      sale.metodoPago,
+    estado_trabajo:   sale.estadoTrabajo,
+    anteojos:         sale.anteojos,
+    observaciones:    sale.observaciones,
+    delivery_type:    sale.delivery_type || null,
+    delivered_at:     sale.delivered_at  || null,
+    receipt_url:      sale.receipt_url   || null,
+  };
 }
 
-function trySetItem(key: string, value: string): boolean {
-  try {
-    localStorage.setItem(key, value);
-    return true;
-  } catch (e: any) {
-    if (e?.name === 'QuotaExceededError' || e?.code === 22) return false;
-    return false;
-  }
+function trySet(key: string, value: string) {
+  try { localStorage.setItem(key, value); } catch { /* ignore */ }
 }
 
 // ── Sales ─────────────────────────────────────────────────────────────────────
 export function getSales(): StoredSale[] {
   try {
     const raw = localStorage.getItem(LS_KEY);
-    return raw ? (JSON.parse(raw) as StoredSale[]) : [];
+    return raw ? JSON.parse(raw) : [];
   } catch { return []; }
 }
 
-export function saveSale(sale: StoredSale): void {
-  const updated = [...getSales(), sale];
-  const json = JSON.stringify(updated);
-
-  if (!trySetItem(LS_KEY, json)) {
-    // Strip photo data to save space
-    const stripped = updated.map(s => ({
-      ...s,
-      anteojos: Array.isArray(s.anteojos)
-        ? (s.anteojos as any[]).map((eg: any) => ({ ...eg, photo_url: '' }))
-        : s.anteojos,
-      receipt_url: '',
-    }));
-    if (!trySetItem(LS_KEY, JSON.stringify(stripped))) {
-      purgeOldSales();
-      const afterPurge = [...getSales(), sale];
-      trySetItem(LS_KEY, JSON.stringify(
-        afterPurge.map(s => ({
-          ...s,
-          anteojos: Array.isArray(s.anteojos)
-            ? (s.anteojos as any[]).map((eg: any) => ({ ...eg, photo_url: '' }))
-            : s.anteojos,
-          receipt_url: '',
-        }))
-      ));
-    }
-  }
-
-  // ── Registrar el pago inicial (seña) CON comprobante ──────────────────────
+export async function saveSale(sale: StoredSale): Promise<void> {
+  await supabase.from('ventas').upsert(saleToRow(sale));
+  const current = getSales().filter(s => s.id !== sale.id);
+  trySet(LS_KEY, JSON.stringify([sale, ...current]));
   if (sale.sena > 0 || sale.total > 0) {
-    recordPayment({
-      id: Date.now(),
-      saleId: sale.id,
-      fecha: sale.fecha,
+    await recordPayment({
+      id: Date.now(), saleId: sale.id, fecha: sale.fecha,
       monto: sale.sena > 0 ? sale.sena : sale.total,
-      metodo: sale.metodoPago,
-      sucursal: sale.sucursalCobro,
+      metodo: sale.metodoPago, sucursal: sale.sucursalCobro,
       vendedora: sale.vendedora,
       cliente: `${sale.cliente.nombre} ${sale.cliente.apellido}`.trim(),
-      tipo: 'sena',
-      receipt_url: sale.receipt_url || undefined,   // ← ahora se guarda
+      tipo: 'sena', receipt_url: sale.receipt_url || undefined,
     });
   }
-
   window.dispatchEvent(new CustomEvent('optica_ventas_updated'));
 }
 
-export function updateSaleBalance(saleId: number, newBalance: number, newDeposit: number): void {
-  const sales = getSales();
-  const updated = sales.map(s => {
+export async function updateSaleBalance(saleId: number, newBalance: number, newDeposit: number): Promise<void> {
+  const patch: any = { saldo: newBalance, sena: newDeposit };
+  if (newBalance <= 0) patch.estado_trabajo = 'pagado_total';
+  await supabase.from('ventas').update(patch).eq('id', saleId);
+  const sales = getSales().map(s => {
     if (s.id !== saleId) return s;
-    const patch: Partial<StoredSale> = { saldo: newBalance, sena: newDeposit };
-    if (newBalance <= 0 && s.estadoTrabajo !== 'entregado' && s.estadoTrabajo !== 'cancelado') {
-      patch.estadoTrabajo = 'pagado_total';
-    }
-    return { ...s, ...patch };
+    const u = { ...s, saldo: newBalance, sena: newDeposit };
+    if (newBalance <= 0 && s.estadoTrabajo !== 'entregado' && s.estadoTrabajo !== 'cancelado') u.estadoTrabajo = 'pagado_total';
+    return u;
   });
-  localStorage.setItem(LS_KEY, JSON.stringify(updated));
+  trySet(LS_KEY, JSON.stringify(sales));
   window.dispatchEvent(new CustomEvent('optica_ventas_updated'));
 }
 
-export function closeSaleLocal(
-  saleId: number,
-  deliveryType: 'retiro' | 'delivery' | 'encomienda',
-): void {
-  const sales = getSales();
-  const updated = sales.map(s =>
-    s.id === saleId
-      ? { ...s, saldo: 0, sena: s.total, estadoTrabajo: 'entregado',
-          delivery_type: deliveryType, delivered_at: new Date().toISOString() }
-      : s
+export async function closeSaleLocal(saleId: number, deliveryType: 'retiro' | 'delivery' | 'encomienda'): Promise<void> {
+  const now = new Date().toISOString();
+  await supabase.from('ventas').update({ saldo: 0, estado_trabajo: 'entregado', delivery_type: deliveryType, delivered_at: now }).eq('id', saleId);
+  const sales = getSales().map(s =>
+    s.id === saleId ? { ...s, saldo: 0, sena: s.total, estadoTrabajo: 'entregado', delivery_type: deliveryType, delivered_at: now } : s
   );
-  localStorage.setItem(LS_KEY, JSON.stringify(updated));
+  trySet(LS_KEY, JSON.stringify(sales));
   window.dispatchEvent(new CustomEvent('optica_ventas_updated'));
 }
 
@@ -177,9 +163,9 @@ export function clearSales(): void {
 export function getSalesSummary(ventas?: StoredSale[]): SalesSummary {
   const all = ventas ?? getSales();
   return {
-    totalVentas: all.length,
+    totalVentas:    all.length,
     totalFacturado: all.reduce((a, v) => a + (Number(v.total) || 0), 0),
-    totalCobrado: all.reduce((a, v) => a + ((Number(v.total) || 0) - (Number(v.saldo) || 0)), 0),
+    totalCobrado:   all.reduce((a, v) => a + ((Number(v.total) || 0) - (Number(v.saldo) || 0)), 0),
   };
 }
 
@@ -187,13 +173,19 @@ export function getSalesSummary(ventas?: StoredSale[]): SalesSummary {
 export function getPayments(): StoredPayment[] {
   try {
     const raw = localStorage.getItem(LS_PAYMENTS_KEY);
-    return raw ? (JSON.parse(raw) as StoredPayment[]) : [];
+    return raw ? JSON.parse(raw) : [];
   } catch { return []; }
 }
 
-export function recordPayment(payment: StoredPayment): void {
-  const updated = [...getPayments(), payment];
-  trySetItem(LS_PAYMENTS_KEY, JSON.stringify(updated));
+export async function recordPayment(payment: StoredPayment): Promise<void> {
+  await supabase.from('pagos').upsert({
+    id: payment.id, sale_id: payment.saleId, fecha: payment.fecha,
+    monto: payment.monto, metodo: payment.metodo, sucursal: payment.sucursal,
+    vendedora: payment.vendedora, cliente: payment.cliente, tipo: payment.tipo,
+    receipt_url: payment.receipt_url || null,
+  });
+  const current = getPayments().filter(p => p.id !== payment.id);
+  trySet(LS_PAYMENTS_KEY, JSON.stringify([payment, ...current]));
   window.dispatchEvent(new CustomEvent('optica_ventas_updated'));
 }
 
@@ -202,27 +194,21 @@ export function getPaymentsForDate(date: string): StoredPayment[] {
 }
 
 // ── Expenses ──────────────────────────────────────────────────────────────────
-export type StoredExpense = {
-  id: number;
-  fecha: string;
-  descripcion: string;
-  categoria: string;
-  monto: number;
-  metodo: string;
-  sucursal: string;
-  vendedora: string;
-};
-
 export function getExpenses(): StoredExpense[] {
   try {
     const raw = localStorage.getItem(LS_EXPENSES_KEY);
-    return raw ? (JSON.parse(raw) as StoredExpense[]) : [];
+    return raw ? JSON.parse(raw) : [];
   } catch { return []; }
 }
 
-export function saveExpense(expense: StoredExpense): void {
-  const updated = [...getExpenses(), expense];
-  trySetItem(LS_EXPENSES_KEY, JSON.stringify(updated));
+export async function saveExpense(expense: StoredExpense): Promise<void> {
+  await supabase.from('gastos').upsert({
+    id: expense.id, fecha: expense.fecha, descripcion: expense.descripcion,
+    categoria: expense.categoria, monto: expense.monto, metodo: expense.metodo,
+    sucursal: expense.sucursal, vendedora: expense.vendedora,
+  });
+  const current = getExpenses().filter(e => e.id !== expense.id);
+  trySet(LS_EXPENSES_KEY, JSON.stringify([expense, ...current]));
   window.dispatchEvent(new CustomEvent('optica_ventas_updated'));
 }
 
