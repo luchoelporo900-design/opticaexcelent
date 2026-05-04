@@ -448,18 +448,7 @@ export default function BalancesPage() {
                             </button>
                           </div>
                         )}
-                        {/* Laboratorio/Listo — no se puede entregar aún */}
-                        {(row.status === 'en_laboratorio' || row.status === 'listo') && (
-                          <div className="pt-3" style={{ borderTop: '1px solid rgba(197,160,89,0.10)' }}>
-                            <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl"
-                              style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)' }}>
-                              <span className="text-sm">🔬</span>
-                              <p className="text-xs font-light" style={{ color: 'rgba(59,130,246,0.8)' }}>
-                                {row.status === 'listo' ? 'Listo en laboratorio — esperando retiro' : 'En laboratorio — no se puede entregar aún'}
-                              </p>
-                            </div>
-                          </div>
-                        )}
+                        {(row.status === 'en_laboratorio' || row.status === 'listo') && (<div className="pt-3 space-y-2" style={{ borderTop: '1px solid rgba(197,160,89,0.10)' }}><div className="flex items-center gap-2 px-3 py-2.5 rounded-xl" style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)' }}><span className="text-sm">🔬</span><p className="text-xs font-light" style={{ color: 'rgba(59,130,246,0.8)' }}>{row.status === 'listo' ? 'Listo en laboratorio — listo para entregar' : 'En laboratorio'}</p></div><button onClick={e => { e.stopPropagation(); markDelivered(row.id); }} className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium" style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.35)' }}>✓ Marcar como Entregado</button></div>)}
 
                       </div>
                     )}
