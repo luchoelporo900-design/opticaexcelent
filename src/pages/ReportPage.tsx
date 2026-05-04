@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { BarChart3, Users, Building2, Calendar, RefreshCw, TrendingUp, Award, Printer, Camera, X, ZoomIn, Heart, ChevronDown, Eye } from 'lucide-react';
 import { getSales, getPayments } from '../lib/salesStorage';
+import { useData } from '../context/DataContext';
 
 const SUCURSALES = ['Azara', 'Fernando', 'Caacupé', 'La Fina'];
 const LS_REVIEWED_KEY = 'optica_pagos_revisados';
@@ -74,6 +75,7 @@ export default function ReportPage() {
   const [sellerFilter, setSellerFilter] = useState('');
   const [branchFilter, setBranchFilter] = useState('');
   const [loading,      setLoading]      = useState(false);
+  const { sales: allSalesData, payments: allPaymentsData } = useData();
 
   const [totalSales,     setTotalSales]     = useState(0);
   const [totalAmount,    setTotalAmount]    = useState(0);
@@ -95,7 +97,7 @@ export default function ReportPage() {
 
   const load = useCallback(() => {
     setLoading(true);
-    const allVentas = getSales();
+    const allVentas = allSalesData;
     const sellers = [...new Set(allVentas.map(v => v.vendedora).filter(Boolean))].sort();
     setAllSellers(sellers);
 
@@ -157,7 +159,7 @@ export default function ReportPage() {
     } catch {}
 
     setLoading(false);
-  }, [selectedDate, scope, sellerFilter, branchFilter]);
+  }, [selectedDate, scope, sellerFilter, branchFilter, allSalesData, allPaymentsData]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
@@ -408,7 +410,7 @@ export default function ReportPage() {
               const saleKey  = String(v.id);
               const isExp    = expandedSale === saleKey;
               const isHighlighted = highlightedSale === saleKey;
-              const salePays = getPayments().filter(p => p.saleId === v.id);
+              const salePays = allPaymentsData.filter(p => p.saleId === v.id);
               const anteojos = (v.anteojos as any[]) || [];
 
               return (
