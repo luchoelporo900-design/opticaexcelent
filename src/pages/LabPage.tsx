@@ -1,7 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { RefreshCw, Search, CheckCircle, Package, MessageCircle, ChevronDown, Printer, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { getSales } from '../lib/salesStorage';
 import { useAuth } from '../context/AuthContext';
 
 const SUCURSALES = ['Azara', 'Fernando', 'Caacupé', 'La Fina'];
@@ -151,88 +150,16 @@ export default function LabPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      // 1. Cargar órdenes existentes de Supabase
-      const { data: existing } = await supabase
+      const { data } = await supabase
         .from('lab_orders')
         .select('*')
         .order('created_at', { ascending: false });
 
-      const existingOrders: LabOrder[] = (existing || []).map((row: any) => ({
+      setOrders((data || []).map((row: any) => ({
         ...row,
         anteojos: row.anteojos || [],
         history:  row.history  || [],
-      }));
-
-      // 2. Sincronizar ventas nuevas que no tienen orden de lab
-      const sales = getSales();
-      const existingIds = new Set(existingOrders.map(o => o.id));
-      const newOrders: LabOrder[] = [];
-
-      for (const v of sales) {
-        const id = `lab-${v.id}`;
-        if (!existingIds.has(id)) {
-          const newOrder: LabOrder = {
-            id,
-            sale_id:        v.id,
-            sale_number:    `VTA-${v.id}`,
-            customer_name:  `${v.cliente.nombre} ${v.cliente.apellido}`.trim(),
-            customer_phone: v.cliente.telefono || '',
-            customer_ci:    v.cliente.ci || '',
-            seller_name:    v.vendedora,
-            seller_phone:   '',
-            branch_name:    v.sucursalVenta,
-            status:         'enviado',
-            notes:          String(v.observaciones || ''),
-            created_at:     v.fecha,
-            updated_at:     v.fecha,
-            anteojos:       (v.anteojos as any[]) || [],
-            history:        [{ status: 'enviado', timestamp: v.fecha, by: v.vendedora }],
-          };
-          newOrders.push(newOrder);
-          // Guardar en Supabase
-          await supabase.from('lab_orders').upsert({
-            id:             newOrder.id,
-            sale_id:        newOrder.sale_id,
-            sale_number:    newOrder.sale_number,
-            customer_name:  newOrder.customer_name,
-            customer_phone: newOrder.customer_phone,
-            customer_ci:    newOrder.customer_ci,
-            seller_name:    newOrder.seller_name,
-            seller_phone:   newOrder.seller_phone,
-            branch_name:    newOrder.branch_name,
-            status:         newOrder.status,
-            notes:          newOrder.notes,
-            created_at:     newOrder.created_at,
-            updated_at:     newOrder.updated_at,
-            anteojos:       newOrder.anteojos,
-            history:        newOrder.history,
-          });
-        }
-      }
-
-      // 3. Actualizar anteojos y CI en órdenes existentes
-      for (const order of existingOrders) {
-        const sale = sales.find(v => v.id === order.sale_id);
-        if (sale) {
-          const updatedAnteojos = (sale.anteojos as any[]) || [];
-          const updatedCi = sale.cliente.ci || order.customer_ci;
-          if (JSON.stringify(updatedAnteojos) !== JSON.stringify(order.anteojos) || updatedCi !== order.customer_ci) {
-            await supabase.from('lab_orders').update({
-              anteojos: updatedAnteojos,
-              customer_ci: updatedCi,
-            }).eq('id', order.id);
-            order.anteojos = updatedAnteojos;
-            order.customer_ci = updatedCi;
-          }
-          // Sincronizar estado entregado
-          if (sale.estadoTrabajo === 'entregado' && order.status !== 'entregado') {
-            await supabase.from('lab_orders').update({ status: 'entregado', updated_at: new Date().toISOString() }).eq('id', order.id);
-            order.status = 'entregado';
-          }
-        }
-      }
-
-      setOrders([...newOrders, ...existingOrders]);
+      })));
     } catch (err) {
       console.error('Error cargando lab orders:', err);
     }
@@ -241,7 +168,6 @@ export default function LabPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Polling cada 30 segundos
   useEffect(() => {
     const interval = setInterval(() => load(), 30000);
     return () => clearInterval(interval);
@@ -256,16 +182,10 @@ export default function LabPage() {
     const newHistory = [...(order.history || []), { status, timestamp: now, by: byName }];
     const newNotes   = notes[id] ?? order.notes;
 
-    // Actualizar en Supabase
     await supabase.from('lab_orders').update({
       status, updated_at: now, notes: newNotes, history: newHistory,
     }).eq('id', id);
 
-    // Actualizar estado de la venta en Supabase
-    const saleStatus = status === 'listo' ? 'listo' : status === 'proceso' ? 'en_laboratorio' : status === 'entregado' ? 'entregado' : 'en_laboratorio';
-    await supabase.from('ventas').update({ estado_trabajo: saleStatus }).eq('id', order.sale_id);
-
-    // Actualizar estado local
     setOrders(prev => prev.map(o =>
       o.id === id ? { ...o, status, updated_at: now, notes: newNotes, history: newHistory } : o
     ));
@@ -288,10 +208,10 @@ export default function LabPage() {
     if (branchFilter !== 'todos' && o.branch_name !== branchFilter) return false;
     if (sellerFilter !== 'todos' && o.seller_name !== sellerFilter) return false;
     if (search) {
-      const q    = normalize(search);
-      const qNum = search.replace(/\D/g, '');
-      const name = normalize(o.customer_name);
-      const ci   = normalize(o.customer_ci || '');
+      const q      = normalize(search);
+      const qNum   = search.replace(/\D/g, '');
+      const name   = normalize(o.customer_name);
+      const ci     = normalize(o.customer_ci || '');
       const seller = normalize(o.seller_name || '');
       const phone  = (o.customer_phone || '').replace(/\D/g, '');
       const vtaId  = o.sale_number.toLowerCase();
