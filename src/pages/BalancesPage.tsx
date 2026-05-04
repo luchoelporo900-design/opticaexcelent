@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { RefreshCw, Plus, Check, X, Search, ChevronDown, DollarSign, Phone, Camera, Package } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { getSales, updateSaleBalance, recordPayment, getPayments, closeSaleLocal } from '../lib/salesStorage';
+import { useData } from '../context/DataContext';
+import { updateSaleBalance, recordPayment, closeSaleLocal } from '../lib/salesStorage';
 
 type PaymentMethod = 'efectivo' | 'transferencia' | 'tarjeta' | 'qr' | 'giro';
 
@@ -17,8 +18,10 @@ const SUCURSALES = ['Azara', 'Fernando', 'Caacupé', 'La Fina'];
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   pendiente:      { label: 'Pendiente',   color: '#f59e0b' },
+  en_proceso:     { label: 'En Proceso',  color: '#f59e0b' },
   en_laboratorio: { label: 'Laboratorio', color: '#3b82f6' },
   listo:          { label: 'Listo',       color: '#10b981' },
+  pagado_total:   { label: 'Pagado',      color: '#22c55e' },
   entregado:      { label: 'Entregado',   color: '#6b7280' },
   cancelado:      { label: 'Cancelado',   color: '#ef4444' },
 };
@@ -46,11 +49,10 @@ async function compressImage(dataUrl: string): Promise<string> {
 
 export default function BalancesPage() {
   const { profile } = useAuth();
+  const { sales, payments, refresh } = useData();
   const isAdmin     = profile?.role === 'admin' || profile?.role === 'gerente';
   const isVendedora = profile?.role === 'vendedora';
 
-  const [rows,       setRows]       = useState<any[]>([]);
-  const [loading,    setLoading]    = useState(true);
   const [searchText, setSearchText] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -63,14 +65,14 @@ export default function BalancesPage() {
   const [paySuccess, setPaySuccess] = useState('');
   const receiptRef = useRef<HTMLInputElement | null>(null);
 
-  const load = useCallback(() => {
-    setLoading(true);
-    const all = getSales().filter(v => {
+  // Filtrar ventas activas desde DataContext (Supabase)
+  const rows = sales
+    .filter(v => {
       if (v.estadoTrabajo === 'entregado' || v.estadoTrabajo === 'cancelado') return false;
       if (isVendedora && v.vendedora !== profile?.full_name) return false;
       return true;
-    });
-    setRows(all.map(v => ({
+    })
+    .map(v => ({
       id:                  String(v.id),
       sale_number:         `VTA-${v.id}`,
       created_at:          v.fecha,
@@ -86,16 +88,7 @@ export default function BalancesPage() {
       cobro_branch:        v.sucursalCobro,
       anteojos:            v.anteojos || [],
       observaciones:       v.observaciones || '',
-    })));
-    setLoading(false);
-  }, [profile, isVendedora]);
-
-  useEffect(() => { load(); }, [load]);
-  useEffect(() => {
-    const h = () => load();
-    window.addEventListener('optica_ventas_updated', h);
-    return () => window.removeEventListener('optica_ventas_updated', h);
-  }, [load]);
+    }));
 
   async function handleReceiptPhoto(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -108,15 +101,15 @@ export default function BalancesPage() {
     reader.readAsDataURL(file);
   }
 
-  function registerPayment(row: any) {
+  async function registerPayment(row: any) {
     const amt = parseFloat(payAmt);
     if (!amt || amt <= 0) return;
     setSavingPay(true);
     const saleIdNum  = Number(row.id);
     const newDeposit = row.deposit + amt;
     const newBalance = Math.max(0, row.total - newDeposit);
-    updateSaleBalance(saleIdNum, newBalance, newDeposit);
-    recordPayment({
+    await updateSaleBalance(saleIdNum, newBalance, newDeposit);
+    await recordPayment({
       id: Date.now(), saleId: saleIdNum, fecha: new Date().toISOString(),
       monto: amt, metodo: payMethod,
       sucursal: payBranch || row.cobro_branch || row.branch_name,
@@ -128,42 +121,20 @@ export default function BalancesPage() {
     setAddPayFor(null); setPayAmt(''); setPayReceipt('');
     setSavingPay(false);
     setTimeout(() => setPaySuccess(''), 4000);
-    load();
+    await refresh();
   }
 
-  // ── Marcar como entregado ─────────────────────────────────────────────────
-  function markDelivered(rowId: string) {
+  async function markDelivered(rowId: string) {
     const saleIdNum = Number(rowId);
-    const sale = getSales().find(v => v.id === saleIdNum);
-    closeSaleLocal(saleIdNum, 'retiro');
-
-    // Guardar alerta para el admin
-    if (sale) {
-      try {
-        const alerts = JSON.parse(localStorage.getItem('optica_delivery_alerts') || '[]');
-        alerts.unshift({
-          id: Date.now(),
-          saleId: saleIdNum,
-          saleNumber: `VTA-${saleIdNum}`,
-          customer: `${sale.cliente.nombre} ${sale.cliente.apellido}`.trim(),
-          vendedora: sale.vendedora,
-          total: sale.total,
-          timestamp: new Date().toISOString(),
-          reviewed: false,
-        });
-        localStorage.setItem('optica_delivery_alerts', JSON.stringify(alerts.slice(0, 50)));
-      } catch {}
-    }
-
-    setPaySuccess('✓ Lentes entregados — venta cerrada. El administrador verá una alerta para verificar el pago.');
+    await closeSaleLocal(saleIdNum, 'retiro');
+    setPaySuccess('✓ Lentes entregados — venta cerrada.');
     setExpandedId(null);
     setTimeout(() => setPaySuccess(''), 5000);
-    load();
-    window.dispatchEvent(new Event('optica_ventas_updated'));
+    await refresh();
   }
 
   function getPayHistory(saleId: string) {
-    return getPayments().filter(p => String(p.saleId) === saleId);
+    return payments.filter(p => String(p.saleId) === saleId);
   }
 
   const filtered = rows.filter(r => {
@@ -174,9 +145,10 @@ export default function BalancesPage() {
   });
 
   const totalPending = rows.filter(r => Number(r.balance) > 0).reduce((s, r) => s + Number(r.balance), 0);
-  const today        = new Date().toISOString().slice(0, 10);
+
+  const today = new Date().toISOString().slice(0, 10);
   const todayPayments = isVendedora
-    ? getPayments().filter(p => p.vendedora === profile?.full_name && (p.fecha || '').startsWith(today))
+    ? payments.filter(p => p.vendedora === profile?.full_name && (p.fecha || '').startsWith(today))
     : [];
   const todayTotal = todayPayments.reduce((s, p) => s + Number(p.monto), 0);
 
@@ -200,10 +172,10 @@ export default function BalancesPage() {
               placeholder="Cliente, venta..."
               className="bg-transparent text-xs text-white outline-none w-36" />
           </div>
-          <button onClick={load} disabled={loading}
+          <button onClick={() => refresh()}
             className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-light"
             style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.55)' }}>
-            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+            <RefreshCw size={13} />
           </button>
         </div>
       </div>
@@ -236,9 +208,7 @@ export default function BalancesPage() {
       </div>
 
       <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
-        {loading ? (
-          <div className="p-6 space-y-2">{[...Array(4)].map((_, i) => <div key={i} className="h-14 rounded shimmer" />)}</div>
-        ) : filtered.length === 0 ? (
+        {filtered.length === 0 ? (
           <div className="text-center py-16">
             <Check size={32} style={{ color: 'rgba(16,185,129,0.3)', margin: '0 auto 12px' }} />
             <p className="text-sm font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>
@@ -352,7 +322,7 @@ export default function BalancesPage() {
                           </div>
                         )}
 
-                        {/* Formulario de abono — solo si hay saldo */}
+                        {/* Formulario de abono */}
                         {!isPaid && (
                           <div className="pt-3" style={{ borderTop: '1px solid rgba(197,160,89,0.10)' }}>
                             {isPayOpen ? (
@@ -425,30 +395,33 @@ export default function BalancesPage() {
                           </div>
                         )}
 
-                        {/* Botón entregado — solo para pendiente y pagado_total */}
-                        {(row.status === 'pendiente' || row.status === 'en_proceso' || row.status === 'pagado_total') && (
-                          <div className="pt-3 space-y-2" style={{ borderTop: '1px solid rgba(197,160,89,0.10)' }}>
-                            {isPaid && (
-                              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl"
-                                style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)' }}>
-                                <Check size={14} style={{ color: '#10b981' }} />
-                                <p className="text-xs font-light" style={{ color: '#10b981' }}>
-                                  Pago completo — marcar cuando retiren los lentes
-                                </p>
-                              </div>
-                            )}
-                            <button
-                              onClick={e => { e.stopPropagation(); markDelivered(row.id); }}
-                              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium transition-all"
-                              style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.35)' }}
-                              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(34,197,94,0.22)'; }}
-                              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(34,197,94,0.12)'; }}>
-                              <Package size={15} />
-                              ✓ Marcar como Entregado
-                            </button>
-                          </div>
-                        )}
-                        {(row.status === 'en_laboratorio' || row.status === 'listo') && (<div className="pt-3 space-y-2" style={{ borderTop: '1px solid rgba(197,160,89,0.10)' }}><div className="flex items-center gap-2 px-3 py-2.5 rounded-xl" style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)' }}><span className="text-sm">🔬</span><p className="text-xs font-light" style={{ color: 'rgba(59,130,246,0.8)' }}>{row.status === 'listo' ? 'Listo en laboratorio — listo para entregar' : 'En laboratorio'}</p></div><button onClick={e => { e.stopPropagation(); markDelivered(row.id); }} className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium" style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.35)' }}>✓ Marcar como Entregado</button></div>)}
+                        {/* Botón Marcar Entregado — para TODOS los estados */}
+                        <div className="pt-3 space-y-2" style={{ borderTop: '1px solid rgba(197,160,89,0.10)' }}>
+                          {(row.status === 'en_laboratorio' || row.status === 'listo') && (
+                            <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
+                              style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)' }}>
+                              <span>🔬</span>
+                              <p className="text-xs font-light" style={{ color: 'rgba(59,130,246,0.8)' }}>
+                                {row.status === 'listo' ? 'Listo en laboratorio' : 'En laboratorio'}
+                              </p>
+                            </div>
+                          )}
+                          {isPaid && row.status !== 'en_laboratorio' && row.status !== 'listo' && (
+                            <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
+                              style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)' }}>
+                              <Check size={14} style={{ color: '#10b981' }} />
+                              <p className="text-xs font-light" style={{ color: '#10b981' }}>Pago completo — marcar cuando retiren los lentes</p>
+                            </div>
+                          )}
+                          <button
+                            onClick={e => { e.stopPropagation(); markDelivered(row.id); }}
+                            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium transition-all"
+                            style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.35)' }}
+                            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(34,197,94,0.22)'; }}
+                            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(34,197,94,0.12)'; }}>
+                            <Package size={15} />✓ Marcar como Entregado
+                          </button>
+                        </div>
 
                       </div>
                     )}
