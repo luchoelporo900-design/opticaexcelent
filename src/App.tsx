@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { BranchProvider, useBranch } from './context/BranchContext';
+import { DataProvider } from './context/DataContext';
 import LoginPage from './pages/LoginPage';
 import Sidebar from './components/Sidebar';
 import Dashboard from './pages/Dashboard';
@@ -33,12 +34,10 @@ function AppContent() {
   }, [profile?.branch_id, branches.length]);
 
   const ADMIN_ONLY_PAGES: Page[] = ['settings', 'reports', 'branches', 'commissions'];
-
   useEffect(() => {
     if (profile && !isAdmin && ADMIN_ONLY_PAGES.includes(page)) setPage('dashboard');
   }, [profile, page, isAdmin]);
 
-  // Laboratorio va directo al lab
   useEffect(() => {
     if (profile?.role === 'laboratorio') setPage('lab');
   }, [profile?.role]);
@@ -90,7 +89,9 @@ export default function App() {
   return (
     <AuthProvider>
       <BranchProvider>
-        <AppContent />
+        <DataProvider>
+          <AppContent />
+        </DataProvider>
       </BranchProvider>
     </AuthProvider>
   );
