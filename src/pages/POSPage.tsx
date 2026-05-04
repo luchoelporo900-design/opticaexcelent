@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, Plus, X, Save, ChevronDown, ChevronUp, Glasses, Banknote, CreditCard, Smartphone, QrCode, Send, MapPin, Truck, Store, Package, User, FileText, Check, CheckCircle, AlertCircle, Trash2, ShoppingBag, Hash, Clock, Building2, Camera, MessageCircle, Receipt, ZoomIn } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { saveSale as saveToStorage, getSales, getPayments, updateSaleBalance, recordPayment, closeSaleLocal, compressImage } from '../lib/salesStorage';
+import { supabase } from '../lib/supabase';
 
 type PaymentMethod = 'efectivo' | 'transferencia' | 'tarjeta' | 'qr' | 'giro';
 type SaleStatus = 'pendiente' | 'en_proceso' | 'en_laboratorio' | 'listo' | 'pagado_total' | 'entregado' | 'cancelado';
@@ -23,7 +24,7 @@ type EyeglassItem = {
   showReceta: boolean;
   prescription: Prescription;
   price: string;
-  saleType: 'completa' | 'media';  // 1 punto o 0.5 puntos
+  saleType: 'completa' | 'media';
 };
 
 type PaymentEntry = {
@@ -33,8 +34,6 @@ type PaymentEntry = {
   reference: string;
 };
 
-
-// ── Sucursales fijas ───────────────────────────────────────────────────────────
 const FIXED_BRANCHES = [
   { id: 'azara',    name: 'Azara' },
   { id: 'la_fina',  name: 'La Fina' },
@@ -69,13 +68,6 @@ function emptyRx(): Prescription {
     oi_esfera: '', oi_cilindro: '', oi_eje: '', oi_altura: '',
     add: '', dp: '', obs: '',
   };
-}
-
-function rxToText(rx: Prescription): string {
-  const od = `OD: ${rx.od_esfera || '—'} / ${rx.od_cilindro || '—'} x ${rx.od_eje || '—'}${rx.od_altura ? ` Alt:${rx.od_altura}` : ''}`;
-  const oi = `OI: ${rx.oi_esfera || '—'} / ${rx.oi_cilindro || '—'} x ${rx.oi_eje || '—'}${rx.oi_altura ? ` Alt:${rx.oi_altura}` : ''}`;
-  const extras = [rx.add && `ADD ${rx.add}`, rx.dp && `DP ${rx.dp}`, rx.obs].filter(Boolean).join(' | ');
-  return [od, oi, extras].filter(Boolean).join(' | ');
 }
 
 function newEyeglass(): EyeglassItem {
@@ -154,24 +146,23 @@ export default function POSPage() {
   const [saved,     setSaved]     = useState('');
   const [saveErr,   setSaveErr]   = useState('');
 
-
-  const [addPayFor,      setAddPayFor]      = useState<string | null>(null);
-  const [xPayAmt,        setXPayAmt]        = useState('');
-  const [xPayMethod,     setXPayMethod]     = useState<PaymentMethod>('efectivo');
-  const [xPayBranch,     setXPayBranch]     = useState('');
-  const [xPayRef,        setXPayRef]        = useState('');
-  const [xPayReceipt,    setXPayReceipt]    = useState('');
-  const [xPayWarn,       setXPayWarn]       = useState(false);
+  const [addPayFor,   setAddPayFor]   = useState<string | null>(null);
+  const [xPayAmt,     setXPayAmt]     = useState('');
+  const [xPayMethod,  setXPayMethod]  = useState<PaymentMethod>('efectivo');
+  const [xPayBranch,  setXPayBranch]  = useState('');
+  const [xPayRef,     setXPayRef]     = useState('');
+  const [xPayReceipt, setXPayReceipt] = useState('');
+  const [xPayWarn,    setXPayWarn]    = useState(false);
 
   type DeliveryMode = 'retiro' | 'delivery' | 'encomienda';
-  const [closeFor,           setCloseFor]           = useState<string | null>(null);
-  const [closeMethod,        setCloseMethod]        = useState<PaymentMethod>('efectivo');
-  const [closeAmt,           setCloseAmt]           = useState('');
-  const [closeRef,           setCloseRef]           = useState('');
-  const [closeReceipt,       setCloseReceipt]       = useState('');
-  const [closeReceiptWarn,   setCloseReceiptWarn]   = useState(false);
-  const [closeDelivery,      setCloseDelivery]      = useState<DeliveryMode>('retiro');
-  const [closingSale,        setClosingSale]        = useState(false);
+  const [closeFor,         setCloseFor]         = useState<string | null>(null);
+  const [closeMethod,      setCloseMethod]      = useState<PaymentMethod>('efectivo');
+  const [closeAmt,         setCloseAmt]         = useState('');
+  const [closeRef,         setCloseRef]         = useState('');
+  const [closeReceipt,     setCloseReceipt]     = useState('');
+  const [closeReceiptWarn, setCloseReceiptWarn] = useState(false);
+  const [closeDelivery,    setCloseDelivery]    = useState<DeliveryMode>('retiro');
+  const [closingSale,      setClosingSale]      = useState(false);
 
   const [saleTotal,   setSaleTotal]   = useState('');
   const [saleDeposit, setSaleDeposit] = useState('');
@@ -179,14 +170,12 @@ export default function POSPage() {
   const depositNum = parseFloat(saleDeposit) || 0;
   const balanceNum = Math.max(0, totalNum - depositNum);
 
-
   useEffect(() => {
     if (profile?.branch_id) {
       const bid = profile.branch_id.toLowerCase().replace(/ /g, '_').replace(/é/g, 'e').replace(/á/g, 'a');
       setSaleBranch(bid); setDelBranch(bid); setPayBranch(bid);
     }
   }, [profile?.branch_id]);
-
 
   function addEyeglass() { setEyeglasses(prev => [...prev, newEyeglass()]); }
   function removeEyeglass(id: string) { setEyeglasses(prev => prev.filter(eg => eg._id !== id)); }
@@ -208,17 +197,14 @@ export default function POSPage() {
 
     setSaving(true);
     try {
-      const sellerName    = profile?.full_name ?? 'Sin nombre';
-      const saleId        = Date.now();
-      const saleNum       = `VTA-${saleId}`;
-      const firstName     = nFirst.trim();
-      const lastName      = nLast.trim();
-      const phone         = nPhone.trim();
-      const ci            = nCi.trim();
-
-      // ── FIX: usar el método seleccionado, no buscar por amount ──
-      const primaryMethod = payments[0].method;
-
+      const sellerName     = profile?.full_name ?? 'Sin nombre';
+      const saleId         = Date.now();
+      const saleNum        = `VTA-${saleId}`;
+      const firstName      = nFirst.trim();
+      const lastName       = nLast.trim();
+      const phone          = nPhone.trim();
+      const ci             = nCi.trim();
+      const primaryMethod  = payments[0].method;
       const saleBranchName = FIXED_BRANCHES.find(b => b.id === saleBranch)?.name ?? saleBranch;
       const delBranchName  = FIXED_BRANCHES.find(b => b.id === delBranch)?.name  ?? delBranch;
       const payBranchName  = FIXED_BRANCHES.find(b => b.id === payBranch)?.name  ?? payBranch;
@@ -240,6 +226,25 @@ export default function POSPage() {
         observaciones: notes,
         receipt_url:   paymentReceipt || undefined,
       } as any);
+
+      // ── Descontar stock automáticamente por cada armazón vendido ──
+      for (const eg of eyeglasses) {
+        if (eg.frame_description?.trim()) {
+          const { data: matches } = await supabase
+            .from('stock_armazones')
+            .select('id, stock')
+            .or(`codigo.ilike.%${eg.frame_description.trim()}%,descripcion.ilike.%${eg.frame_description.trim()}%`)
+            .eq('sucursal', saleBranchName)
+            .limit(1);
+          if (matches && matches.length > 0) {
+            const frame = matches[0];
+            await supabase
+              .from('stock_armazones')
+              .update({ stock: Math.max(0, frame.stock - 1) })
+              .eq('id', frame.id);
+          }
+        }
+      }
 
       setSaved(`Venta ${saleNum} guardada con éxito.`);
       resetForm();
@@ -269,12 +274,9 @@ export default function POSPage() {
     }
   }
 
-
-
   async function registerXPay(saleId: string) {
     const amt = parseFloat(xPayAmt);
     if (!amt || amt <= 0) return;
-
     if (saleId.startsWith('local-')) {
       const numId = Number(saleId.replace('local-', ''));
       const localSale = getSales().find(s => s.id === numId);
@@ -331,7 +333,6 @@ export default function POSPage() {
 
   return (
     <div className="min-h-screen">
-      {/* ── LEFT: Formulario nueva venta ── */}
       <div className="flex-1 min-w-0 overflow-y-auto p-6 space-y-4" style={{ maxWidth: 680 }}>
 
         <div className="flex items-start justify-between">
@@ -418,9 +419,9 @@ export default function POSPage() {
               <FieldLabel>Tipo de entrega</FieldLabel>
               <div className="flex gap-2 flex-wrap">
                 {([
-                  { v: 'retiro' as const, l: 'Retiro en sucursal', ic: <Store size={12} /> },
-                  { v: 'delivery' as const, l: 'Delivery', ic: <MapPin size={12} /> },
-                  { v: 'encomienda' as const, l: 'Encomienda', ic: <Package size={12} /> },
+                  { v: 'retiro' as const,     l: 'Retiro en sucursal', ic: <Store size={12} /> },
+                  { v: 'delivery' as const,   l: 'Delivery',           ic: <MapPin size={12} /> },
+                  { v: 'encomienda' as const, l: 'Encomienda',         ic: <Package size={12} /> },
                 ]).map(opt => (
                   <button key={opt.v} onClick={() => setDelType(opt.v)}
                     className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-light"
@@ -501,9 +502,9 @@ export default function POSPage() {
             <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.20)' }}>
               <div className="grid grid-cols-3 divide-x" style={{ borderColor: 'rgba(197,160,89,0.14)' }}>
                 {[
-                  { label: 'TOTAL',      value: fmt(totalNum),   color: '#C5A059' },
-                  { label: 'ENTREGADO',  value: fmt(depositNum), color: '#10b981' },
-                  { label: 'SALDO PEND.',value: fmt(balanceNum), color: balanceNum > 0 ? '#f59e0b' : '#6b7280' },
+                  { label: 'TOTAL',       value: fmt(totalNum),   color: '#C5A059' },
+                  { label: 'ENTREGADO',   value: fmt(depositNum), color: '#10b981' },
+                  { label: 'SALDO PEND.', value: fmt(balanceNum), color: balanceNum > 0 ? '#f59e0b' : '#6b7280' },
                 ].map(item => (
                   <div key={item.label} className="flex flex-col items-center py-4 px-3" style={{ borderColor: 'rgba(197,160,89,0.14)' }}>
                     <p className="text-xs font-light tracking-widest mb-1.5" style={{ color: 'rgba(255,255,255,0.35)' }}>{item.label}</p>
@@ -548,9 +549,7 @@ export default function POSPage() {
         </button>
         <div className="h-6" />
       </div>
-
     </div>
-
   );
 }
 
@@ -650,31 +649,19 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: { eg: EyeglassItem;
           <div><p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Cristales</p>{textInp(eg.crystals, v => onUpdate({ crystals: v }), 'monofocal, multifocal...')}</div>
           <div><p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Tratamiento</p>{textInp(eg.treatments, v => onUpdate({ treatments: v }), 'antirreflejo, filtro azul...')}</div>
         </div>
-        {/* Tipo de venta */}
         <div className="flex items-center gap-2 flex-wrap">
           <p className="text-xs font-light shrink-0" style={{ color: 'rgba(255,255,255,0.4)' }}>Tipo de venta:</p>
-          <button
-            onClick={() => onUpdate({ saleType: 'completa' })}
+          <button onClick={() => onUpdate({ saleType: 'completa' })}
             className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-            style={{
-              background: (eg.saleType ?? 'completa') === 'completa' ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.03)',
-              border: `1px solid ${(eg.saleType ?? 'completa') === 'completa' ? 'rgba(16,185,129,0.5)' : 'rgba(255,255,255,0.08)'}`,
-              color: (eg.saleType ?? 'completa') === 'completa' ? '#10b981' : 'rgba(255,255,255,0.38)',
-            }}>
+            style={{ background: (eg.saleType ?? 'completa') === 'completa' ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.03)', border: `1px solid ${(eg.saleType ?? 'completa') === 'completa' ? 'rgba(16,185,129,0.5)' : 'rgba(255,255,255,0.08)'}`, color: (eg.saleType ?? 'completa') === 'completa' ? '#10b981' : 'rgba(255,255,255,0.38)' }}>
             ✓ 1 venta completa
           </button>
-          <button
-            onClick={() => onUpdate({ saleType: 'media' })}
+          <button onClick={() => onUpdate({ saleType: 'media' })}
             className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-            style={{
-              background: eg.saleType === 'media' ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.03)',
-              border: `1px solid ${eg.saleType === 'media' ? 'rgba(245,158,11,0.5)' : 'rgba(255,255,255,0.08)'}`,
-              color: eg.saleType === 'media' ? '#f59e0b' : 'rgba(255,255,255,0.38)',
-            }}>
+            style={{ background: eg.saleType === 'media' ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.03)', border: `1px solid ${eg.saleType === 'media' ? 'rgba(245,158,11,0.5)' : 'rgba(255,255,255,0.08)'}`, color: eg.saleType === 'media' ? '#f59e0b' : 'rgba(255,255,255,0.38)' }}>
             ½ media venta
           </button>
         </div>
-
         <div className="flex items-end gap-3">
           <div className="flex-1">
             <button onClick={() => onUpdate({ showReceta: !eg.showReceta })}
@@ -685,10 +672,8 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: { eg: EyeglassItem;
             </button>
           </div>
         </div>
-
         {eg.showReceta && (
           <div className="rounded-xl p-3 space-y-3" style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.14)' }}>
-            {/* OD — 3 columnas sin Altura */}
             <div>
               <p className="text-xs font-light mb-2" style={{ color: '#C5A059' }}>OD — Ojo Derecho</p>
               <div className="grid grid-cols-3 gap-2">
@@ -697,7 +682,6 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: { eg: EyeglassItem;
                 <RxInput label="Eje"      value={eg.prescription.od_eje}      onChange={v => updateRx('od_eje', v)}      placeholder="180" />
               </div>
             </div>
-            {/* OI — 3 columnas sin Altura */}
             <div>
               <p className="text-xs font-light mb-2" style={{ color: '#C5A059' }}>OI — Ojo Izquierdo</p>
               <div className="grid grid-cols-3 gap-2">
@@ -706,7 +690,6 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: { eg: EyeglassItem;
                 <RxInput label="Eje"      value={eg.prescription.oi_eje}      onChange={v => updateRx('oi_eje', v)}      placeholder="175" />
               </div>
             </div>
-            {/* ADD / DP / Altura / Obs */}
             <div className="grid grid-cols-4 gap-2">
               <RxInput label="ADD"    value={eg.prescription.add}       onChange={v => updateRx('add', v)}       placeholder="+2.00" />
               <RxInput label="DP"     value={eg.prescription.dp}        onChange={v => updateRx('dp', v)}        placeholder="64" />
@@ -725,6 +708,12 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: { eg: EyeglassItem;
   );
 }
 
+const DELIVERY_OPTIONS: { id: 'retiro' | 'delivery' | 'encomienda'; label: string; icon: React.ReactNode }[] = [
+  { id: 'retiro',     label: 'Retirado en local', icon: <Store size={13} /> },
+  { id: 'delivery',   label: 'Delivery',          icon: <Truck size={13} /> },
+  { id: 'encomienda', label: 'Encomienda',        icon: <Package size={13} /> },
+];
+
 type CloseSaleFormProps = {
   balance: number;
   closeAmt: string; setCloseAmt: (v: string) => void;
@@ -735,12 +724,6 @@ type CloseSaleFormProps = {
   closeDelivery: 'retiro' | 'delivery' | 'encomienda'; setCloseDelivery: (v: 'retiro' | 'delivery' | 'encomienda') => void;
   closingSale: boolean; onConfirm: () => void; onCancel: () => void;
 };
-
-const DELIVERY_OPTIONS: { id: 'retiro' | 'delivery' | 'encomienda'; label: string; icon: React.ReactNode }[] = [
-  { id: 'retiro',     label: 'Retirado en local', icon: <Store size={13} /> },
-  { id: 'delivery',   label: 'Delivery',          icon: <Truck size={13} /> },
-  { id: 'encomienda', label: 'Encomienda',        icon: <Package size={13} /> },
-];
 
 function CloseSaleForm({ balance, closeAmt, setCloseAmt, closeMethod, setCloseMethod, closeRef, setCloseRef, closeReceipt, setCloseReceipt, closeReceiptWarn, setCloseReceiptWarn, closeDelivery, setCloseDelivery, closingSale, onConfirm, onCancel }: CloseSaleFormProps) {
   const hasPendingBalance = balance > 0;
