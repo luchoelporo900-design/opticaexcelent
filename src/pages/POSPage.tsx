@@ -281,7 +281,7 @@ await saveToStorage({
       if (localSale) {
         const newDeposit = localSale.sena + amt;
         const newBalance = Math.max(0, localSale.total - newDeposit);
-        updateSaleBalance(numId, newBalance, newDeposit);
+await updateSaleBalance(numId, newBalance, newDeposit);
         recordPayment({
           id: Date.now(), saleId: numId, fecha: new Date().toISOString(),
           monto: amt, metodo: xPayMethod,
