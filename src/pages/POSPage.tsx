@@ -684,10 +684,6 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: { eg: EyeglassItem;
               {eg.showReceta ? 'Ocultar receta' : '+ Completar receta'}
             </button>
           </div>
-          <div className="w-36">
-            <p className="text-xs font-light mb-1.5 text-right" style={{ color: 'rgba(255,255,255,0.4)' }}>Precio <span style={{ color: '#C5A059' }}>*</span></p>
-            {textInp(eg.price, v => onUpdate({ price: v }), 'Gs.', { type: 'number', right: true })}
-          </div>
         </div>
 
         {eg.showReceta && (
