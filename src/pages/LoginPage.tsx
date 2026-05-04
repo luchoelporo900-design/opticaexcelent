@@ -1,6 +1,7 @@
 import { useState, FormEvent } from 'react';
 import { Eye, EyeOff, Glasses, UserPlus, ChevronLeft, Check } from 'lucide-react';
-import { useAuth, getStoredUsers, saveStoredUsers, Profile } from '../context/AuthContext';
+import { useAuth, Profile } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 
 const SUCURSALES = ['Azara', 'Fernando', 'Caacupé', 'La Fina'];
 
@@ -44,23 +45,43 @@ export default function LoginPage() {
       setRegError('La contraseña debe tener al menos 6 caracteres.');
       return;
     }
-    const all = getStoredUsers();
-    if (all.find(u => u.email.toLowerCase() === regEmail.trim().toLowerCase())) {
+
+    setRegLoading(true);
+
+    // Verificar si ya existe ese email en Supabase
+    const { data: existing } = await supabase
+      .from('optica_users')
+      .select('id')
+      .eq('email', regEmail.trim().toLowerCase())
+      .maybeSingle();
+
+    if (existing) {
       setRegError('Ya existe un usuario con ese correo.');
+      setRegLoading(false);
       return;
     }
-    setRegLoading(true);
+
     const newUser: Profile = {
-      id: Date.now().toString(),
-      full_name: regName.trim(),
-      email: regEmail.trim(),
-      password: regPass,
-      role: regRole === 'admin' ? 'admin' : 'vendedora',
-      branch_id: regBranch || null,
+      id:         Date.now().toString(),
+      full_name:  regName.trim(),
+      email:      regEmail.trim().toLowerCase(),
+      password:   regPass,
+      role:       regRole === 'admin' ? 'admin' : 'vendedora',
+      branch_id:  regBranch || null,
       avatar_url: '',
       created_at: new Date().toISOString(),
     };
-    saveStoredUsers([...all, newUser]);
+
+    const { error: saveError } = await supabase
+      .from('optica_users')
+      .insert(newUser);
+
+    if (saveError) {
+      setRegError('Error al guardar el usuario. Intentá de nuevo.');
+      setRegLoading(false);
+      return;
+    }
+
     setRegLoading(false);
     setRegOk(`Usuario "${regName.trim()}" registrado con éxito.`);
     setRegName(''); setRegEmail(''); setRegPass('');
