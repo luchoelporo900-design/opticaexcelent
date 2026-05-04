@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react';
 import { User, Glasses, Plus, Eye, EyeOff, Check, X, RefreshCw, Shield } from 'lucide-react';
-import { useAuth, getStoredUsers, saveStoredUsers, Profile } from '../context/AuthContext';
+import { useAuth, Profile } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 
 const SUCURSALES = ['Azara', 'Fernando', 'Caacupé', 'La Fina'];
 
 const ROLES = [
-  { id: 'vendedora',    label: 'Vendedora',     color: '#3b82f6' },
-  { id: 'laboratorio',  label: 'Laboratorio',   color: '#10b981' },
-  { id: 'gerente',      label: 'Gerente',       color: '#f59e0b' },
-  { id: 'admin',        label: 'Administrador', color: '#C5A059' },
+  { id: 'vendedora',   label: 'Vendedora',     color: '#3b82f6' },
+  { id: 'laboratorio', label: 'Laboratorio',   color: '#10b981' },
+  { id: 'gerente',     label: 'Gerente',       color: '#f59e0b' },
+  { id: 'admin',       label: 'Administrador', color: '#C5A059' },
 ];
 
 function roleColor(role: string) { return ROLES.find(r => r.id === role)?.color ?? 'rgba(255,255,255,0.4)'; }
@@ -40,10 +41,11 @@ export default function SettingsPage() {
   const { profile } = useAuth();
   const isAdmin = profile?.role === 'admin' || profile?.role === 'gerente';
 
-  const [fullName, setFullName] = useState(profile?.full_name || '');
-  const [saving,   setSaving]   = useState(false);
-  const [saved,    setSaved]    = useState(false);
-  const [team,     setTeam]     = useState<Profile[]>([]);
+  const [fullName,   setFullName]   = useState(profile?.full_name || '');
+  const [saving,     setSaving]     = useState(false);
+  const [saved,      setSaved]      = useState(false);
+  const [team,       setTeam]       = useState<Profile[]>([]);
+  const [loadingTeam,setLoadingTeam]= useState(false);
 
   const [showCreate, setShowCreate] = useState(false);
   const [newName,    setNewName]    = useState('');
@@ -56,55 +58,103 @@ export default function SettingsPage() {
   const [createErr,  setCreateErr]  = useState('');
   const [createOk,   setCreateOk]   = useState('');
 
-  useEffect(() => { setTeam(getStoredUsers()); }, []);
+  useEffect(() => { loadTeam(); }, []);
 
-  function saveProfile() {
-    if (!profile) return;
-    setSaving(true);
-    const all     = getStoredUsers();
-    const updated = all.map(u => u.id === profile.id ? { ...u, full_name: fullName } : u);
-    saveStoredUsers(updated);
-    setSaving(false); setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+  // ── Cargar usuarios desde Supabase ───────────────────────────────────────
+  async function loadTeam() {
+    setLoadingTeam(true);
+    const { data } = await supabase
+      .from('optica_users')
+      .select('*')
+      .order('created_at', { ascending: true });
+    if (data) setTeam(data as Profile[]);
+    setLoadingTeam(false);
   }
 
-  function createUser() {
+  // ── Guardar nombre del perfil en Supabase ────────────────────────────────
+  async function saveProfile() {
+    if (!profile) return;
+    setSaving(true);
+    await supabase
+      .from('optica_users')
+      .update({ full_name: fullName })
+      .eq('id', profile.id);
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+    loadTeam();
+  }
+
+  // ── Crear usuario en Supabase ────────────────────────────────────────────
+  async function createUser() {
     setCreateErr('');
-    if (!newName.trim() || !newEmail.trim() || !newPass.trim()) { setCreateErr('Todos los campos son obligatorios.'); return; }
-    if (newPass.length < 6) { setCreateErr('La contraseña debe tener al menos 6 caracteres.'); return; }
-    const all = getStoredUsers();
-    if (all.find(u => u.email.toLowerCase() === newEmail.trim().toLowerCase())) { setCreateErr('Ya existe un usuario con ese correo.'); return; }
+    if (!newName.trim() || !newEmail.trim() || !newPass.trim()) {
+      setCreateErr('Todos los campos son obligatorios.'); return;
+    }
+    if (newPass.length < 6) {
+      setCreateErr('La contraseña debe tener al menos 6 caracteres.'); return;
+    }
+
     setCreating(true);
+
+    // Verificar si ya existe
+    const { data: existing } = await supabase
+      .from('optica_users')
+      .select('id')
+      .eq('email', newEmail.trim().toLowerCase())
+      .maybeSingle();
+
+    if (existing) {
+      setCreateErr('Ya existe un usuario con ese correo.');
+      setCreating(false);
+      return;
+    }
+
     const newUser: Profile = {
-      id: Date.now().toString(), full_name: newName.trim(), email: newEmail.trim(),
-      password: newPass, role: newRole as Profile['role'], branch_id: newBranch || null,
-      avatar_url: '', created_at: new Date().toISOString(),
+      id:         Date.now().toString(),
+      full_name:  newName.trim(),
+      email:      newEmail.trim().toLowerCase(),
+      password:   newPass,
+      role:       newRole as Profile['role'],
+      branch_id:  newBranch || null,
+      avatar_url: '',
+      created_at: new Date().toISOString(),
     };
-    saveStoredUsers([...all, newUser]);
-    setTeam(getStoredUsers());
+
+    const { error } = await supabase.from('optica_users').insert(newUser);
+
+    if (error) {
+      setCreateErr('Error al crear el usuario. Intentá de nuevo.');
+      setCreating(false);
+      return;
+    }
+
     setCreateOk(`Usuario "${newName.trim()}" creado con éxito.`);
-    setNewName(''); setNewEmail(''); setNewPass(''); setNewRole('vendedora'); setNewBranch('');
+    setNewName(''); setNewEmail(''); setNewPass('');
+    setNewRole('vendedora'); setNewBranch('');
     setShowCreate(false); setCreating(false);
+    loadTeam();
     setTimeout(() => setCreateOk(''), 6000);
   }
 
-  function updateMemberRole(id: string, role: string) {
-    const all = getStoredUsers();
-    saveStoredUsers(all.map(u => u.id === id ? { ...u, role: role as Profile['role'] } : u));
-    setTeam(getStoredUsers());
+  // ── Actualizar rol en Supabase ───────────────────────────────────────────
+  async function updateMemberRole(id: string, role: string) {
+    await supabase.from('optica_users').update({ role }).eq('id', id);
+    loadTeam();
   }
 
-  function updateMemberBranch(id: string, branch_id: string) {
-    const all = getStoredUsers();
-    saveStoredUsers(all.map(u => u.id === id ? { ...u, branch_id: branch_id || null } : u));
-    setTeam(getStoredUsers());
+  // ── Actualizar sucursal en Supabase ──────────────────────────────────────
+  async function updateMemberBranch(id: string, branch_id: string) {
+    await supabase.from('optica_users').update({ branch_id: branch_id || null }).eq('id', id);
+    loadTeam();
   }
 
-  function deleteUser(id: string) {
+  // ── Eliminar usuario de Supabase ─────────────────────────────────────────
+  async function deleteUser(id: string) {
     if (id === profile?.id) return;
     if (!window.confirm('¿Eliminar este usuario?')) return;
-    saveStoredUsers(getStoredUsers().filter(u => u.id !== id));
-    setTeam(getStoredUsers());
+    await supabase.from('optica_users').delete().eq('id', id);
+    loadTeam();
   }
 
   return (
@@ -159,9 +209,9 @@ export default function SettingsPage() {
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <button onClick={() => setTeam(getStoredUsers())}
+              <button onClick={loadTeam} disabled={loadingTeam}
                 className="p-2 rounded-lg" style={{ color: 'rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.04)' }}>
-                <RefreshCw size={12} />
+                <RefreshCw size={12} className={loadingTeam ? 'animate-spin' : ''} />
               </button>
               <button onClick={() => { setShowCreate(!showCreate); setCreateErr(''); }}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium"
@@ -215,7 +265,11 @@ export default function SettingsPage() {
             </div>
           )}
 
-          {team.length === 0 ? (
+          {loadingTeam ? (
+            <div className="text-center py-8">
+              <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.3)' }}>Cargando usuarios...</p>
+            </div>
+          ) : team.length === 0 ? (
             <div className="text-center py-10">
               <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.28)' }}>No hay usuarios registrados.</p>
             </div>
@@ -274,7 +328,7 @@ export default function SettingsPage() {
             ['Sistema',         'Óptica Yolanda · Elite Management'],
             ['Versión',         'V32.0.0'],
             ['Sucursales',      '4 (Azara, Fernando, Caacupé, La Fina)'],
-            ['Base de datos',   'localStorage (sin conexión requerida)'],
+            ['Base de datos',   'Supabase (nube)'],
             ['Módulos activos', 'Dashboard · POS · CRM · Caja · Saldos · Lab · Reportes'],
           ].map(([label, value]) => (
             <div key={label} className="flex justify-between text-xs font-light py-2.5 border-b"
