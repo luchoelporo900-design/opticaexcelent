@@ -223,7 +223,7 @@ export default function POSPage() {
       const delBranchName  = FIXED_BRANCHES.find(b => b.id === delBranch)?.name  ?? delBranch;
       const payBranchName  = FIXED_BRANCHES.find(b => b.id === payBranch)?.name  ?? payBranch;
 
-await saveToStorage({
+      await saveToStorage({
         id: saleId,
         fecha: new Date().toISOString(),
         cliente: { nombre: firstName, apellido: lastName, telefono: phone, ci },
@@ -281,8 +281,8 @@ await saveToStorage({
       if (localSale) {
         const newDeposit = localSale.sena + amt;
         const newBalance = Math.max(0, localSale.total - newDeposit);
-await updateSaleBalance(numId, newBalance, newDeposit);
-        recordPayment({
+        await updateSaleBalance(numId, newBalance, newDeposit);
+        await recordPayment({
           id: Date.now(), saleId: numId, fecha: new Date().toISOString(),
           monto: amt, metodo: xPayMethod,
           sucursal: (FIXED_BRANCHES.find(b => b.id === xPayBranch)?.name ?? xPayBranch) || FIXED_BRANCHES[0].name,
@@ -307,7 +307,7 @@ await updateSaleBalance(numId, newBalance, newDeposit);
       const localSale = getSales().find(s => s.id === numId);
       if (localSale) {
         if (finalAmt > 0) {
-          recordPayment({
+          await recordPayment({
             id: Date.now(), saleId: numId, fecha: new Date().toISOString(),
             monto: finalAmt, metodo: closeMethod,
             sucursal: FIXED_BRANCHES[0].name,
@@ -316,7 +316,7 @@ await updateSaleBalance(numId, newBalance, newDeposit);
             tipo: 'abono', receipt_url: closeReceipt || undefined,
           });
         }
-await closeSaleLocal(numId, closeDelivery);
+        await closeSaleLocal(numId, closeDelivery);
       }
     }
     setCloseFor(null); setCloseAmt(''); setCloseRef('');
