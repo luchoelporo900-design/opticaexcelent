@@ -1,0 +1,39 @@
+const https = require('https');
+
+const data = JSON.stringify({
+  id: 'admin1',
+  full_name: 'Luis Martinez',
+  email: 'luchoelporo900@gmail.com',
+  password: '@Lucho2020',
+  role: 'admin',
+  branch_id: null,
+  avatar_url: '',
+  created_at: new Date().toISOString()
+});
+
+const options = {
+  hostname: 'xbwtptnzazrrhjpqmvpw.supabase.co',
+  path: '/rest/v1/optica_users',
+  method: 'POST',
+  headers: {
+    'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhid3RwdG56YXpycmhqcHFtdnB3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0MTQ2NjcsImV4cCI6MjA5Mjk5MDY2N30.AV85avi1XKm1Lb-LhahzkY-qttmr3BGkj67-1sHPDc4',
+    'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhid3RwdG56YXpycmhqcHFtdnB3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0MTQ2NjcsImV4cCI6MjA5Mjk5MDY2N30.AV85avi1XKm1Lb-LhahzkY-qttmr3BGkj67-1sHPDc4',
+    'Content-Type': 'application/json',
+    'Prefer': 'return=minimal',
+    'Content-Length': Buffer.byteLength(data)
+  }
+};
+
+const req = https.request(options, (res) => {
+  console.log('Status:', res.statusCode);
+  let body = '';
+  res.on('data', (chunk) => body += chunk);
+  res.on('end', () => {
+    if (body) console.log('Response:', body);
+    else console.log('Usuario creado exitosamente!');
+  });
+});
+
+req.on('error', (e) => console.error('Error:', e));
+req.write(data);
+req.end();
