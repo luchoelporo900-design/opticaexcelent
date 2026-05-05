@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { User, Glasses, Plus, Eye, EyeOff, Check, X, RefreshCw, Shield } from 'lucide-react';
+import { User, Glasses, Plus, Eye, EyeOff, Check, X, RefreshCw, Shield, Package, ToggleLeft, ToggleRight } from 'lucide-react';
 import { useAuth, Profile } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 
@@ -41,11 +41,11 @@ export default function SettingsPage() {
   const { profile } = useAuth();
   const isAdmin = profile?.role === 'admin' || profile?.role === 'gerente';
 
-  const [fullName,   setFullName]   = useState(profile?.full_name || '');
-  const [saving,     setSaving]     = useState(false);
-  const [saved,      setSaved]      = useState(false);
-  const [team,       setTeam]       = useState<Profile[]>([]);
-  const [loadingTeam,setLoadingTeam]= useState(false);
+  const [fullName,    setFullName]    = useState(profile?.full_name || '');
+  const [saving,      setSaving]      = useState(false);
+  const [saved,       setSaved]       = useState(false);
+  const [team,        setTeam]        = useState<Profile[]>([]);
+  const [loadingTeam, setLoadingTeam] = useState(false);
 
   const [showCreate, setShowCreate] = useState(false);
   const [newName,    setNewName]    = useState('');
@@ -58,34 +58,39 @@ export default function SettingsPage() {
   const [createErr,  setCreateErr]  = useState('');
   const [createOk,   setCreateOk]   = useState('');
 
+  // Permisos de stock por usuario
+  const [stockPerms,        setStockPerms]        = useState<Record<string, boolean>>({});
+  const [savingStockPerm,   setSavingStockPerm]   = useState<string | null>(null);
+
   useEffect(() => { loadTeam(); }, []);
 
-  // ── Cargar usuarios desde Supabase ───────────────────────────────────────
   async function loadTeam() {
     setLoadingTeam(true);
     const { data } = await supabase
       .from('optica_users')
       .select('*')
       .order('created_at', { ascending: true });
-    if (data) setTeam(data as Profile[]);
+    if (data) {
+      setTeam(data as Profile[]);
+      // Cargar permisos de stock de cada usuario
+      const perms: Record<string, boolean> = {};
+      for (const u of data as any[]) {
+        perms[u.id] = u.puede_cargar_stock ?? false;
+      }
+      setStockPerms(perms);
+    }
     setLoadingTeam(false);
   }
 
-  // ── Guardar nombre del perfil en Supabase ────────────────────────────────
   async function saveProfile() {
     if (!profile) return;
     setSaving(true);
-    await supabase
-      .from('optica_users')
-      .update({ full_name: fullName })
-      .eq('id', profile.id);
-    setSaving(false);
-    setSaved(true);
+    await supabase.from('optica_users').update({ full_name: fullName }).eq('id', profile.id);
+    setSaving(false); setSaved(true);
     setTimeout(() => setSaved(false), 2500);
     loadTeam();
   }
 
-  // ── Crear usuario en Supabase ────────────────────────────────────────────
   async function createUser() {
     setCreateErr('');
     if (!newName.trim() || !newEmail.trim() || !newPass.trim()) {
@@ -94,40 +99,23 @@ export default function SettingsPage() {
     if (newPass.length < 6) {
       setCreateErr('La contraseña debe tener al menos 6 caracteres.'); return;
     }
-
     setCreating(true);
-
-    // Verificar si ya existe
-    const { data: existing } = await supabase
-      .from('optica_users')
-      .select('id')
-      .eq('email', newEmail.trim().toLowerCase())
-      .maybeSingle();
-
-    if (existing) {
-      setCreateErr('Ya existe un usuario con ese correo.');
-      setCreating(false);
-      return;
-    }
+    const { data: existing } = await supabase.from('optica_users').select('id').eq('email', newEmail.trim().toLowerCase()).maybeSingle();
+    if (existing) { setCreateErr('Ya existe un usuario con ese correo.'); setCreating(false); return; }
 
     const newUser: Profile = {
-      id:         Date.now().toString(),
-      full_name:  newName.trim(),
-      email:      newEmail.trim().toLowerCase(),
-      password:   newPass,
-      role:       newRole as Profile['role'],
-      branch_id:  newBranch || null,
+      id: Date.now().toString(),
+      full_name: newName.trim(),
+      email: newEmail.trim().toLowerCase(),
+      password: newPass,
+      role: newRole as Profile['role'],
+      branch_id: newBranch || null,
       avatar_url: '',
       created_at: new Date().toISOString(),
     };
 
     const { error } = await supabase.from('optica_users').insert(newUser);
-
-    if (error) {
-      setCreateErr('Error al crear el usuario. Intentá de nuevo.');
-      setCreating(false);
-      return;
-    }
+    if (error) { setCreateErr('Error al crear el usuario. Intentá de nuevo.'); setCreating(false); return; }
 
     setCreateOk(`Usuario "${newName.trim()}" creado con éxito.`);
     setNewName(''); setNewEmail(''); setNewPass('');
@@ -137,25 +125,34 @@ export default function SettingsPage() {
     setTimeout(() => setCreateOk(''), 6000);
   }
 
-  // ── Actualizar rol en Supabase ───────────────────────────────────────────
   async function updateMemberRole(id: string, role: string) {
     await supabase.from('optica_users').update({ role }).eq('id', id);
     loadTeam();
   }
 
-  // ── Actualizar sucursal en Supabase ──────────────────────────────────────
   async function updateMemberBranch(id: string, branch_id: string) {
     await supabase.from('optica_users').update({ branch_id: branch_id || null }).eq('id', id);
     loadTeam();
   }
 
-  // ── Eliminar usuario de Supabase ─────────────────────────────────────────
   async function deleteUser(id: string) {
     if (id === profile?.id) return;
     if (!window.confirm('¿Eliminar este usuario?')) return;
     await supabase.from('optica_users').delete().eq('id', id);
     loadTeam();
   }
+
+  async function toggleStockPerm(userId: string) {
+    const current = stockPerms[userId] ?? false;
+    const newVal  = !current;
+    setSavingStockPerm(userId);
+    await supabase.from('optica_users').update({ puede_cargar_stock: newVal }).eq('id', userId);
+    setStockPerms(prev => ({ ...prev, [userId]: newVal }));
+    setSavingStockPerm(null);
+  }
+
+  // Vendedoras del equipo (las que tienen rol vendedora)
+  const vendedoras = team.filter(m => m.role === 'vendedora');
 
   return (
     <div className="p-6 space-y-6 max-w-4xl mx-auto">
@@ -196,6 +193,73 @@ export default function SettingsPage() {
           </button>
         </div>
       </div>
+
+      {/* Permisos de Stock — solo admin */}
+      {isAdmin && (
+        <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.018)', border: '1px solid rgba(197,160,89,0.14)' }}>
+          <div className="flex items-center gap-3 px-5 py-3.5" style={{ borderBottom: '1px solid rgba(197,160,89,0.09)' }}>
+            <Package size={14} style={{ color: '#C5A059' }} />
+            <span className="text-sm font-light tracking-wide text-white">Permisos de Stock</span>
+            <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(197,160,89,0.12)', color: '#C5A059' }}>
+              Vendedoras
+            </span>
+          </div>
+          <div className="p-5">
+            <p className="text-xs font-light mb-4" style={{ color: 'rgba(255,255,255,0.45)' }}>
+              Controlá quién puede agregar armazones al stock. Las vendedoras habilitadas podrán cargar nuevos modelos desde su celular.
+            </p>
+
+            {vendedoras.length === 0 ? (
+              <p className="text-xs font-light text-center py-4" style={{ color: 'rgba(255,255,255,0.28)' }}>
+                No hay vendedoras registradas
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {vendedoras.map(m => {
+                  const enabled  = stockPerms[m.id] ?? false;
+                  const isSaving = savingStockPerm === m.id;
+                  return (
+                    <div key={m.id} className="flex items-center justify-between px-4 py-3 rounded-xl"
+                      style={{ background: enabled ? 'rgba(34,197,94,0.04)' : 'rgba(255,255,255,0.02)', border: `1px solid ${enabled ? 'rgba(34,197,94,0.20)' : 'rgba(255,255,255,0.07)'}` }}>
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
+                          style={{ background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.25)' }}>
+                          <User size={14} style={{ color: '#3b82f6' }} />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-light text-white truncate">{m.full_name}</p>
+                          <p className="text-xs font-light truncate" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                            {m.branch_id || 'Sin sucursal'} · {m.email}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => toggleStockPerm(m.id)}
+                        disabled={isSaving}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-light shrink-0 ml-3"
+                        style={{
+                          background: enabled ? 'rgba(34,197,94,0.12)' : 'rgba(255,255,255,0.04)',
+                          border: `1px solid ${enabled ? 'rgba(34,197,94,0.30)' : 'rgba(255,255,255,0.10)'}`,
+                          color: enabled ? '#22c55e' : 'rgba(255,255,255,0.4)',
+                          opacity: isSaving ? 0.5 : 1,
+                        }}>
+                        {isSaving ? (
+                          <div className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
+                        ) : enabled ? (
+                          <ToggleRight size={16} />
+                        ) : (
+                          <ToggleLeft size={16} />
+                        )}
+                        {isSaving ? 'Guardando...' : enabled ? 'Habilitada' : 'Deshabilitada'}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Gestión de equipo — solo admin */}
       {isAdmin && (
@@ -258,7 +322,7 @@ export default function SettingsPage() {
                 </Field>
               </div>
               <button onClick={createUser} disabled={creating || !newName.trim() || !newEmail.trim() || !newPass.trim()}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-medium transition-opacity"
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-medium"
                 style={{ background: '#C5A059', color: '#000', opacity: (!newName.trim() || !newEmail.trim() || !newPass.trim()) ? 0.45 : 1, cursor: (!newName.trim() || !newEmail.trim() || !newPass.trim()) ? 'not-allowed' : 'pointer' }}>
                 <User size={12} />{creating ? 'Creando...' : 'Crear Usuario'}
               </button>
@@ -323,13 +387,13 @@ export default function SettingsPage() {
           <Glasses size={14} style={{ color: '#C5A059' }} />
           <span className="text-sm font-light tracking-wide text-white">Acerca del Sistema</span>
         </div>
-        <div className="p-5 space-y-0">
+        <div className="p-5">
           {[
             ['Sistema',         'Óptica Yolanda · Elite Management'],
             ['Versión',         'V32.0.0'],
             ['Sucursales',      '4 (Azara, Fernando, Caacupé, La Fina)'],
             ['Base de datos',   'Supabase (nube)'],
-            ['Módulos activos', 'Dashboard · POS · CRM · Caja · Saldos · Lab · Reportes'],
+            ['Módulos activos', 'Dashboard · POS · CRM · Caja · Saldos · Lab · Stock · Reportes'],
           ].map(([label, value]) => (
             <div key={label} className="flex justify-between text-xs font-light py-2.5 border-b"
               style={{ borderColor: 'rgba(197,160,89,0.07)' }}>
