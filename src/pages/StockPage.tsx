@@ -1,159 +1,158 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Package, Plus, Search, RefreshCw, Edit2, Trash2, X, Check,
-  ChevronDown, Eye, EyeOff, AlertTriangle, TrendingDown,
-  Glasses, DollarSign, BarChart2, Camera,
+  ChevronDown, Eye, EyeOff, AlertTriangle, Glasses, DollarSign,
+  BarChart2, Camera,
 } from 'lucide-react';
-import { useBranch } from '../context/BranchContext';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { compressImage } from '../lib/salesStorage';
 
+// ─── Tipos ────────────────────────────────────────────────────────────────────
+
 type Frame = {
-  id: number;
+  id: string;
   codigo: string;
-  descripcion: string;
-  marca: string;
-  modelo: string;
-  color: string;
-  material: string;
-  tipo: string;
-  precio_costo: number;
-  precio_venta: number;
-  stock: number;
-  stock_minimo: number;
-  sucursal: string;
-  proveedor: string;
-  foto_url: string | null;
-  activo: boolean;
+  nombre: string;
+  foto_url: string;
+  precio: number;
+  stock_azara: number;
+  stock_fernando: number;
+  stock_caacupe: number;
+  stock_la_fina: number;
   created_at: string;
+  updated_at: string;
 };
 
-type FormData = Omit<Frame, 'id' | 'created_at'>;
-
-const SUCURSALES = ['Azara', 'Fernando', 'Caacupé', 'La Fina'];
-const TIPOS      = ['armazón', 'sol', 'deportivo', 'infantil'];
-const MATERIALES = ['acetato', 'metal', 'titanio', 'tr-90', 'mixto', 'madera', 'otro'];
-
-const TIPO_COLORS: Record<string, string> = {
-  'armazón':   '#C5A059',
-  'sol':       '#f59e0b',
-  'deportivo': '#3b82f6',
-  'infantil':  '#a78bfa',
+type FormData = {
+  codigo: string;
+  nombre: string;
+  foto_url: string;
+  precio: number;
+  stock_azara: number;
+  stock_fernando: number;
+  stock_caacupe: number;
+  stock_la_fina: number;
 };
 
-const SUCURSAL_COLORS: Record<string, string> = {
-  'Azara':    '#22c55e',
-  'Fernando': '#3b82f6',
-  'Caacupé':  '#C5A059',
-  'La Fina':  '#a78bfa',
-};
+// ─── Constantes ───────────────────────────────────────────────────────────────
+
+const SEDES = [
+  { key: 'stock_azara',    label: 'Azara',    color: '#22c55e' },
+  { key: 'stock_fernando', label: 'Fernando', color: '#3b82f6' },
+  { key: 'stock_caacupe',  label: 'Caacupé',  color: '#C5A059' },
+  { key: 'stock_la_fina',  label: 'La Fina',  color: '#a78bfa' },
+];
 
 function fmt(n: number) {
   return n.toLocaleString('es-PY', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
 
-function emptyForm(branch = ''): FormData {
+function emptyForm(): FormData {
   return {
-    codigo: '', descripcion: '', marca: '', modelo: '', color: '',
-    material: 'acetato', tipo: 'armazón', precio_costo: 0, precio_venta: 0,
-    stock: 0, stock_minimo: 3, sucursal: branch, proveedor: '', foto_url: null, activo: true,
+    codigo: '', nombre: '', foto_url: '', precio: 0,
+    stock_azara: 0, stock_fernando: 0, stock_caacupe: 0, stock_la_fina: 0,
   };
 }
 
+function totalStock(f: Frame | FormData) {
+  return (f.stock_azara || 0) + (f.stock_fernando || 0) + (f.stock_caacupe || 0) + (f.stock_la_fina || 0);
+}
+
+// ─── Componente principal ─────────────────────────────────────────────────────
+
 export default function StockPage() {
-  const { activeBranch } = useBranch();
-  const { profile }      = useAuth();
+  const { profile } = useAuth();
 
   const isAdmin     = profile?.role === 'admin' || profile?.role === 'gerente';
   const isVendedora = profile?.role === 'vendedora';
-  const defaultBranch = activeBranch?.name || '';
 
-  const [frames, setFrames]             = useState<Frame[]>([]);
-  const [loading, setLoading]           = useState(false);
-  const [search, setSearch]             = useState('');
-  const [filterBranch, setFilterBranch] = useState(isAdmin ? '' : defaultBranch);
-  const [filterTipo, setFilterTipo]     = useState('');
-  const [filterLow, setFilterLow]       = useState(false);
-  const [showInactive, setShowInactive] = useState(false);
-  const [sortBy, setSortBy]             = useState<'descripcion' | 'stock' | 'precio_venta'>('descripcion');
+  // Detectar sede de la vendedora
+  const vendedoraSede = (() => {
+    const b = (profile?.branch_id || '').toLowerCase()
+      .replace(/á/g,'a').replace(/é/g,'e').replace(/í/g,'i').replace(/ó/g,'o').replace(/ú/g,'u')
+      .replace(/ /g,'_');
+    if (b.includes('azara'))    return 'stock_azara';
+    if (b.includes('fernando')) return 'stock_fernando';
+    if (b.includes('caacupe') || b.includes('caacupé')) return 'stock_caacupe';
+    if (b.includes('fina'))     return 'stock_la_fina';
+    return 'stock_azara';
+  })();
+
+  const [frames, setFrames]     = useState<Frame[]>([]);
+  const [loading, setLoading]   = useState(false);
+  const [search, setSearch]     = useState('');
+  const [sortBy, setSortBy]     = useState<'nombre' | 'precio' | 'stock'>('nombre');
 
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing]     = useState<Frame | null>(null);
-  const [form, setForm]           = useState<FormData>(emptyForm(defaultBranch));
+  const [form, setForm]           = useState<FormData>(emptyForm());
   const [saving, setSaving]       = useState(false);
   const [saveOk, setSaveOk]       = useState(false);
   const photoRef = useRef<HTMLInputElement | null>(null);
 
-  // Modal rápido para vendedoras
+  // Modal rápido vendedora
   const [showQuickModal, setShowQuickModal] = useState(false);
   const [quickFrame, setQuickFrame]         = useState<Frame | null>(null);
   const [quickCodigo, setQuickCodigo]       = useState('');
-  const [quickFoto, setQuickFoto]           = useState<string | null>(null);
+  const [quickFoto, setQuickFoto]           = useState('');
   const [quickSaving, setQuickSaving]       = useState(false);
   const [quickOk, setQuickOk]               = useState(false);
   const quickPhotoRef = useRef<HTMLInputElement | null>(null);
 
-  const [expandedId, setExpandedId] = useState<number | null>(null);
-  const [deleteId, setDeleteId]     = useState<number | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [deleteId, setDeleteId]     = useState<string | null>(null);
 
-  // ─── Carga ──────────────────────────────────────────────────────────────
+  // ─── Carga ────────────────────────────────────────────────────────────────
 
   const load = useCallback(async () => {
     setLoading(true);
     const { data, error } = await supabase
       .from('armazones')
       .select('*')
-      .order('descripcion', { ascending: true });
+      .order('nombre', { ascending: true });
     if (!error && data) setFrames(data as Frame[]);
     setLoading(false);
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  // ─── Filtros ─────────────────────────────────────────────────────────────
+  // ─── Filtros ──────────────────────────────────────────────────────────────
 
   const visible = frames.filter(f => {
-    if (!showInactive && !f.activo) return false;
-    if (filterBranch && f.sucursal !== filterBranch) return false;
-    if (filterTipo && f.tipo !== filterTipo) return false;
-    if (filterLow && f.stock > f.stock_minimo) return false;
-    if (search) {
-      const q = search.toLowerCase();
-      return (
-        f.descripcion.toLowerCase().includes(q) ||
-        f.marca.toLowerCase().includes(q) ||
-        f.codigo.toLowerCase().includes(q) ||
-        f.modelo.toLowerCase().includes(q) ||
-        f.color.toLowerCase().includes(q)
-      );
-    }
-    return true;
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return (
+      f.nombre.toLowerCase().includes(q) ||
+      f.codigo.toLowerCase().includes(q)
+    );
   }).sort((a, b) => {
-    if (sortBy === 'stock') return a.stock - b.stock;
-    if (sortBy === 'precio_venta') return b.precio_venta - a.precio_venta;
-    return a.descripcion.localeCompare(b.descripcion);
+    if (sortBy === 'precio') return b.precio - a.precio;
+    if (sortBy === 'stock')  return totalStock(b) - totalStock(a);
+    return a.nombre.localeCompare(b.nombre);
   });
 
-  // ─── Stats ───────────────────────────────────────────────────────────────
+  // ─── Stats ────────────────────────────────────────────────────────────────
 
-  const statsBase     = isAdmin ? frames : frames.filter(f => f.sucursal === defaultBranch);
-  const totalItems    = statsBase.filter(f => f.activo).length;
-  const totalUnits    = statsBase.filter(f => f.activo).reduce((s, f) => s + f.stock, 0);
-  const totalValue    = statsBase.filter(f => f.activo).reduce((s, f) => s + f.stock * f.precio_venta, 0);
-  const lowStockCount = statsBase.filter(f => f.activo && f.stock <= f.stock_minimo).length;
+  const totalModelos = frames.length;
+  const totalUnidades = frames.reduce((s, f) => s + totalStock(f), 0);
+  const totalValor    = frames.reduce((s, f) => s + totalStock(f) * f.precio, 0);
 
-  // ─── CRUD admin ──────────────────────────────────────────────────────────
+  // ─── CRUD ─────────────────────────────────────────────────────────────────
 
   function openNew() {
     setEditing(null);
-    setForm(emptyForm(isAdmin ? '' : defaultBranch));
+    setForm(emptyForm());
     setShowModal(true);
   }
 
   function openEdit(f: Frame) {
     setEditing(f);
-    setForm({ ...f });
+    setForm({
+      codigo: f.codigo, nombre: f.nombre, foto_url: f.foto_url || '', precio: f.precio,
+      stock_azara: f.stock_azara, stock_fernando: f.stock_fernando,
+      stock_caacupe: f.stock_caacupe, stock_la_fina: f.stock_la_fina,
+    });
     setShowModal(true);
   }
 
@@ -169,22 +168,17 @@ export default function StockPage() {
   }
 
   async function save() {
-    if (!form.descripcion.trim() || !form.sucursal) return;
+    if (!form.nombre.trim() || !form.codigo.trim()) return;
     setSaving(true);
     if (editing) {
-      await supabase.from('armazones').update({ ...form }).eq('id', editing.id);
+      await supabase.from('armazones').update({ ...form, updated_at: new Date().toISOString() }).eq('id', editing.id);
     } else {
-      await supabase.from('armazones').insert([{ ...form }]);
+      await supabase.from('armazones').insert([{ ...form, id: crypto.randomUUID() }]);
     }
     await load();
     setSaving(false);
     setSaveOk(true);
     setTimeout(() => { setSaveOk(false); setShowModal(false); }, 1200);
-  }
-
-  async function toggleActivo(f: Frame) {
-    await supabase.from('armazones').update({ activo: !f.activo }).eq('id', f.id);
-    setFrames(prev => prev.map(x => x.id === f.id ? { ...x, activo: !x.activo } : x));
   }
 
   async function confirmDelete() {
@@ -194,20 +188,21 @@ export default function StockPage() {
     await load();
   }
 
-  async function adjustStock(id: number, delta: number) {
+  async function adjustStock(id: string, sede: string, delta: number) {
     const f = frames.find(x => x.id === id);
     if (!f) return;
-    const newStock = Math.max(0, f.stock + delta);
-    await supabase.from('armazones').update({ stock: newStock }).eq('id', id);
-    setFrames(prev => prev.map(x => x.id === id ? { ...x, stock: newStock } : x));
+    const current = (f as any)[sede] || 0;
+    const newVal  = Math.max(0, current + delta);
+    await supabase.from('armazones').update({ [sede]: newVal, updated_at: new Date().toISOString() }).eq('id', id);
+    setFrames(prev => prev.map(x => x.id === id ? { ...x, [sede]: newVal } : x));
   }
 
-  // ─── Quick edit vendedora ─────────────────────────────────────────────
+  // ─── Quick edit vendedora ─────────────────────────────────────────────────
 
   function openQuick(f: Frame) {
     setQuickFrame(f);
     setQuickCodigo(f.codigo);
-    setQuickFoto(f.foto_url);
+    setQuickFoto(f.foto_url || '');
     setShowQuickModal(true);
   }
 
@@ -226,7 +221,7 @@ export default function StockPage() {
     if (!quickFrame) return;
     setQuickSaving(true);
     await supabase.from('armazones')
-      .update({ codigo: quickCodigo, foto_url: quickFoto })
+      .update({ codigo: quickCodigo, foto_url: quickFoto, updated_at: new Date().toISOString() })
       .eq('id', quickFrame.id);
     await load();
     setQuickSaving(false);
@@ -234,10 +229,10 @@ export default function StockPage() {
     setTimeout(() => { setQuickOk(false); setShowQuickModal(false); }, 1200);
   }
 
-  // ─── Render ──────────────────────────────────────────────────────────────
+  // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="p-6 space-y-6 max-w-6xl mx-auto">
+    <div className="p-4 lg:p-6 space-y-5 max-w-5xl mx-auto">
 
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -246,9 +241,11 @@ export default function StockPage() {
             <Glasses size={18} style={{ color: '#C5A059' }} />
             Stock de Armazones
           </h1>
-          <p className="text-xs text-gold-muted mt-0.5 tracking-wide">Inventario de monturas por sede</p>
+          <p className="text-xs mt-0.5 tracking-wide" style={{ color: 'rgba(197,160,89,0.65)' }}>
+            Inventario de monturas por sede
+          </p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
           <button onClick={load} disabled={loading}
             className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-light"
             style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.55)' }}>
@@ -265,16 +262,15 @@ export default function StockPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-3 gap-3">
         {[
-          { label: 'Modelos activos',   value: totalItems,    unit: 'modelos',  color: '#C5A059', icon: <Package size={14} /> },
-          { label: 'Unidades totales',  value: totalUnits,    unit: 'unidades', color: '#22c55e', icon: <BarChart2 size={14} /> },
-          { label: 'Valor de stock',    value: totalValue,    unit: 'Gs.',      color: '#3b82f6', icon: <DollarSign size={14} />, money: true },
-          { label: 'Stock bajo mínimo', value: lowStockCount, unit: 'modelos',  color: '#ef4444', icon: <AlertTriangle size={14} /> },
+          { label: 'Modelos',   value: totalModelos,  unit: 'modelos',  color: '#C5A059', icon: <Package size={14} /> },
+          { label: 'Unidades',  value: totalUnidades, unit: 'unidades', color: '#22c55e', icon: <BarChart2 size={14} /> },
+          { label: 'Valor',     value: totalValor,    unit: 'Gs.',      color: '#3b82f6', icon: <DollarSign size={14} />, money: true },
         ].map(item => (
           <div key={item.label} className="rounded-xl p-4"
             style={{ background: `${item.color}08`, border: `1px solid ${item.color}28` }}>
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.44)' }}>{item.label}</span>
               <span style={{ color: item.color, opacity: 0.7 }}>{item.icon}</span>
             </div>
@@ -286,83 +282,55 @@ export default function StockPage() {
         ))}
       </div>
 
+      {/* Stock por sede */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {SEDES.map(s => {
+          const total = frames.reduce((sum, f) => sum + ((f as any)[s.key] || 0), 0);
+          return (
+            <div key={s.key} className="rounded-xl p-3"
+              style={{ background: `${s.color}08`, border: `1px solid ${s.color}22` }}>
+              <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>{s.label}</p>
+              <p className="text-lg font-light" style={{ color: s.color }}>{total}</p>
+              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.2)' }}>unidades</p>
+            </div>
+          );
+        })}
+      </div>
+
       {/* Filtros */}
       <div className="flex items-center gap-2 flex-wrap">
-        <div className="flex items-center gap-2 px-3 py-2 rounded-lg flex-1 min-w-48"
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg flex-1 min-w-40"
           style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.09)' }}>
           <Search size={13} style={{ color: 'rgba(255,255,255,0.35)' }} />
           <input value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Buscar código, descripción, marca..."
+            placeholder="Buscar nombre o código..."
             className="bg-transparent text-xs text-white outline-none flex-1" />
           {search && <button onClick={() => setSearch('')}><X size={11} style={{ color: 'rgba(255,255,255,0.3)' }} /></button>}
         </div>
-
-        {isAdmin && (
-          <select value={filterBranch} onChange={e => setFilterBranch(e.target.value)}
-            className="px-3 py-2 rounded-lg text-xs outline-none border"
-            style={{ background: 'rgba(197,160,89,0.07)', borderColor: 'rgba(197,160,89,0.22)', color: '#C5A059' }}>
-            <option value="" style={{ background: '#111' }}>Todas las sedes</option>
-            {SUCURSALES.map(s => <option key={s} value={s} style={{ background: '#111' }}>{s}</option>)}
-          </select>
-        )}
-
-        <select value={filterTipo} onChange={e => setFilterTipo(e.target.value)}
-          className="px-3 py-2 rounded-lg text-xs outline-none border"
-          style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.10)', color: filterTipo ? '#C5A059' : 'rgba(255,255,255,0.5)' }}>
-          <option value="" style={{ background: '#111' }}>Todos los tipos</option>
-          {TIPOS.map(t => <option key={t} value={t} style={{ background: '#111' }}>{t}</option>)}
-        </select>
-
         <select value={sortBy} onChange={e => setSortBy(e.target.value as any)}
           className="px-3 py-2 rounded-lg text-xs outline-none border"
           style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.5)' }}>
-          <option value="descripcion"  style={{ background: '#111' }}>Ordenar: A-Z</option>
-          <option value="stock"        style={{ background: '#111' }}>Ordenar: stock ↑</option>
-          <option value="precio_venta" style={{ background: '#111' }}>Ordenar: precio ↓</option>
+          <option value="nombre" style={{ background: '#111' }}>A-Z</option>
+          <option value="precio" style={{ background: '#111' }}>Precio ↓</option>
+          <option value="stock"  style={{ background: '#111' }}>Stock ↓</option>
         </select>
-
-        <button onClick={() => setFilterLow(!filterLow)}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light"
-          style={{
-            background: filterLow ? 'rgba(239,68,68,0.12)' : 'rgba(255,255,255,0.04)',
-            border: filterLow ? '1px solid rgba(239,68,68,0.35)' : '1px solid rgba(255,255,255,0.09)',
-            color: filterLow ? '#ef4444' : 'rgba(255,255,255,0.45)',
-          }}>
-          <TrendingDown size={12} />Stock bajo
-        </button>
-
-        {isAdmin && (
-          <button onClick={() => setShowInactive(!showInactive)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light"
-            style={{
-              background: showInactive ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.04)',
-              border: '1px solid rgba(255,255,255,0.09)',
-              color: showInactive ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.35)',
-            }}>
-            {showInactive ? <Eye size={12} /> : <EyeOff size={12} />}
-            {showInactive ? 'Ocultar inactivos' : 'Ver inactivos'}
-          </button>
-        )}
       </div>
 
-      <div className="flex items-center gap-2">
-        <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.35)' }}>
-          {visible.length} resultado{visible.length !== 1 ? 's' : ''}
-        </span>
-        {filterLow && lowStockCount > 0 && (
-          <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(239,68,68,0.10)', color: '#ef4444' }}>
-            {lowStockCount} bajo mínimo
-          </span>
-        )}
-      </div>
+      <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.35)' }}>
+        {visible.length} resultado{visible.length !== 1 ? 's' : ''}
+      </p>
 
-      {/* Tabla */}
+      {/* Lista de armazones */}
       <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
-        <div className="grid px-5 py-3"
-          style={{ gridTemplateColumns: '2fr 1fr 1fr 80px 80px 80px 90px 48px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
-          {['Descripción','Marca / Color','Tipo','Costo','Venta','Stock','Sede',''].map(h => (
-            <span key={h} className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.32)' }}>{h}</span>
-          ))}
+
+        {/* Header tabla */}
+        <div className="hidden lg:grid px-5 py-3 text-xs font-light"
+          style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 40px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)', color: 'rgba(255,255,255,0.32)' }}>
+          <span>Nombre / Código</span>
+          <span>Precio</span>
+          <span>Stock total</span>
+          <span>Por sede</span>
+          <span></span>
         </div>
 
         {visible.length === 0 ? (
@@ -373,79 +341,107 @@ export default function StockPage() {
         ) : (
           <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
             {visible.map((f, i) => {
-              const isExp     = expandedId === f.id;
-              const isLow     = f.stock <= f.stock_minimo;
-              const tipoColor = TIPO_COLORS[f.tipo] ?? '#C5A059';
-              const sucColor  = SUCURSAL_COLORS[f.sucursal] ?? '#C5A059';
+              const isExp   = expandedId === f.id;
+              const total   = totalStock(f);
 
               return (
-                <div key={f.id} style={{ opacity: f.activo ? 1 : 0.45 }}>
-                  <div className="grid items-center px-5 py-3 cursor-pointer"
-                    style={{ gridTemplateColumns: '2fr 1fr 1fr 80px 80px 80px 90px 48px', background: isExp ? 'rgba(197,160,89,0.03)' : i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}
+                <div key={f.id}>
+                  {/* Fila */}
+                  <div className="flex lg:grid items-center gap-3 px-4 py-3 cursor-pointer"
+                    style={{
+                      gridTemplateColumns: '2fr 1fr 1fr 1fr 40px',
+                      background: isExp ? 'rgba(197,160,89,0.03)' : i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)',
+                    }}
                     onClick={() => setExpandedId(isExp ? null : f.id)}>
 
-                    <div className="flex items-center gap-2 min-w-0">
+                    {/* Foto + nombre */}
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
                       {f.foto_url ? (
-                        <img src={f.foto_url} alt={f.descripcion} className="w-8 h-8 rounded object-cover shrink-0" style={{ border: '1px solid rgba(197,160,89,0.2)' }} />
+                        <img src={f.foto_url} alt={f.nombre} className="w-9 h-9 rounded-lg object-cover shrink-0" style={{ border: '1px solid rgba(197,160,89,0.2)' }} />
                       ) : (
-                        <div className="w-8 h-8 rounded shrink-0 flex items-center justify-center" style={{ background: 'rgba(197,160,89,0.06)', border: '1px solid rgba(197,160,89,0.12)' }}>
-                          <Glasses size={13} style={{ color: 'rgba(197,160,89,0.4)' }} />
+                        <div className="w-9 h-9 rounded-lg shrink-0 flex items-center justify-center" style={{ background: 'rgba(197,160,89,0.06)', border: '1px solid rgba(197,160,89,0.12)' }}>
+                          <Glasses size={14} style={{ color: 'rgba(197,160,89,0.4)' }} />
                         </div>
                       )}
                       <div className="min-w-0">
-                        <p className="text-xs text-white font-light truncate">{f.descripcion}</p>
-                        <p className="text-xs font-light truncate" style={{ color: 'rgba(255,255,255,0.36)' }}>#{f.codigo || '—'}</p>
+                        <p className="text-xs text-white font-light truncate">{f.nombre}</p>
+                        <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.36)' }}>#{f.codigo}</p>
                       </div>
                     </div>
 
-                    <div>
-                      <p className="text-xs font-light text-white truncate">{f.marca || '—'}</p>
-                      <p className="text-xs font-light truncate" style={{ color: 'rgba(255,255,255,0.36)' }}>{f.color || '—'}</p>
+                    {/* Precio — oculto en móvil */}
+                    <p className="hidden lg:block text-xs font-light" style={{ color: '#C5A059' }}>
+                      Gs. {fmt(f.precio)}
+                    </p>
+
+                    {/* Stock total */}
+                    <div className="hidden lg:flex items-center gap-1.5">
+                      <span className="text-sm font-light text-white">{total}</span>
+                      <span className="text-xs" style={{ color: 'rgba(255,255,255,0.3)' }}>uds.</span>
                     </div>
 
-                    <span className="text-xs px-2 py-0.5 rounded-full w-fit" style={{ background: `${tipoColor}18`, color: tipoColor }}>{f.tipo}</span>
-                    <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.45)' }}>{fmt(f.precio_costo)}</p>
-                    <p className="text-xs font-light" style={{ color: '#C5A059' }}>{fmt(f.precio_venta)}</p>
-
-                    <div className="flex items-center gap-1.5">
-                      <span className={`text-sm font-light ${isLow ? 'text-red-400' : 'text-white'}`}>{f.stock}</span>
-                      {isLow && <AlertTriangle size={11} style={{ color: '#ef4444' }} />}
+                    {/* Badges por sede — oculto en móvil */}
+                    <div className="hidden lg:flex items-center gap-1 flex-wrap">
+                      {SEDES.map(s => {
+                        const qty = (f as any)[s.key] || 0;
+                        return (
+                          <span key={s.key} className="text-xs px-1.5 py-0.5 rounded"
+                            style={{ background: qty > 0 ? `${s.color}18` : 'rgba(255,255,255,0.04)', color: qty > 0 ? s.color : 'rgba(255,255,255,0.2)' }}>
+                            {s.label.slice(0,3)}: {qty}
+                          </span>
+                        );
+                      })}
                     </div>
 
-                    <span className="text-xs px-2 py-0.5 rounded-full w-fit" style={{ background: `${sucColor}18`, color: sucColor }}>{f.sucursal}</span>
-                    <ChevronDown size={13} style={{ color: 'rgba(255,255,255,0.3)', transform: isExp ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                    {/* Chevron */}
+                    <ChevronDown size={13} style={{ color: 'rgba(255,255,255,0.3)', transform: isExp ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }} />
                   </div>
 
+                  {/* Expandido */}
                   {isExp && (
-                    <div className="px-5 pb-5 pt-3 space-y-4" style={{ background: 'rgba(197,160,89,0.02)', borderTop: '1px solid rgba(197,160,89,0.08)' }}>
-                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                        {[
-                          { label: 'Modelo',       value: f.modelo    || '—' },
-                          { label: 'Material',     value: f.material  || '—' },
-                          { label: 'Proveedor',    value: f.proveedor || '—' },
-                          { label: 'Stock mínimo', value: `${f.stock_minimo} unidades` },
-                        ].map(d => (
-                          <div key={d.label} className="rounded-lg p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-                            <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>{d.label}</p>
-                            <p className="text-xs text-white font-light">{d.value}</p>
-                          </div>
-                        ))}
+                    <div className="px-4 pb-4 pt-3 space-y-4" style={{ background: 'rgba(197,160,89,0.02)', borderTop: '1px solid rgba(197,160,89,0.08)' }}>
+
+                      {/* Info básica */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="rounded-lg p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                          <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Precio</p>
+                          <p className="text-sm font-light" style={{ color: '#C5A059' }}>Gs. {fmt(f.precio)}</p>
+                        </div>
+                        <div className="rounded-lg p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                          <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Stock total</p>
+                          <p className="text-sm font-light text-white">{totalStock(f)} unidades</p>
+                        </div>
                       </div>
 
-                      <div className="flex items-center gap-3 flex-wrap pt-1">
-                        {/* Ajuste stock — todos pueden */}
-                        <div className="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                          <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.45)' }}>Stock:</span>
-                          <button onClick={() => adjustStock(f.id, -1)} className="w-6 h-6 rounded flex items-center justify-center" style={{ background: 'rgba(239,68,68,0.10)', color: '#ef4444' }}>
-                            <span className="text-sm leading-none">−</span>
-                          </button>
-                          <span className="text-sm font-light text-white w-6 text-center">{f.stock}</span>
-                          <button onClick={() => adjustStock(f.id, +1)} className="w-6 h-6 rounded flex items-center justify-center" style={{ background: 'rgba(34,197,94,0.10)', color: '#22c55e' }}>
-                            <span className="text-sm leading-none">+</span>
-                          </button>
+                      {/* Stock por sede con ajuste */}
+                      <div>
+                        <p className="text-xs font-light mb-2 tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.55)' }}>Stock por sede</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          {SEDES.map(s => {
+                            const qty = (f as any)[s.key] || 0;
+                            // Vendedora solo ve su sede
+                            if (isVendedora && s.key !== vendedoraSede) return null;
+                            return (
+                              <div key={s.key} className="flex items-center justify-between px-3 py-2 rounded-lg"
+                                style={{ background: `${s.color}08`, border: `1px solid ${s.color}22` }}>
+                                <span className="text-xs font-light" style={{ color: s.color }}>{s.label}</span>
+                                <div className="flex items-center gap-1.5">
+                                  <button onClick={() => adjustStock(f.id, s.key, -1)}
+                                    className="w-6 h-6 rounded flex items-center justify-center text-sm"
+                                    style={{ background: 'rgba(239,68,68,0.10)', color: '#ef4444' }}>−</button>
+                                  <span className="text-sm font-light text-white w-5 text-center">{qty}</span>
+                                  <button onClick={() => adjustStock(f.id, s.key, +1)}
+                                    className="w-6 h-6 rounded flex items-center justify-center text-sm"
+                                    style={{ background: 'rgba(34,197,94,0.10)', color: '#22c55e' }}>+</button>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
+                      </div>
 
-                        {/* Vendedora: solo código y foto */}
+                      {/* Acciones */}
+                      <div className="flex items-center gap-2 flex-wrap pt-1">
                         {isVendedora && (
                           <button onClick={() => openQuick(f)}
                             className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light"
@@ -453,17 +449,16 @@ export default function StockPage() {
                             <Camera size={11} />Código / Foto
                           </button>
                         )}
-
-                        {/* Admin: todas las acciones */}
                         {isAdmin && (
                           <>
-                            <button onClick={() => openEdit(f)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light" style={{ background: 'rgba(197,160,89,0.08)', border: '1px solid rgba(197,160,89,0.25)', color: '#C5A059' }}>
+                            <button onClick={() => openEdit(f)}
+                              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light"
+                              style={{ background: 'rgba(197,160,89,0.08)', border: '1px solid rgba(197,160,89,0.25)', color: '#C5A059' }}>
                               <Edit2 size={11} />Editar
                             </button>
-                            <button onClick={() => toggleActivo(f)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)', color: f.activo ? 'rgba(255,255,255,0.5)' : '#22c55e' }}>
-                              {f.activo ? <><EyeOff size={11} />Desactivar</> : <><Eye size={11} />Activar</>}
-                            </button>
-                            <button onClick={() => setDeleteId(f.id)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.20)', color: 'rgba(239,68,68,0.7)' }}>
+                            <button onClick={() => setDeleteId(f.id)}
+                              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light"
+                              style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.20)', color: 'rgba(239,68,68,0.7)' }}>
                               <Trash2 size={11} />Eliminar
                             </button>
                           </>
@@ -478,120 +473,91 @@ export default function StockPage() {
         )}
       </div>
 
-      {/* ─── Modal completo admin ────────────────────────────────────────── */}
+      {/* ─── Modal agregar/editar (admin) ───────────────────────────────── */}
       {showModal && (
-        <div className="fixed inset-0 z-[900] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.85)' }}>
-          <div className="w-full max-w-2xl rounded-2xl overflow-hidden" style={{ background: '#0d0d0d', border: '1px solid rgba(197,160,89,0.25)' }}>
-            <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)', background: 'rgba(197,160,89,0.04)' }}>
+        <div className="fixed inset-0 z-[900] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.88)' }}>
+          <div className="w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: '#0d0d0d', border: '1px solid rgba(197,160,89,0.25)' }}>
+
+            <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)', background: 'rgba(197,160,89,0.04)' }}>
               <div className="flex items-center gap-2">
                 <Glasses size={15} style={{ color: '#C5A059' }} />
                 <p className="text-sm font-light text-white">{editing ? 'Editar armazón' : 'Nuevo armazón'}</p>
               </div>
-              <button onClick={() => setShowModal(false)} className="p-1.5 rounded-lg" style={{ color: 'rgba(255,255,255,0.4)' }}><X size={14} /></button>
+              <button onClick={() => setShowModal(false)} style={{ color: 'rgba(255,255,255,0.4)' }}><X size={14} /></button>
             </div>
 
-            <div className="px-6 py-5 space-y-4 max-h-[75vh] overflow-y-auto">
+            <div className="px-5 py-5 space-y-4 max-h-[78vh] overflow-y-auto">
+
               {/* Foto */}
               <div>
                 <label className="text-xs font-light mb-2 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Foto del armazón</label>
                 {form.foto_url ? (
                   <div className="relative inline-block">
                     <img src={form.foto_url} alt="armazón" className="h-28 rounded-xl object-cover border" style={{ borderColor: 'rgba(197,160,89,0.25)' }} />
-                    <button onClick={() => setForm(p => ({ ...p, foto_url: null }))} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: '#ef4444' }}><X size={10} color="#fff" /></button>
+                    <button onClick={() => setForm(p => ({ ...p, foto_url: '' }))} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: '#ef4444' }}><X size={10} color="#fff" /></button>
                   </div>
                 ) : (
                   <button onClick={() => photoRef.current?.click()} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-light border" style={{ borderColor: 'rgba(197,160,89,0.22)', color: 'rgba(197,160,89,0.7)', background: 'rgba(197,160,89,0.04)' }}>
-                    <Camera size={14} />Subir foto (cámara o galería)
+                    <Camera size={14} />Tomar foto o elegir de galería
                   </button>
                 )}
                 <input ref={photoRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
               </div>
 
+              {/* Nombre y Código */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-light mb-1.5 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Descripción *</label>
-                  <input value={form.descripcion} onChange={e => setForm(p => ({ ...p, descripcion: e.target.value }))} placeholder="Ej: Ray-Ban Clubmaster Negro" className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border" style={{ borderColor: 'rgba(197,160,89,0.25)' }} />
+                  <label className="text-xs font-light mb-1.5 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Nombre *</label>
+                  <input value={form.nombre} onChange={e => setForm(p => ({ ...p, nombre: e.target.value }))}
+                    placeholder="Ej: Ray-Ban Clubmaster"
+                    className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border"
+                    style={{ borderColor: 'rgba(197,160,89,0.25)' }} />
                 </div>
                 <div>
-                  <label className="text-xs font-light mb-1.5 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Código / SKU</label>
-                  <input value={form.codigo} onChange={e => setForm(p => ({ ...p, codigo: e.target.value }))} placeholder="Ej: RB-001" className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border" style={{ borderColor: 'rgba(255,255,255,0.12)' }} />
+                  <label className="text-xs font-light mb-1.5 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Código *</label>
+                  <input value={form.codigo} onChange={e => setForm(p => ({ ...p, codigo: e.target.value }))}
+                    placeholder="Ej: RB-001"
+                    className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border"
+                    style={{ borderColor: 'rgba(197,160,89,0.25)' }} />
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
-                {[{ label: 'Marca', key: 'marca', ph: 'Ej: Ray-Ban' }, { label: 'Modelo', key: 'modelo', ph: 'Ej: Clubmaster' }, { label: 'Color', key: 'color', ph: 'Ej: Negro' }].map(f2 => (
-                  <div key={f2.key}>
-                    <label className="text-xs font-light mb-1.5 block" style={{ color: 'rgba(255,255,255,0.45)' }}>{f2.label}</label>
-                    <input value={(form as any)[f2.key]} onChange={e => setForm(p => ({ ...p, [f2.key]: e.target.value }))} placeholder={f2.ph} className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border" style={{ borderColor: 'rgba(255,255,255,0.12)' }} />
-                  </div>
-                ))}
-              </div>
-
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="text-xs font-light mb-1.5 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Tipo</label>
-                  <select value={form.tipo} onChange={e => setForm(p => ({ ...p, tipo: e.target.value }))} className="w-full px-3 py-2.5 rounded-lg text-xs outline-none border" style={{ borderColor: 'rgba(255,255,255,0.12)', color: '#C5A059', background: '#0d0d0d' }}>
-                    {TIPOS.map(t => <option key={t} value={t} style={{ background: '#111' }}>{t}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs font-light mb-1.5 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Material</label>
-                  <select value={form.material} onChange={e => setForm(p => ({ ...p, material: e.target.value }))} className="w-full px-3 py-2.5 rounded-lg text-xs outline-none border" style={{ borderColor: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.7)', background: '#0d0d0d' }}>
-                    {MATERIALES.map(m => <option key={m} value={m} style={{ background: '#111' }}>{m}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs font-light mb-1.5 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Proveedor</label>
-                  <input value={form.proveedor} onChange={e => setForm(p => ({ ...p, proveedor: e.target.value }))} placeholder="Distribuidora..." className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border" style={{ borderColor: 'rgba(255,255,255,0.12)' }} />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-light mb-1.5 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Precio costo (Gs.)</label>
-                  <input type="number" value={form.precio_costo || ''} onChange={e => setForm(p => ({ ...p, precio_costo: Number(e.target.value) }))} placeholder="0" className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border" style={{ borderColor: 'rgba(255,255,255,0.12)' }} />
-                </div>
-                <div>
-                  <label className="text-xs font-light mb-1.5 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Precio venta (Gs.)</label>
-                  <input type="number" value={form.precio_venta || ''} onChange={e => setForm(p => ({ ...p, precio_venta: Number(e.target.value) }))} placeholder="0" className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border" style={{ borderColor: 'rgba(197,160,89,0.25)' }} />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-light mb-1.5 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Stock actual</label>
-                  <input type="number" value={form.stock || ''} onChange={e => setForm(p => ({ ...p, stock: Number(e.target.value) }))} placeholder="0" className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border" style={{ borderColor: 'rgba(255,255,255,0.12)' }} />
-                </div>
-                <div>
-                  <label className="text-xs font-light mb-1.5 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Stock mínimo</label>
-                  <input type="number" value={form.stock_minimo || ''} onChange={e => setForm(p => ({ ...p, stock_minimo: Number(e.target.value) }))} placeholder="3" className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border" style={{ borderColor: 'rgba(255,255,255,0.12)' }} />
-                </div>
-              </div>
-
+              {/* Precio */}
               <div>
-                <label className="text-xs font-light mb-1.5 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Sede *</label>
-                <select value={form.sucursal} onChange={e => setForm(p => ({ ...p, sucursal: e.target.value }))} className="w-full px-3 py-2.5 rounded-lg text-xs outline-none border" style={{ borderColor: 'rgba(197,160,89,0.25)', color: form.sucursal ? '#C5A059' : 'rgba(255,255,255,0.38)', background: '#0d0d0d' }}>
-                  <option value="" style={{ background: '#111' }}>Seleccionar sede...</option>
-                  {SUCURSALES.map(s => <option key={s} value={s} style={{ background: '#111' }}>{s}</option>)}
-                </select>
+                <label className="text-xs font-light mb-1.5 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Precio de venta (Gs.)</label>
+                <input type="number" value={form.precio || ''} onChange={e => setForm(p => ({ ...p, precio: Number(e.target.value) }))}
+                  placeholder="0"
+                  className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border"
+                  style={{ borderColor: 'rgba(197,160,89,0.25)' }} />
               </div>
 
-              {form.precio_costo > 0 && form.precio_venta > 0 && (
-                <div className="flex items-center gap-2 px-4 py-3 rounded-xl" style={{ background: 'rgba(34,197,94,0.05)', border: '1px solid rgba(34,197,94,0.18)' }}>
-                  <TrendingDown size={12} style={{ color: '#22c55e' }} />
-                  <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.5)' }}>Margen:</span>
-                  <span className="text-xs font-light" style={{ color: '#22c55e' }}>
-                    Gs. {fmt(form.precio_venta - form.precio_costo)} · {Math.round(((form.precio_venta - form.precio_costo) / form.precio_costo) * 100)}%
-                  </span>
+              {/* Stock por sede */}
+              <div>
+                <label className="text-xs font-light mb-2 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Stock por sede</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {SEDES.map(s => (
+                    <div key={s.key} className="rounded-lg p-3" style={{ background: `${s.color}08`, border: `1px solid ${s.color}22` }}>
+                      <label className="text-xs font-light mb-1.5 block" style={{ color: s.color }}>{s.label}</label>
+                      <input type="number" value={(form as any)[s.key] || ''} onChange={e => setForm(p => ({ ...p, [s.key]: Number(e.target.value) }))}
+                        placeholder="0" min="0"
+                        className="w-full px-2.5 py-2 rounded-lg bg-transparent text-white text-xs outline-none border"
+                        style={{ borderColor: `${s.color}30` }} />
+                    </div>
+                  ))}
                 </div>
-              )}
+              </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 px-6 py-4" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+            <div className="flex items-center justify-end gap-2 px-5 py-4" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
               <button onClick={() => setShowModal(false)} className="px-4 py-2 rounded-lg text-xs font-light" style={{ color: 'rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>Cancelar</button>
-              <button onClick={save} disabled={saving || !form.descripcion.trim() || !form.sucursal}
+              <button onClick={save} disabled={saving || !form.nombre.trim() || !form.codigo.trim()}
                 className="flex items-center gap-2 px-5 py-2 rounded-lg text-xs font-medium"
-                style={{ background: saveOk ? 'rgba(34,197,94,0.15)' : (!form.descripcion.trim() || !form.sucursal) ? 'rgba(197,160,89,0.06)' : 'rgba(197,160,89,0.15)', border: saveOk ? '1px solid rgba(34,197,94,0.4)' : '1px solid rgba(197,160,89,0.35)', color: saveOk ? '#22c55e' : (!form.descripcion.trim() || !form.sucursal) ? 'rgba(197,160,89,0.35)' : '#C5A059', cursor: (!form.descripcion.trim() || !form.sucursal) ? 'not-allowed' : 'pointer' }}>
+                style={{
+                  background: saveOk ? 'rgba(34,197,94,0.15)' : (!form.nombre.trim() || !form.codigo.trim()) ? 'rgba(197,160,89,0.06)' : 'rgba(197,160,89,0.15)',
+                  border: saveOk ? '1px solid rgba(34,197,94,0.4)' : '1px solid rgba(197,160,89,0.35)',
+                  color: saveOk ? '#22c55e' : (!form.nombre.trim() || !form.codigo.trim()) ? 'rgba(197,160,89,0.35)' : '#C5A059',
+                  cursor: (!form.nombre.trim() || !form.codigo.trim()) ? 'not-allowed' : 'pointer',
+                }}>
                 {saveOk ? <><Check size={12} />Guardado</> : saving ? 'Guardando...' : <><Package size={12} />{editing ? 'Guardar cambios' : 'Agregar armazón'}</>}
               </button>
             </div>
@@ -608,22 +574,23 @@ export default function StockPage() {
               <button onClick={() => setShowQuickModal(false)} style={{ color: 'rgba(255,255,255,0.4)' }}><X size={14} /></button>
             </div>
             <div className="px-5 py-5 space-y-4">
-              <p className="text-xs font-light truncate" style={{ color: 'rgba(197,160,89,0.7)' }}>{quickFrame.descripcion}</p>
+              <p className="text-xs font-light truncate" style={{ color: 'rgba(197,160,89,0.7)' }}>{quickFrame.nombre}</p>
               <div>
                 <label className="text-xs font-light mb-1.5 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Código / SKU</label>
-                <input value={quickCodigo} onChange={e => setQuickCodigo(e.target.value)} placeholder="Ej: RB-001" className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border" style={{ borderColor: 'rgba(197,160,89,0.25)' }} />
+                <input value={quickCodigo} onChange={e => setQuickCodigo(e.target.value)} placeholder="Ej: RB-001"
+                  className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border"
+                  style={{ borderColor: 'rgba(197,160,89,0.25)' }} />
               </div>
               <div>
-                <label className="text-xs font-light mb-2 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Foto del armazón</label>
+                <label className="text-xs font-light mb-2 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Foto</label>
                 {quickFoto ? (
                   <div className="relative">
                     <img src={quickFoto} alt="armazón" className="h-32 rounded-xl object-cover border w-full" style={{ borderColor: 'rgba(197,160,89,0.25)' }} />
-                    <button onClick={() => setQuickFoto(null)} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: '#ef4444' }}><X size={10} color="#fff" /></button>
+                    <button onClick={() => setQuickFoto('')} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: '#ef4444' }}><X size={10} color="#fff" /></button>
                   </div>
                 ) : (
                   <button onClick={() => quickPhotoRef.current?.click()} className="w-full flex items-center justify-center gap-2 py-4 rounded-xl border" style={{ borderColor: 'rgba(197,160,89,0.22)', borderStyle: 'dashed', color: 'rgba(197,160,89,0.7)', background: 'rgba(197,160,89,0.04)' }}>
-                    <Camera size={18} />
-                    <span className="text-sm font-light">Tomar foto o elegir de galería</span>
+                    <Camera size={18} /><span className="text-sm font-light">Tomar foto o elegir de galería</span>
                   </button>
                 )}
                 <input ref={quickPhotoRef} type="file" accept="image/*" className="hidden" onChange={handleQuickPhoto} />
