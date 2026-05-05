@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { RefreshCw, Plus, Check, X, Search, ChevronDown, DollarSign, Phone, Camera, Package } from 'lucide-react';
+import { RefreshCw, Plus, Check, X, Search, ChevronDown, DollarSign, Phone, Camera, Package, MessageCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
 import { updateSaleBalance, recordPayment, closeSaleLocal } from '../lib/salesStorage';
@@ -45,6 +45,15 @@ async function compressImage(dataUrl: string): Promise<string> {
     img.onerror = () => resolve(dataUrl);
     img.src = dataUrl;
   });
+}
+
+function buildWaLink(clientName: string, phone: string, branchName: string, saldo: number) {
+  if (!phone) return null;
+  const clean = phone.replace(/\D/g, '');
+  const msg = saldo > 0
+    ? `Hola ${clientName}! Te contactamos de Óptica Yolanda 👓. Te recordamos que tenés un saldo pendiente de Gs. ${fmt(saldo)} en nuestra sucursal ${branchName}. Podés pasar cuando gustes. ¡Gracias!`
+    : `Hola ${clientName}! Te contactamos de Óptica Yolanda 👓. Tus lentes ya están listos para retirar en nuestra sucursal ${branchName}. ¡Te esperamos!`;
+  return `https://wa.me/595${clean}?text=${encodeURIComponent(msg)}`;
 }
 
 export default function BalancesPage() {
@@ -225,10 +234,11 @@ export default function BalancesPage() {
               const payHistory = isExp ? getPayHistory(row.id) : [];
               const lensPhotos = isExp ? (row.anteojos as any[]).filter((eg: any) => eg.photo_url) : [];
               const isPaid     = Number(row.balance) <= 0;
+              const waLink     = buildWaLink(clientName, row.customer_phone || '', row.branch_name || '', Number(row.balance));
 
               return (
                 <div key={row.id}>
-                  {/* Fila principal — layout vertical para celular */}
+                  {/* Fila principal */}
                   <div className="px-4 py-3.5 cursor-pointer"
                     style={{ background: isExp ? 'rgba(197,160,89,0.03)' : 'transparent' }}
                     onClick={() => setExpandedId(isExp ? null : row.id)}>
@@ -275,10 +285,23 @@ export default function BalancesPage() {
                   {isExp && (
                     <div className="px-4 pb-5 space-y-4" style={{ background: 'rgba(197,160,89,0.02)' }}>
 
+                      {/* WhatsApp del cliente */}
                       {row.customer_phone && (
-                        <p className="text-xs font-light flex items-center gap-1.5 pt-2" style={{ color: 'rgba(255,255,255,0.44)' }}>
-                          <Phone size={10} />{row.customer_phone}
-                        </p>
+                        <div className="flex items-center gap-3 pt-2 flex-wrap">
+                          <div className="flex items-center gap-1.5">
+                            <Phone size={11} style={{ color: 'rgba(255,255,255,0.4)' }} />
+                            <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.5)' }}>{row.customer_phone}</span>
+                          </div>
+                          {waLink && (
+                            <a href={waLink} target="_blank" rel="noreferrer"
+                              onClick={e => e.stopPropagation()}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-light"
+                              style={{ background: 'rgba(37,211,102,0.12)', color: '#25D366', border: '1px solid rgba(37,211,102,0.28)' }}>
+                              <MessageCircle size={12} />
+                              {Number(row.balance) > 0 ? 'Recordar pago por WhatsApp' : 'Avisar que está listo por WhatsApp'}
+                            </a>
+                          )}
+                        </div>
                       )}
 
                       {lensPhotos.length > 0 && (
@@ -387,7 +410,7 @@ export default function BalancesPage() {
                             </div>
                           ) : (
                             <button onClick={e => { e.stopPropagation(); setAddPayFor(row.id); setPayAmt(''); setPayReceipt(''); }}
-                              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-medium transition-all"
+                              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-medium"
                               style={{ background: 'rgba(197,160,89,0.10)', color: '#C5A059', border: '1px solid rgba(197,160,89,0.28)' }}
                               onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(197,160,89,0.18)'}
                               onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'rgba(197,160,89,0.10)'}>
@@ -417,7 +440,7 @@ export default function BalancesPage() {
                         )}
                         <button
                           onClick={e => { e.stopPropagation(); markDelivered(row.id); }}
-                          className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium transition-all"
+                          className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium"
                           style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.35)' }}
                           onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(34,197,94,0.22)'; }}
                           onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(34,197,94,0.12)'; }}>
