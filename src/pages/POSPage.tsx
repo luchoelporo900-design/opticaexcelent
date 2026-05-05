@@ -224,7 +224,7 @@ export default function POSPage() {
         receipt_url:   paymentReceipt || undefined,
       } as any);
 
-      // ── Descontar stock por cada armazón del inventario ──
+      // ── Descontar stock y registrar movimiento ──
       for (const eg of eyeglasses) {
         if (eg.stock_frame_id) {
           // Buscar el armazón y descontar según la sede de venta
@@ -249,6 +249,18 @@ export default function POSPage() {
               .from('armazones')
               .update({ [sedeKey]: Math.max(0, current - 1), updated_at: new Date().toISOString() })
               .eq('id', eg.stock_frame_id);
+
+            // Registrar movimiento en historial
+            await supabase.from('stock_movimientos').insert([{
+              armazon_id:     eg.stock_frame_id,
+              armazon_nombre: frame.nombre,
+              armazon_codigo: frame.codigo,
+              cantidad:       1,
+              tipo:           'venta',
+              sucursal:       saleBranchName,
+              vendedora:      sellerName,
+              venta_id:       String(saleId),
+            }]);
           }
         }
       }
