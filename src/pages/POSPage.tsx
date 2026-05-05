@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Plus, X, Save, ChevronDown, ChevronUp, Glasses, Banknote, CreditCard, Smartphone, QrCode, Send, MapPin, Truck, Store, Package, User, FileText, Check, CheckCircle, AlertCircle, Trash2, ShoppingBag, Hash, Clock, Building2, Camera, MessageCircle, Receipt, ZoomIn } from 'lucide-react';
+import { Search, Plus, X, Save, ChevronDown, ChevronUp, Glasses, Banknote, CreditCard, Smartphone, QrCode, Send, MapPin, Truck, Store, Package, User, FileText, Check, CheckCircle, AlertCircle, Trash2, ShoppingBag, Hash, Clock, Building2, Camera, Receipt, ZoomIn } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { saveSale as saveToStorage, getSales, getPayments, updateSaleBalance, recordPayment, closeSaleLocal, compressImage } from '../lib/salesStorage';
 import { supabase } from '../lib/supabase';
@@ -25,6 +25,7 @@ type EyeglassItem = {
   prescription: Prescription;
   price: string;
   saleType: 'completa' | 'media';
+  stock_frame_id?: string; // ID del armazón del stock si fue seleccionado
 };
 
 type PaymentEntry = {
@@ -71,18 +72,18 @@ function emptyRx(): Prescription {
 }
 
 function newEyeglass(): EyeglassItem {
-  return { _id: uid(), frame_description: '', photo_url: '', crystals: '', treatments: '', showReceta: false, prescription: emptyRx(), price: '', saleType: 'completa' };
+  return { _id: uid(), frame_description: '', photo_url: '', crystals: '', treatments: '', showReceta: false, prescription: emptyRx(), price: '', saleType: 'completa', stock_frame_id: undefined };
 }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return <p className="text-xs font-light mb-1.5 tracking-wide" style={{ color: 'rgba(255,255,255,0.42)' }}>{children}</p>;
 }
 
-function GoldInput({ value, onChange, placeholder, type = 'text', mono = false }: { value: string; onChange: (v: string) => void; placeholder?: string; type?: string; mono?: boolean }) {
+function GoldInput({ value, onChange, placeholder, type = 'text' }: { value: string; onChange: (v: string) => void; placeholder?: string; type?: string }) {
   return (
     <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
       className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border"
-      style={{ borderColor: 'rgba(197,160,89,0.22)', fontFamily: mono ? 'monospace' : undefined }} />
+      style={{ borderColor: 'rgba(197,160,89,0.22)' }} />
   );
 }
 
@@ -200,10 +201,6 @@ export default function POSPage() {
       const sellerName     = profile?.full_name ?? 'Sin nombre';
       const saleId         = Date.now();
       const saleNum        = `VTA-${saleId}`;
-      const firstName      = nFirst.trim();
-      const lastName       = nLast.trim();
-      const phone          = nPhone.trim();
-      const ci             = nCi.trim();
       const primaryMethod  = payments[0].method;
       const saleBranchName = FIXED_BRANCHES.find(b => b.id === saleBranch)?.name ?? saleBranch;
       const delBranchName  = FIXED_BRANCHES.find(b => b.id === delBranch)?.name  ?? delBranch;
@@ -212,7 +209,7 @@ export default function POSPage() {
       await saveToStorage({
         id: saleId,
         fecha: new Date().toISOString(),
-        cliente: { nombre: firstName, apellido: lastName, telefono: phone, ci },
+        cliente: { nombre: nFirst.trim(), apellido: nLast.trim(), telefono: nPhone.trim(), ci: nCi.trim() },
         sucursalVenta:   saleBranchName,
         sucursalEntrega: delBranchName,
         sucursalCobro:   payBranchName,
@@ -227,21 +224,31 @@ export default function POSPage() {
         receipt_url:   paymentReceipt || undefined,
       } as any);
 
-      // ── Descontar stock automáticamente por cada armazón vendido ──
+      // ── Descontar stock por cada armazón del inventario ──
       for (const eg of eyeglasses) {
-        if (eg.frame_description?.trim()) {
-          const { data: matches } = await supabase
-            .from('stock_armazones')
-            .select('id, stock')
-            .or(`codigo.ilike.%${eg.frame_description.trim()}%,descripcion.ilike.%${eg.frame_description.trim()}%`)
-            .eq('sucursal', saleBranchName)
-            .limit(1);
-          if (matches && matches.length > 0) {
-            const frame = matches[0];
+        if (eg.stock_frame_id) {
+          // Buscar el armazón y descontar según la sede de venta
+          const { data: frame } = await supabase
+            .from('armazones')
+            .select('*')
+            .eq('id', eg.stock_frame_id)
+            .single();
+
+          if (frame) {
+            // Determinar qué columna de stock descontar según la sede
+            const sedeKey = (() => {
+              const n = saleBranchName.toLowerCase().replace(/á/g,'a').replace(/é/g,'e').replace(/ú/g,'u');
+              if (n.includes('azara'))    return 'stock_azara';
+              if (n.includes('fernando')) return 'stock_fernando';
+              if (n.includes('caacupe') || n.includes('caacupé')) return 'stock_caacupe';
+              if (n.includes('fina'))     return 'stock_la_fina';
+              return 'stock_azara';
+            })();
+            const current = frame[sedeKey] || 0;
             await supabase
-              .from('stock_armazones')
-              .update({ stock: Math.max(0, frame.stock - 1) })
-              .eq('id', frame.id);
+              .from('armazones')
+              .update({ [sedeKey]: Math.max(0, current - 1), updated_at: new Date().toISOString() })
+              .eq('id', eg.stock_frame_id);
           }
         }
       }
@@ -347,9 +354,7 @@ export default function POSPage() {
             </div>
             <button onClick={resetForm}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-light"
-              style={{ color: 'rgba(239,68,68,0.65)', border: '1px solid rgba(239,68,68,0.2)' }}
-              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = '#ef4444'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(239,68,68,0.4)'; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = 'rgba(239,68,68,0.65)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(239,68,68,0.2)'; }}>
+              style={{ color: 'rgba(239,68,68,0.65)', border: '1px solid rgba(239,68,68,0.2)' }}>
               <X size={13} /> Cancelar
             </button>
           </div>
@@ -379,8 +384,8 @@ export default function POSPage() {
           <div className="grid grid-cols-2 gap-3">
             <div><FieldLabel>Nombre <span style={{ color: '#C5A059' }}>*</span></FieldLabel><GoldInput value={nFirst} onChange={setNFirst} placeholder="Nombre" /></div>
             <div><FieldLabel>Apellido <span style={{ color: '#C5A059' }}>*</span></FieldLabel><GoldInput value={nLast} onChange={setNLast} placeholder="Apellido" /></div>
-            <div><FieldLabel>Teléfono / WhatsApp <span style={{ color: 'rgba(255,255,255,0.28)' }}>(opcional)</span></FieldLabel><GoldInput value={nPhone} onChange={setNPhone} placeholder="0981-000000" /></div>
-            <div><FieldLabel>C.I. <span style={{ color: 'rgba(255,255,255,0.28)' }}>(opcional)</span></FieldLabel><GoldInput value={nCi} onChange={setNCi} placeholder="Número de cédula" /></div>
+            <div><FieldLabel>Teléfono / WhatsApp</FieldLabel><GoldInput value={nPhone} onChange={setNPhone} placeholder="0981-000000" /></div>
+            <div><FieldLabel>C.I.</FieldLabel><GoldInput value={nCi} onChange={setNCi} placeholder="Número de cédula" /></div>
           </div>
         </Section>
 
@@ -391,14 +396,14 @@ export default function POSPage() {
               style={{ background: 'rgba(197,160,89,0.06)', border: '1px solid rgba(197,160,89,0.20)' }}>
               <User size={13} style={{ color: '#C5A059', flexShrink: 0 }} />
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>Vendedora (usuario actual)</p>
+                <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>Vendedora</p>
                 <p className="text-sm text-white font-light truncate">{profile?.full_name ?? '—'}</p>
               </div>
             </div>
             <div className="grid grid-cols-3 gap-3">
-              <div><FieldLabel>Sucursal de venta <span style={{ color: '#C5A059' }}>*</span></FieldLabel><GoldSelect value={saleBranch} onChange={setSaleBranch}>{branchOpts}</GoldSelect></div>
-              <div><FieldLabel>Sucursal de entrega <span style={{ color: '#C5A059' }}>*</span></FieldLabel><GoldSelect value={delBranch} onChange={setDelBranch}>{branchOpts}</GoldSelect></div>
-              <div><FieldLabel>Sucursal de cobro <span style={{ color: '#C5A059' }}>*</span></FieldLabel><GoldSelect value={payBranch} onChange={setPayBranch}>{branchOpts}</GoldSelect></div>
+              <div><FieldLabel>Sucursal de venta *</FieldLabel><GoldSelect value={saleBranch} onChange={setSaleBranch}>{branchOpts}</GoldSelect></div>
+              <div><FieldLabel>Sucursal de entrega *</FieldLabel><GoldSelect value={delBranch} onChange={setDelBranch}>{branchOpts}</GoldSelect></div>
+              <div><FieldLabel>Sucursal de cobro *</FieldLabel><GoldSelect value={payBranch} onChange={setPayBranch}>{branchOpts}</GoldSelect></div>
             </div>
           </div>
         </Section>
@@ -458,7 +463,7 @@ export default function POSPage() {
               <SimpleEyeglassCard key={eg._id} eg={eg} idx={idx} onUpdate={patch => updateEg(eg._id, patch)} onRemove={() => removeEyeglass(eg._id)} />
             ))}
             <button onClick={addEyeglass}
-              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-sm font-light border-dashed border transition-colors"
+              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-sm font-light border-dashed border"
               style={{ borderColor: 'rgba(197,160,89,0.30)', color: '#C5A059', background: 'rgba(197,160,89,0.03)' }}
               onMouseEnter={e => (e.currentTarget.style.background = 'rgba(197,160,89,0.09)')}
               onMouseLeave={e => (e.currentTarget.style.background = 'rgba(197,160,89,0.03)')}>
@@ -487,7 +492,7 @@ export default function POSPage() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <FieldLabel>Total venta <span style={{ color: '#C5A059' }}>*</span></FieldLabel>
+                <FieldLabel>Total venta *</FieldLabel>
                 <input type="number" value={saleTotal} onChange={e => setSaleTotal(e.target.value)} placeholder="500000"
                   className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border text-right"
                   style={{ borderColor: 'rgba(197,160,89,0.30)' }} />
@@ -506,7 +511,7 @@ export default function POSPage() {
                   { label: 'ENTREGADO',   value: fmt(depositNum), color: '#10b981' },
                   { label: 'SALDO PEND.', value: fmt(balanceNum), color: balanceNum > 0 ? '#f59e0b' : '#6b7280' },
                 ].map(item => (
-                  <div key={item.label} className="flex flex-col items-center py-4 px-3" style={{ borderColor: 'rgba(197,160,89,0.14)' }}>
+                  <div key={item.label} className="flex flex-col items-center py-4 px-3">
                     <p className="text-xs font-light tracking-widest mb-1.5" style={{ color: 'rgba(255,255,255,0.35)' }}>{item.label}</p>
                     <p className="text-xl font-light" style={{ color: item.color }}>{item.value}</p>
                     <p className="text-xs mt-0.5 font-light" style={{ color: 'rgba(255,255,255,0.22)' }}>Gs.</p>
@@ -527,8 +532,7 @@ export default function POSPage() {
                 <button key={k} onClick={() => setStatus(k)}
                   className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-light"
                   style={{ background: status === k ? `${v.color}18` : 'rgba(255,255,255,0.03)', border: `1px solid ${status === k ? v.color + '55' : 'rgba(255,255,255,0.08)'}`, color: status === k ? v.color : 'rgba(255,255,255,0.44)' }}>
-                  {status === k && <Check size={12} />}
-                  {v.label}
+                  {status === k && <Check size={12} />}{v.label}
                 </button>
               ))}
           </div>
@@ -580,7 +584,9 @@ function ReceiptUpload({ value, onChange }: { value: string; onChange: (v: strin
       {value ? (
         <div className="relative inline-block">
           <img src={value} alt="comprobante" className="h-28 rounded-xl object-cover border" style={{ borderColor: 'rgba(197,160,89,0.25)' }} />
-          <button onClick={() => onChange('')} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: '#ef4444' }}><X size={10} color="#fff" /></button>
+          <button onClick={() => onChange('')} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: '#ef4444' }}>
+            <X size={10} color="#fff" />
+          </button>
         </div>
       ) : (
         <button onClick={() => ref.current?.click()}
@@ -598,20 +604,44 @@ function ReceiptUpload({ value, onChange }: { value: string; onChange: (v: strin
 
 function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: { eg: EyeglassItem; idx: number; onUpdate: (p: Partial<EyeglassItem>) => void; onRemove: () => void }) {
   const photoRef = useRef<HTMLInputElement | null>(null);
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [searching, setSearching]     = useState(false);
+  const [stockFrame, setStockFrame]   = useState<any | null>(null);
+
   function handlePhoto(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return;
     const reader = new FileReader();
     reader.onload = async ev => { const c = await compressImage(ev.target?.result as string); onUpdate({ photo_url: c }); };
     reader.readAsDataURL(file);
   }
+
+  async function handleFrameInput(val: string) {
+    onUpdate({ frame_description: val, stock_frame_id: undefined });
+    setStockFrame(null);
+    if (val.trim().length < 2) { setSuggestions([]); return; }
+    setSearching(true);
+    const { data } = await supabase
+      .from('armazones')
+      .select('id, codigo, nombre, foto_url, precio, stock_azara, stock_fernando, stock_caacupe, stock_la_fina')
+      .or(`codigo.ilike.%${val.trim()}%,nombre.ilike.%${val.trim()}%`)
+      .limit(5);
+    setSuggestions(data || []);
+    setSearching(false);
+  }
+
+  function selectFrame(frame: any) {
+    onUpdate({ frame_description: frame.codigo, photo_url: frame.foto_url || '', stock_frame_id: frame.id });
+    setStockFrame(frame);
+    setSuggestions([]);
+  }
+
   function updateRx(field: keyof Prescription, val: string) {
     onUpdate({ prescription: { ...eg.prescription, [field]: val } });
   }
-  const textInp = (value: string, onChange: (v: string) => void, placeholder: string, opts?: { type?: string; right?: boolean }) => (
-    <input type={opts?.type ?? 'text'} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
-      className={`w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border${opts?.right ? ' text-right' : ''}`}
-      style={{ borderColor: 'rgba(197,160,89,0.22)' }} />
-  );
+
+  const totalStockFrame = stockFrame
+    ? (stockFrame.stock_azara || 0) + (stockFrame.stock_fernando || 0) + (stockFrame.stock_caacupe || 0) + (stockFrame.stock_la_fina || 0)
+    : 0;
 
   return (
     <div className="rounded-xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.022)', border: '1px solid rgba(197,160,89,0.16)' }}>
@@ -619,59 +649,145 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: { eg: EyeglassItem;
         <div className="flex items-center gap-2.5">
           <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-medium text-black shrink-0" style={{ background: '#C5A059' }}>{idx + 1}</span>
           <span className="text-sm font-light text-white truncate max-w-[150px]">{eg.frame_description || `Anteojo ${idx + 1}`}</span>
-          {eg.price && <span className="text-xs font-light" style={{ color: '#C5A059' }}>Gs. {(parseFloat(eg.price) || 0).toLocaleString('es-PY')}</span>}
         </div>
-        <button onClick={onRemove} style={{ color: 'rgba(239,68,68,0.45)' }} onMouseEnter={e => (e.currentTarget.style.color = '#ef4444')} onMouseLeave={e => (e.currentTarget.style.color = 'rgba(239,68,68,0.45)')}><Trash2 size={14} /></button>
+        <button onClick={onRemove} style={{ color: 'rgba(239,68,68,0.45)' }}
+          onMouseEnter={e => (e.currentTarget.style.color = '#ef4444')}
+          onMouseLeave={e => (e.currentTarget.style.color = 'rgba(239,68,68,0.45)')}>
+          <Trash2 size={14} />
+        </button>
       </div>
+
       <div className="p-4 space-y-3">
-        <div className="flex gap-3 items-start">
-          <div className="flex-1">
-            <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Armazón</p>
-            {textInp(eg.frame_description, v => onUpdate({ frame_description: v }), 'Código o modelo del armazón')}
+
+        {/* Campo armazón con buscador */}
+        <div>
+          <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Armazón</p>
+          <div className="flex gap-3 items-start">
+            <div className="flex-1 relative">
+              <input
+                type="text"
+                value={eg.frame_description}
+                onChange={e => handleFrameInput(e.target.value)}
+                placeholder="Código del stock o descripción libre"
+                className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border"
+                style={{ borderColor: eg.stock_frame_id ? 'rgba(34,197,94,0.4)' : 'rgba(197,160,89,0.22)' }}
+              />
+              {searching && (
+                <p className="text-xs mt-1 px-1" style={{ color: 'rgba(255,255,255,0.35)' }}>Buscando...</p>
+              )}
+              {suggestions.length > 0 && (
+                <div className="absolute top-full left-0 right-0 mt-1 rounded-xl overflow-hidden z-50"
+                  style={{ background: '#0d0d0d', border: '1px solid rgba(197,160,89,0.25)', boxShadow: '0 8px 24px rgba(0,0,0,0.6)' }}>
+                  {suggestions.map(s => {
+                    const tot = (s.stock_azara||0)+(s.stock_fernando||0)+(s.stock_caacupe||0)+(s.stock_la_fina||0);
+                    return (
+                      <button key={s.id} onClick={() => selectFrame(s)}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 text-left"
+                        style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
+                        onMouseEnter={e => (e.currentTarget.style.background = 'rgba(197,160,89,0.08)')}
+                        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                        {s.foto_url ? (
+                          <img src={s.foto_url} alt={s.nombre} className="w-10 h-8 rounded object-cover shrink-0" style={{ border: '1px solid rgba(197,160,89,0.2)' }} />
+                        ) : (
+                          <div className="w-10 h-8 rounded shrink-0 flex items-center justify-center" style={{ background: 'rgba(197,160,89,0.06)', border: '1px solid rgba(197,160,89,0.12)' }}>
+                            <Glasses size={12} style={{ color: 'rgba(197,160,89,0.4)' }} />
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-white font-light truncate">{s.nombre}</p>
+                          <p className="text-xs font-light" style={{ color: 'rgba(197,160,89,0.6)' }}>
+                            #{s.codigo} · Stock total: {tot} uds.
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Foto */}
+            <div className="shrink-0">
+              {eg.photo_url ? (
+                <div className="relative">
+                  <img src={eg.photo_url} alt="armazón" className="w-16 h-12 object-cover rounded-lg border" style={{ borderColor: 'rgba(197,160,89,0.25)' }} />
+                  <button onClick={() => { onUpdate({ photo_url: '', stock_frame_id: undefined }); setStockFrame(null); }}
+                    className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center" style={{ background: '#ef4444' }}>
+                    <X size={8} color="#fff" />
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => photoRef.current?.click()}
+                  className="w-16 h-12 rounded-lg flex flex-col items-center justify-center gap-0.5 border"
+                  style={{ borderColor: 'rgba(197,160,89,0.22)', background: 'rgba(197,160,89,0.04)', color: 'rgba(197,160,89,0.55)' }}>
+                  <Camera size={14} /><span style={{ fontSize: 9 }}>Foto</span>
+                </button>
+              )}
+              <input ref={photoRef} type="file" accept="image/*" className="hidden" onChange={handlePhoto} />
+            </div>
           </div>
-          <div className="shrink-0 mt-5">
-            {eg.photo_url ? (
-              <div className="relative">
-                <img src={eg.photo_url} alt="armazón" className="w-16 h-12 object-cover rounded-lg border" style={{ borderColor: 'rgba(197,160,89,0.25)' }} />
-                <button onClick={() => onUpdate({ photo_url: '' })} className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center" style={{ background: '#ef4444' }}><X size={8} color="#fff" /></button>
-              </div>
-            ) : (
-              <button onClick={() => photoRef.current?.click()}
-                className="w-16 h-12 rounded-lg flex flex-col items-center justify-center gap-0.5 border"
-                style={{ borderColor: 'rgba(197,160,89,0.22)', background: 'rgba(197,160,89,0.04)', color: 'rgba(197,160,89,0.55)' }}>
-                <Camera size={14} /><span className="text-xs font-light leading-none" style={{ fontSize: 9 }}>Foto</span>
-              </button>
-            )}
-            <input ref={photoRef} type="file" accept="image/*" className="hidden" onChange={handlePhoto} />
-          </div>
+
+          {/* Armazón del stock seleccionado */}
+          {eg.stock_frame_id && stockFrame && (
+            <div className="mt-2 flex items-center gap-2 px-3 py-2 rounded-lg"
+              style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.22)' }}>
+              <Check size={12} style={{ color: '#22c55e', flexShrink: 0 }} />
+              <span className="text-xs font-light" style={{ color: '#22c55e' }}>
+                {stockFrame.nombre} · Stock disponible: {totalStockFrame} uds. · Se descontará 1 al guardar
+              </span>
+            </div>
+          )}
+
+          {/* Armazón propio del cliente */}
+          {!eg.stock_frame_id && eg.frame_description.trim() && (
+            <div className="mt-2 flex items-center gap-2 px-3 py-2 rounded-lg"
+              style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.15)' }}>
+              <span className="text-xs font-light" style={{ color: 'rgba(197,160,89,0.6)' }}>
+                Armazón propio del cliente — no descuenta stock
+              </span>
+            </div>
+          )}
         </div>
+
+        {/* Cristales y Tratamiento */}
         <div className="grid grid-cols-2 gap-3">
-          <div><p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Cristales</p>{textInp(eg.crystals, v => onUpdate({ crystals: v }), 'monofocal, multifocal...')}</div>
-          <div><p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Tratamiento</p>{textInp(eg.treatments, v => onUpdate({ treatments: v }), 'antirreflejo, filtro azul...')}</div>
+          <div>
+            <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Cristales</p>
+            <input type="text" value={eg.crystals} onChange={e => onUpdate({ crystals: e.target.value })} placeholder="monofocal, multifocal..."
+              className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border"
+              style={{ borderColor: 'rgba(197,160,89,0.22)' }} />
+          </div>
+          <div>
+            <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Tratamiento</p>
+            <input type="text" value={eg.treatments} onChange={e => onUpdate({ treatments: e.target.value })} placeholder="antirreflejo, filtro azul..."
+              className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border"
+              style={{ borderColor: 'rgba(197,160,89,0.22)' }} />
+          </div>
         </div>
+
+        {/* Tipo de venta */}
         <div className="flex items-center gap-2 flex-wrap">
           <p className="text-xs font-light shrink-0" style={{ color: 'rgba(255,255,255,0.4)' }}>Tipo de venta:</p>
           <button onClick={() => onUpdate({ saleType: 'completa' })}
-            className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+            className="px-3 py-1.5 rounded-lg text-xs font-medium"
             style={{ background: (eg.saleType ?? 'completa') === 'completa' ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.03)', border: `1px solid ${(eg.saleType ?? 'completa') === 'completa' ? 'rgba(16,185,129,0.5)' : 'rgba(255,255,255,0.08)'}`, color: (eg.saleType ?? 'completa') === 'completa' ? '#10b981' : 'rgba(255,255,255,0.38)' }}>
             ✓ 1 venta completa
           </button>
           <button onClick={() => onUpdate({ saleType: 'media' })}
-            className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+            className="px-3 py-1.5 rounded-lg text-xs font-medium"
             style={{ background: eg.saleType === 'media' ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.03)', border: `1px solid ${eg.saleType === 'media' ? 'rgba(245,158,11,0.5)' : 'rgba(255,255,255,0.08)'}`, color: eg.saleType === 'media' ? '#f59e0b' : 'rgba(255,255,255,0.38)' }}>
             ½ media venta
           </button>
         </div>
-        <div className="flex items-end gap-3">
-          <div className="flex-1">
-            <button onClick={() => onUpdate({ showReceta: !eg.showReceta })}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light"
-              style={{ color: 'rgba(197,160,89,0.7)', border: '1px solid rgba(197,160,89,0.20)' }}>
-              {eg.showReceta ? <ChevronUp size={11} /> : <Plus size={11} />}
-              {eg.showReceta ? 'Ocultar receta' : '+ Completar receta'}
-            </button>
-          </div>
-        </div>
+
+        {/* Receta */}
+        <button onClick={() => onUpdate({ showReceta: !eg.showReceta })}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light"
+          style={{ color: 'rgba(197,160,89,0.7)', border: '1px solid rgba(197,160,89,0.20)' }}>
+          {eg.showReceta ? <ChevronUp size={11} /> : <Plus size={11} />}
+          {eg.showReceta ? 'Ocultar receta' : '+ Completar receta'}
+        </button>
+
         {eg.showReceta && (
           <div className="rounded-xl p-3 space-y-3" style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.14)' }}>
             <div>
@@ -714,113 +830,21 @@ const DELIVERY_OPTIONS: { id: 'retiro' | 'delivery' | 'encomienda'; label: strin
   { id: 'encomienda', label: 'Encomienda',        icon: <Package size={13} /> },
 ];
 
-type CloseSaleFormProps = {
-  balance: number;
-  closeAmt: string; setCloseAmt: (v: string) => void;
-  closeMethod: PaymentMethod; setCloseMethod: (v: PaymentMethod) => void;
-  closeRef: string; setCloseRef: (v: string) => void;
-  closeReceipt: string; setCloseReceipt: (v: string) => void;
-  closeReceiptWarn: boolean; setCloseReceiptWarn: (v: boolean) => void;
-  closeDelivery: 'retiro' | 'delivery' | 'encomienda'; setCloseDelivery: (v: 'retiro' | 'delivery' | 'encomienda') => void;
-  closingSale: boolean; onConfirm: () => void; onCancel: () => void;
-};
-
-function CloseSaleForm({ balance, closeAmt, setCloseAmt, closeMethod, setCloseMethod, closeRef, setCloseRef, closeReceipt, setCloseReceipt, closeReceiptWarn, setCloseReceiptWarn, closeDelivery, setCloseDelivery, closingSale, onConfirm, onCancel }: CloseSaleFormProps) {
-  const hasPendingBalance = balance > 0;
-  return (
-    <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(34,197,94,0.04)', border: '1px solid rgba(34,197,94,0.22)' }}>
-      <div className="px-4 py-3 flex items-center gap-2" style={{ background: 'rgba(34,197,94,0.07)', borderBottom: '1px solid rgba(34,197,94,0.15)' }}>
-        <Package size={14} style={{ color: '#22c55e' }} />
-        <span className="text-sm font-light tracking-wide" style={{ color: '#22c55e' }}>Entregar Lentes y Cerrar Venta</span>
-      </div>
-      <div className="p-4 space-y-4">
-        {hasPendingBalance && (
-          <div className="space-y-3 pb-3" style={{ borderBottom: '1px solid rgba(34,197,94,0.12)' }}>
-            <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(255,255,255,0.38)' }}>Cobrar saldo — Gs. {fmt(balance)}</p>
-            <div className="flex gap-1 flex-wrap">
-              {PAY_METHODS.map(m => (
-                <button key={m.id} onClick={() => setCloseMethod(m.id)}
-                  className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-light"
-                  style={{ background: closeMethod === m.id ? `${m.color}18` : 'rgba(255,255,255,0.03)', border: `1px solid ${closeMethod === m.id ? m.color + '44' : 'rgba(255,255,255,0.07)'}`, color: closeMethod === m.id ? m.color : 'rgba(255,255,255,0.38)' }}>
-                  {m.icon}
-                </button>
-              ))}
-            </div>
-            <input value={closeAmt} onChange={e => setCloseAmt(e.target.value)} type="number" placeholder={`Monto recibido (Gs. ${fmt(balance)})`}
-              className="w-full px-3 py-2 rounded-xl bg-transparent text-white text-xs outline-none border" style={{ borderColor: 'rgba(34,197,94,0.25)' }} />
-            {(closeMethod === 'transferencia' || closeMethod === 'giro') && (
-              <input value={closeRef} onChange={e => setCloseRef(e.target.value)} placeholder="Banco / referencia"
-                className="w-full px-3 py-2 rounded-xl bg-transparent text-white text-xs outline-none border" style={{ borderColor: 'rgba(34,197,94,0.18)' }} />
-            )}
-          </div>
-        )}
-        <div className="space-y-2">
-          <div className="flex items-center gap-1.5">
-            <Receipt size={11} style={{ color: '#22c55e' }} />
-            <span className="text-xs font-light" style={{ color: 'rgba(34,197,94,0.8)' }}>Comprobante de entrega</span>
-            <span className="text-xs font-medium" style={{ color: '#f59e0b' }}>obligatorio</span>
-          </div>
-          <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${closeReceiptWarn && !closeReceipt ? 'rgba(245,158,11,0.6)' : 'rgba(34,197,94,0.18)'}` }}>
-            {closeReceipt ? (
-              <div className="p-2 flex items-start gap-2">
-                <div className="relative inline-block shrink-0">
-                  <img src={closeReceipt} alt="comprobante" className="h-20 rounded-lg object-cover" style={{ border: '1px solid rgba(34,197,94,0.3)' }} />
-                  <button onClick={() => setCloseReceipt('')} className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center" style={{ background: '#ef4444' }}><X size={8} color="#fff" /></button>
-                </div>
-                <div className="flex items-center gap-1.5 mt-1"><Check size={12} style={{ color: '#22c55e' }} /><span className="text-xs font-light" style={{ color: '#22c55e' }}>Comprobante cargado</span></div>
-              </div>
-            ) : (
-              <label className="flex items-center gap-2 px-4 py-3 cursor-pointer" style={{ background: 'rgba(34,197,94,0.04)' }}>
-                <Camera size={13} style={{ color: 'rgba(34,197,94,0.6)' }} />
-                <span className="text-xs font-light" style={{ color: 'rgba(34,197,94,0.7)' }}>Subir foto del recibo / ticket de entrega</span>
-                <input type="file" accept="image/*" className="hidden"
-                  onChange={async e => {
-                    const file = e.target.files?.[0]; if (!file) return;
-                    const reader = new FileReader();
-                    reader.onload = async ev => { const c = await compressImage(ev.target?.result as string); setCloseReceipt(c); setCloseReceiptWarn(false); };
-                    reader.readAsDataURL(file);
-                  }} />
-              </label>
-            )}
-          </div>
-          {closeReceiptWarn && !closeReceipt && <p className="text-xs font-light px-1" style={{ color: '#f59e0b' }}>Se requiere foto del comprobante.</p>}
-        </div>
-        <div className="space-y-2">
-          <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(255,255,255,0.38)' }}>Tipo de entrega</p>
-          <div className="flex gap-2 flex-wrap">
-            {DELIVERY_OPTIONS.map(opt => (
-              <button key={opt.id} onClick={() => setCloseDelivery(opt.id)}
-                className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-light flex-1 justify-center"
-                style={{ background: closeDelivery === opt.id ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.03)', border: `1px solid ${closeDelivery === opt.id ? 'rgba(34,197,94,0.45)' : 'rgba(255,255,255,0.07)'}`, color: closeDelivery === opt.id ? '#22c55e' : 'rgba(255,255,255,0.42)' }}>
-                {opt.icon}{opt.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="flex gap-2 pt-1">
-          <button onClick={() => { if (!closeReceipt) { setCloseReceiptWarn(true); return; } onConfirm(); }}
-            disabled={closingSale || (hasPendingBalance && !closeAmt)}
-            className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium"
-            style={{ background: (closingSale || (hasPendingBalance && !closeAmt)) ? 'rgba(34,197,94,0.08)' : '#22c55e', color: (closingSale || (hasPendingBalance && !closeAmt)) ? 'rgba(34,197,94,0.4)' : '#000', cursor: (closingSale || (hasPendingBalance && !closeAmt)) ? 'not-allowed' : 'pointer' }}>
-            <Check size={15} />{closingSale ? 'Guardando...' : 'Confirmar Entrega'}
-          </button>
-          <button onClick={onCancel} className="px-4 py-3 rounded-xl text-xs font-light" style={{ color: 'rgba(255,255,255,0.38)', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>Cancelar</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function ReceiptLightbox({ url, onClose }: { url: string; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center p-6" style={{ background: 'rgba(0,0,0,0.94)' }} onClick={onClose}>
+    <div className="fixed inset-0 z-[300] flex items-center justify-center p-6"
+      style={{ background: 'rgba(0,0,0,0.94)' }} onClick={onClose}>
       <div className="relative max-w-lg w-full" onClick={e => e.stopPropagation()}>
         <div className="flex items-center gap-2 mb-3">
           <Receipt size={14} style={{ color: '#C5A059' }} />
           <span className="text-sm font-light tracking-wider" style={{ color: '#C5A059' }}>Comprobante de Pago</span>
         </div>
-        <img src={url} alt="comprobante" className="w-full rounded-2xl" style={{ border: '1px solid rgba(197,160,89,0.3)', maxHeight: '75vh', objectFit: 'contain' }} />
-        <button onClick={onClose} className="absolute top-8 right-3 p-2 rounded-full" style={{ background: 'rgba(0,0,0,0.7)', color: 'rgba(255,255,255,0.7)' }}><X size={16} /></button>
+        <img src={url} alt="comprobante" className="w-full rounded-2xl"
+          style={{ border: '1px solid rgba(197,160,89,0.3)', maxHeight: '75vh', objectFit: 'contain' }} />
+        <button onClick={onClose} className="absolute top-8 right-3 p-2 rounded-full"
+          style={{ background: 'rgba(0,0,0,0.7)', color: 'rgba(255,255,255,0.7)' }}>
+          <X size={16} />
+        </button>
       </div>
     </div>
   );
@@ -829,7 +853,7 @@ function ReceiptLightbox({ url, onClose }: { url: string; onClose: () => void })
 function PaymentHistory({ saleId, isLocal, isAdmin }: { saleId: string; isLocal?: boolean; isAdmin?: boolean }) {
   type PayRow = { id: string; amount: number; method: string; paid_at: string; reference: string; receipt_url?: string; branches: { name: string } | null };
   const [payments, setPayments] = useState<PayRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading]   = useState(true);
   const [viewReceipt, setViewReceipt] = useState<string | null>(null);
 
   useEffect(() => {
@@ -850,7 +874,7 @@ function PaymentHistory({ saleId, isLocal, isAdmin }: { saleId: string; isLocal?
     }
   }, [saleId, isLocal]);
 
-  if (loading) return <div className="h-4 w-20 rounded shimmer" />;
+  if (loading) return <div className="h-4 w-20 rounded" />;
   if (payments.length === 0) return <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.28)' }}>Sin pagos registrados</p>;
 
   const total = payments.reduce((s, p) => s + Number(p.amount), 0);
@@ -865,7 +889,7 @@ function PaymentHistory({ saleId, isLocal, isAdmin }: { saleId: string; isLocal?
           return (
             <div key={p.id} className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.05)', background: 'rgba(255,255,255,0.015)' }}>
               <div className="flex items-center gap-2 px-3 py-2 text-xs font-light">
-                <span className="shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-xs font-medium text-black" style={{ background: mc, fontSize: 9 }}>{i + 1}</span>
+                <span className="shrink-0 w-4 h-4 rounded-full flex items-center justify-center font-medium text-black" style={{ background: mc, fontSize: 9 }}>{i + 1}</span>
                 <span className="px-2 py-0.5 rounded-full shrink-0" style={{ background: `${mc}18`, color: mc }}>{p.method}</span>
                 <span className="text-white font-medium">Gs. {Number(p.amount).toLocaleString()}</span>
                 {p.reference && <span className="truncate" style={{ color: 'rgba(255,255,255,0.38)' }}>{p.reference}</span>}
@@ -874,24 +898,16 @@ function PaymentHistory({ saleId, isLocal, isAdmin }: { saleId: string; isLocal?
                   {' '}<span style={{ color: 'rgba(255,255,255,0.18)' }}>{dt.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}</span>
                 </span>
               </div>
-              {isAdmin && (
+              {isAdmin && p.receipt_url && (
                 <div className="px-3 pb-2 flex items-center gap-2" style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
                   <Receipt size={9} style={{ color: 'rgba(197,160,89,0.45)', flexShrink: 0 }} />
-                  <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.28)', fontSize: 10 }}>Comprobante:</span>
-                  {p.receipt_url ? (
-                    <button onClick={() => setViewReceipt(p.receipt_url!)}
-                      className="relative group rounded-lg overflow-hidden shrink-0" style={{ width: 44, height: 44, border: '1px solid rgba(197,160,89,0.30)' }}>
-                      <img src={p.receipt_url} alt="comprobante" className="w-full h-full object-cover" />
-                      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" style={{ background: 'rgba(0,0,0,0.6)' }}>
-                        <ZoomIn size={12} style={{ color: '#C5A059' }} />
-                      </div>
-                    </button>
-                  ) : (
-                    <span className="text-xs font-light px-2 py-0.5 rounded-md"
-                      style={{ background: p.method !== 'efectivo' ? 'rgba(245,158,11,0.08)' : 'rgba(255,255,255,0.03)', color: p.method !== 'efectivo' ? 'rgba(245,158,11,0.55)' : 'rgba(255,255,255,0.2)', border: `1px solid ${p.method !== 'efectivo' ? 'rgba(245,158,11,0.18)' : 'rgba(255,255,255,0.06)'}` }}>
-                      {p.method !== 'efectivo' ? 'Sin comprobante' : 'Efectivo — sin foto'}
-                    </span>
-                  )}
+                  <button onClick={() => setViewReceipt(p.receipt_url!)}
+                    className="relative group rounded-lg overflow-hidden shrink-0" style={{ width: 44, height: 44, border: '1px solid rgba(197,160,89,0.30)' }}>
+                    <img src={p.receipt_url} alt="comprobante" className="w-full h-full object-cover" />
+                    <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" style={{ background: 'rgba(0,0,0,0.6)' }}>
+                      <ZoomIn size={12} style={{ color: '#C5A059' }} />
+                    </div>
+                  </button>
                 </div>
               )}
             </div>
