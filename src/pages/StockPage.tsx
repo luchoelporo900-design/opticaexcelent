@@ -64,8 +64,9 @@ function totalStock(f: Frame | FormData) {
 export default function StockPage() {
   const { profile } = useAuth();
 
-  const isAdmin     = profile?.role === 'admin' || profile?.role === 'gerente';
-  const isVendedora = profile?.role === 'vendedora';
+  const isAdmin        = profile?.role === 'admin' || profile?.role === 'gerente';
+  const isVendedora    = profile?.role === 'vendedora';
+  const puedeCargarStock = isAdmin || (profile as any)?.puede_cargar_stock === true;
 
   // Detectar sede de la vendedora
   const vendedoraSede = (() => {
@@ -251,7 +252,7 @@ export default function StockPage() {
             style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.55)' }}>
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
           </button>
-          {isAdmin && (
+          {puedeCargarStock && (
             <button onClick={openNew}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-light"
               style={{ background: 'rgba(197,160,89,0.12)', border: '1px solid rgba(197,160,89,0.30)', color: '#C5A059' }}>
@@ -474,7 +475,7 @@ export default function StockPage() {
       </div>
 
       {/* ─── Modal agregar/editar (admin) ───────────────────────────────── */}
-      {showModal && (
+      {showModal && puedeCargarStock && (
         <div className="fixed inset-0 z-[900] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.88)' }}>
           <div className="w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: '#0d0d0d', border: '1px solid rgba(197,160,89,0.25)' }}>
 
