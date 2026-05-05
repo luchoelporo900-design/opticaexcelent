@@ -8,12 +8,14 @@ import { useBranch } from '../context/BranchContext';
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
 import { saveExpense } from '../lib/salesStorage';
+import { supabase } from '../lib/supabase';
 
 type PaymentMethod = 'efectivo' | 'transferencia' | 'tarjeta' | 'qr' | 'giro';
 
 type DailySummary = {
   efectivo: number; transferencia: number; tarjeta: number;
-  qr: number; giro: number; expenses: number; total: number; count: number;
+  qr: number; giro: number; expenses: number; ingresos: number;
+  total: number; count: number;
 };
 
 type PaymentRow = {
@@ -25,6 +27,11 @@ type PaymentRow = {
 type Expense = {
   id: string; description: string; category: string; amount: number;
   method: string; expense_date: string; branch_name?: string;
+};
+
+type Ingreso = {
+  id: string; description: string; amount: number;
+  method: string; date: string; branch_name?: string;
 };
 
 type SellerRow = {
@@ -64,7 +71,7 @@ function fmt(n: number) {
   return n.toLocaleString('es-PY', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
 function emptyAgg(): DailySummary {
-  return { efectivo: 0, transferencia: 0, tarjeta: 0, qr: 0, giro: 0, expenses: 0, total: 0, count: 0 };
+  return { efectivo: 0, transferencia: 0, tarjeta: 0, qr: 0, giro: 0, expenses: 0, ingresos: 0, total: 0, count: 0 };
 }
 function addToAgg(agg: DailySummary, method: string, amount: number): DailySummary {
   const next = { ...agg };
@@ -97,19 +104,21 @@ export default function CashPage() {
   const { profile } = useAuth();
   const { sales: allSales, payments: allPayments, expenses: allExpenses, refresh } = useData();
 
-  const [selectedDate,    setSelectedDate]    = useState(new Date().toISOString().slice(0, 10));
-  const [selectedBranch,  setSelectedBranch]  = useState<string>('');
-  const [selectedSeller,  setSelectedSeller]  = useState<string>('');
-  const [summary,         setSummary]         = useState<DailySummary>(emptyAgg());
-  const [payments,        setPayments]        = useState<PaymentRow[]>([]);
-  const [expenses,        setExpenses]        = useState<Expense[]>([]);
-  const [bySeller,        setBySeller]        = useState<SellerRow[]>([]);
-  const [loading,         setLoading]         = useState(false);
-  const [methodFilter,    setMethodFilter]    = useState<string>('all');
-  const [expandedPay,     setExpandedPay]     = useState<string | null>(null);
-  const [reviewed,        setReviewed]        = useState<Set<string>>(getReviewed());
-  const [lightboxUrl,     setLightboxUrl]     = useState<string | null>(null);
+  const [selectedDate,   setSelectedDate]   = useState(new Date().toISOString().slice(0, 10));
+  const [selectedBranch, setSelectedBranch] = useState<string>('');
+  const [selectedSeller, setSelectedSeller] = useState<string>('');
+  const [summary,        setSummary]        = useState<DailySummary>(emptyAgg());
+  const [payments,       setPayments]       = useState<PaymentRow[]>([]);
+  const [expenses,       setExpenses]       = useState<Expense[]>([]);
+  const [ingresos,       setIngresos]       = useState<Ingreso[]>([]);
+  const [bySeller,       setBySeller]       = useState<SellerRow[]>([]);
+  const [loading,        setLoading]        = useState(false);
+  const [methodFilter,   setMethodFilter]   = useState<string>('all');
+  const [expandedPay,    setExpandedPay]    = useState<string | null>(null);
+  const [reviewed,       setReviewed]       = useState<Set<string>>(getReviewed());
+  const [lightboxUrl,    setLightboxUrl]    = useState<string | null>(null);
 
+  // Egreso
   const [showAddExp,  setShowAddExp]  = useState(false);
   const [expDesc,     setExpDesc]     = useState('');
   const [expAmount,   setExpAmount]   = useState('');
@@ -118,6 +127,15 @@ export default function CashPage() {
   const [expBranch,   setExpBranch]   = useState('');
   const [savingExp,   setSavingExp]   = useState(false);
   const [expSuccess,  setExpSuccess]  = useState(false);
+
+  // Ingreso manual
+  const [showAddIng,  setShowAddIng]  = useState(false);
+  const [ingDesc,     setIngDesc]     = useState('');
+  const [ingAmount,   setIngAmount]   = useState('');
+  const [ingMethod,   setIngMethod]   = useState<PaymentMethod>('efectivo');
+  const [ingBranch,   setIngBranch]   = useState('');
+  const [savingIng,   setSavingIng]   = useState(false);
+  const [ingSuccess,  setIngSuccess]  = useState(false);
 
   const isAdmin     = profile?.role === 'admin' || profile?.role === 'gerente';
   const isVendedora = profile?.role === 'vendedora';
@@ -131,13 +149,18 @@ export default function CashPage() {
     if (isVendedora) setSelectedDate(new Date().toISOString().slice(0, 10));
   }, [activeBranch, selectedBranch, isVendedora, profile?.branch_id]);
 
-  useEffect(() => { if (selectedBranch && !expBranch) setExpBranch(selectedBranch); }, [selectedBranch, expBranch]);
+  useEffect(() => {
+    if (selectedBranch && !expBranch) setExpBranch(selectedBranch);
+    if (selectedBranch && !ingBranch) setIngBranch(selectedBranch);
+  }, [selectedBranch, expBranch, ingBranch]);
 
-  function buildAndCommit(rows: PaymentRow[], expList: Expense[]) {
+  function buildAndCommit(rows: PaymentRow[], expList: Expense[], ingList: Ingreso[]) {
     let agg = emptyAgg();
     for (const r of rows) agg = addToAgg(agg, r.method, r.amount);
     agg.expenses = expList.reduce((s, e) => s + Number(e.amount), 0);
-    setPayments(rows); setExpenses(expList); setSummary(agg);
+    agg.ingresos = ingList.reduce((s, i) => s + Number(i.amount), 0);
+    setPayments(rows); setExpenses(expList); setIngresos(ingList); setSummary(agg);
+
     const sellerMap: Record<string, SellerRow> = {};
     for (const r of rows) {
       const s = r.seller_name || 'Sin vendedor';
@@ -152,10 +175,12 @@ export default function CashPage() {
     setLoading(true);
     const sellerFilter = isVendedora ? profile?.full_name : selectedSeller || null;
 
+    // ── Filtro mejorado: si hay vendedora Y sucursal, filtra por AMBAS ──
     const dayPayments = allPayments.filter(p => {
       if (!(p.fecha || '').startsWith(selectedDate)) return false;
-      if (sellerFilter) return p.vendedora === sellerFilter;
-      return !selectedBranch || branchMatch(p.sucursal || '', selectedBranch);
+      if (sellerFilter && p.vendedora !== sellerFilter) return false;
+      if (selectedBranch && !branchMatch(p.sucursal || '', selectedBranch)) return false;
+      return true;
     });
 
     const payRows: PaymentRow[] = dayPayments.map(p => ({
@@ -167,9 +192,12 @@ export default function CashPage() {
 
     const daySales = allSales.filter(v => {
       if (!(v.fecha || '').startsWith(selectedDate)) return false;
-      if (sellerFilter) return v.vendedora === sellerFilter;
-      return !selectedBranch || branchMatch(v.sucursalCobro || v.sucursalVenta || '', selectedBranch);
+      if (sellerFilter && v.vendedora !== sellerFilter) return false;
+      // Filtrar por sucursal de COBRO específicamente
+      if (selectedBranch && !branchMatch(v.sucursalCobro || v.sucursalVenta || '', selectedBranch)) return false;
+      return true;
     });
+
     const recordedIds = new Set(dayPayments.map(p => p.saleId));
     const fallbackRows: PaymentRow[] = daySales.filter(v => !recordedIds.has(v.id)).map(v => {
       const paid = Math.max(0, (Number(v.total) || 0) - (Number(v.saldo) || 0));
@@ -185,14 +213,19 @@ export default function CashPage() {
 
     const dayExpenses = allExpenses.filter(e => {
       if ((e.fecha || '') !== selectedDate) return false;
-      if (sellerFilter) return e.vendedora === sellerFilter;
-      return !selectedBranch || branchMatch(e.sucursal || '', selectedBranch);
+      if (sellerFilter && e.vendedora !== sellerFilter) return false;
+      if (selectedBranch && !branchMatch(e.sucursal || '', selectedBranch)) return false;
+      return true;
     });
 
-    buildAndCommit([...payRows, ...fallbackRows], dayExpenses.map(e => ({
-      id: String(e.id), description: e.descripcion, category: e.categoria,
-      amount: Number(e.monto), method: e.metodo, expense_date: e.fecha, branch_name: e.sucursal,
-    })));
+    buildAndCommit(
+      [...payRows, ...fallbackRows],
+      dayExpenses.map(e => ({
+        id: String(e.id), description: e.descripcion, category: e.categoria,
+        amount: Number(e.monto), method: e.metodo, expense_date: e.fecha, branch_name: e.sucursal,
+      })),
+      [] // ingresos se cargan aparte
+    );
     setLoading(false);
   }, [selectedBranch, selectedDate, selectedSeller, isVendedora, profile?.full_name, allPayments, allSales, allExpenses]);
 
@@ -206,17 +239,6 @@ export default function CashPage() {
   function getSaleDetail(saleId?: number) {
     if (!saleId) return null;
     return allSales.find(v => v.id === saleId) ?? null;
-  }
-
-  function getReceiptUrl(payId: string, saleId?: number): string | null {
-    let pay = allPayments.find((p: any) => String(p.id) === payId);
-    if (!pay && saleId) pay = allPayments.find((p: any) => p.saleId === saleId);
-    if (pay && (pay as any).receipt_url) return (pay as any).receipt_url;
-    if (saleId) {
-      const sale = allSales.find((v: any) => v.id === saleId);
-      if (sale && (sale as any).receipt_url) return (sale as any).receipt_url;
-    }
-    return null;
   }
 
   async function addExpense() {
@@ -237,6 +259,28 @@ export default function CashPage() {
     await refresh();
   }
 
+  async function addIngreso() {
+    const amt = parseFloat(ingAmount);
+    const branchName = ingBranch || selectedBranch || activeBranch?.name || '';
+    if (!amt || !ingDesc.trim() || !branchName) return;
+    setSavingIng(true);
+    // Guardar ingreso en Supabase
+    await supabase.from('cash_ingresos').insert([{
+      fecha: selectedDate,
+      descripcion: ingDesc.trim(),
+      monto: Number(amt),
+      metodo: ingMethod,
+      sucursal: branchName,
+      vendedora: profile?.full_name || '',
+    }]);
+    setIngDesc(''); setIngAmount('');
+    setIngMethod('efectivo'); setShowAddIng(false);
+    setIngSuccess(true);
+    setTimeout(() => setIngSuccess(false), 4000);
+    setSavingIng(false);
+    load();
+  }
+
   const visiblePayments = isVendedora
     ? payments.filter(p => p.seller_name === profile?.full_name)
     : payments;
@@ -246,11 +290,12 @@ export default function CashPage() {
     let agg = emptyAgg();
     for (const r of visiblePayments) agg = addToAgg(agg, r.method, r.amount);
     agg.expenses = expenses.reduce((s, e) => s + Number(e.amount), 0);
+    agg.ingresos = ingresos.reduce((s, i) => s + Number(i.amount), 0);
     return agg;
   })();
 
-  const netTotal     = visibleSummary.total - visibleSummary.expenses;
-  const efectivoNeto = visibleSummary.efectivo - visibleSummary.expenses;
+  const netTotal     = visibleSummary.total + visibleSummary.ingresos - visibleSummary.expenses;
+  const efectivoNeto = visibleSummary.efectivo + visibleSummary.ingresos - visibleSummary.expenses;
 
   const totalPendiente = allSales.filter(v => {
     if ((Number(v.saldo) || 0) <= 0) return false;
@@ -313,11 +358,13 @@ export default function CashPage() {
         </div>
       </div>
 
-      {expSuccess && (
+      {(expSuccess || ingSuccess) && (
         <div className="flex items-center gap-3 px-4 py-3 rounded-xl"
-          style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.30)' }}>
-          <CheckCircle size={14} style={{ color: '#ef4444' }} />
-          <p className="text-sm font-light" style={{ color: '#ef4444' }}>Gasto registrado correctamente</p>
+          style={{ background: ingSuccess ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)', border: `1px solid ${ingSuccess ? 'rgba(34,197,94,0.30)' : 'rgba(239,68,68,0.30)'}` }}>
+          <CheckCircle size={14} style={{ color: ingSuccess ? '#22c55e' : '#ef4444' }} />
+          <p className="text-sm font-light" style={{ color: ingSuccess ? '#22c55e' : '#ef4444' }}>
+            {ingSuccess ? 'Ingreso registrado correctamente' : 'Gasto registrado correctamente'}
+          </p>
         </div>
       )}
 
@@ -354,6 +401,13 @@ export default function CashPage() {
           <p className="text-2xl font-light" style={{ color: '#C5A059' }}>{fmt(visibleSummary.total)}</p>
           <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.24)' }}>{visibleSummary.count} movimientos</p>
         </div>
+        <div className="rounded-xl p-5" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(34,197,94,0.20)' }}>
+          <p className="text-xs font-light mb-2 flex items-center gap-1.5" style={{ color: 'rgba(255,255,255,0.44)' }}>
+            <Plus size={11} />Ingresos manuales
+          </p>
+          <p className="text-2xl font-light" style={{ color: '#22c55e' }}>{fmt(visibleSummary.ingresos)}</p>
+          <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.24)' }}>{ingresos.length} ingreso{ingresos.length !== 1 ? 's' : ''}</p>
+        </div>
         <div className="rounded-xl p-5" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(239,68,68,0.20)' }}>
           <p className="text-xs font-light mb-2 flex items-center gap-1.5" style={{ color: 'rgba(255,255,255,0.44)' }}>
             <Minus size={11} />Egresos del día
@@ -361,18 +415,11 @@ export default function CashPage() {
           <p className="text-2xl font-light" style={{ color: '#ef4444' }}>{fmt(visibleSummary.expenses)}</p>
           <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.24)' }}>{expenses.length} gastos</p>
         </div>
-        <div className="rounded-xl p-5" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(59,130,246,0.20)' }}>
-          <p className="text-xs font-light mb-2 flex items-center gap-1.5" style={{ color: 'rgba(255,255,255,0.44)' }}>
-            <Banknote size={11} />Efectivo neto
-          </p>
-          <p className="text-2xl font-light" style={{ color: efectivoNeto >= 0 ? '#22c55e' : '#ef4444' }}>{fmt(efectivoNeto)}</p>
-          <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.24)' }}>Efectivo — Gastos · Gs.</p>
-        </div>
         <div className="rounded-xl p-5"
           style={{ background: netTotal >= 0 ? 'rgba(34,197,94,0.04)' : 'rgba(239,68,68,0.04)', border: `1px solid ${netTotal >= 0 ? 'rgba(34,197,94,0.22)' : 'rgba(239,68,68,0.22)'}` }}>
           <p className="text-xs font-light mb-2" style={{ color: 'rgba(255,255,255,0.44)' }}>Total en Caja</p>
           <p className="text-2xl font-light" style={{ color: netTotal >= 0 ? '#22c55e' : '#ef4444' }}>{fmt(netTotal)}</p>
-          <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.24)' }}>Cobros — Gastos · Gs.</p>
+          <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.24)' }}>Cobros + Ingresos — Gastos</p>
         </div>
       </div>
 
@@ -392,6 +439,7 @@ export default function CashPage() {
           <div className="flex items-center gap-2 px-5 py-3.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
             <User size={14} className="text-gold-muted" />
             <span className="text-xs font-light tracking-wider text-white">Ingresos por vendedora</span>
+            {selectedBranch && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(197,160,89,0.12)', color: '#C5A059' }}>{selectedBranch}</span>}
           </div>
           <table className="w-full">
             <thead>
@@ -425,15 +473,15 @@ export default function CashPage() {
           <div className="flex items-center gap-2.5 px-5 py-4"
             style={{ background: 'rgba(197,160,89,0.04)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
             <Unlock size={14} style={{ color: '#C5A059' }} />
-            <p className="text-sm font-light" style={{ color: 'rgba(255,255,255,0.75)' }}>Resumen del día</p>
+            <p className="text-sm font-light" style={{ color: 'rgba(255,255,255,0.75)' }}>Resumen del día{selectedBranch ? ` — ${selectedBranch}` : ''}{selectedSeller ? ` · ${selectedSeller}` : ''}</p>
           </div>
           <div className="px-5 py-5">
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               {[
-                { label: 'Total Efectivo', value: summary.efectivo, color: '#22c55e', icon: <Banknote size={14} /> },
-                { label: 'Total POS', value: summary.tarjeta, color: '#f59e0b', icon: <CreditCard size={14} /> },
-                { label: 'Transferencias', value: summary.transferencia, color: '#3b82f6', icon: <ArrowRightLeft size={14} /> },
-                { label: 'Total General', value: summary.total, color: '#C5A059', icon: <TrendingUp size={14} /> },
+                { label: 'Total Efectivo',  value: summary.efectivo,      color: '#22c55e', icon: <Banknote size={14} /> },
+                { label: 'Total POS',       value: summary.tarjeta,       color: '#f59e0b', icon: <CreditCard size={14} /> },
+                { label: 'Transferencias',  value: summary.transferencia, color: '#3b82f6', icon: <ArrowRightLeft size={14} /> },
+                { label: 'Total General',   value: summary.total,         color: '#C5A059', icon: <TrendingUp size={14} /> },
               ].map(item => (
                 <div key={item.label} className="rounded-xl p-4" style={{ background: `${item.color}08`, border: `1px solid ${item.color}28` }}>
                   <div className="flex items-center gap-2 mb-2.5" style={{ color: item.color, opacity: 0.7 }}>
@@ -444,6 +492,13 @@ export default function CashPage() {
                 </div>
               ))}
             </div>
+            {summary.ingresos > 0 && (
+              <div className="mt-3 flex items-center justify-between px-4 py-3 rounded-xl"
+                style={{ background: 'rgba(34,197,94,0.05)', border: '1px solid rgba(34,197,94,0.18)' }}>
+                <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.44)' }}>Más ingresos manuales</span>
+                <span className="text-sm font-light" style={{ color: '#22c55e' }}>+ Gs. {fmt(summary.ingresos)}</span>
+              </div>
+            )}
             {summary.expenses > 0 && (
               <div className="mt-3 flex items-center justify-between px-4 py-3 rounded-xl"
                 style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.18)' }}>
@@ -460,7 +515,84 @@ export default function CashPage() {
         </div>
       )}
 
-      {/* Egresos */}
+      {/* ── Ingresos manuales ──────────────────────────────────────────────── */}
+      <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(34,197,94,0.15)' }}>
+        <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+          <div className="flex items-center gap-2">
+            <Plus size={14} style={{ color: '#22c55e' }} />
+            <span className="text-xs font-light tracking-wider text-white">Ingresos manuales</span>
+            <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e' }}>{ingresos.length}</span>
+            {ingresos.length > 0 && <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.32)' }}>· Gs. {fmt(ingresos.reduce((s,i) => s+i.amount, 0))}</span>}
+          </div>
+          <button onClick={() => { setShowAddIng(!showAddIng); setIngBranch(selectedBranch || activeBranch?.name || ''); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-light"
+            style={{ background: 'rgba(34,197,94,0.08)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.22)' }}>
+            {showAddIng ? <X size={12} /> : <Plus size={12} />}
+            {showAddIng ? 'Cancelar' : 'Registrar Ingreso'}
+          </button>
+        </div>
+
+        {showAddIng && (
+          <div className="px-5 py-4 space-y-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(34,197,94,0.02)' }}>
+            <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(34,197,94,0.55)' }}>Nuevo Ingreso</p>
+            <input value={ingDesc} onChange={e => setIngDesc(e.target.value)} placeholder="Ej: Fondo de caja, cambio, ingreso extra..."
+              className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border" style={{ borderColor: 'rgba(34,197,94,0.25)' }} />
+            <div className="flex gap-2 flex-wrap">
+              <input value={ingAmount} onChange={e => setIngAmount(e.target.value)} type="number" placeholder="Monto Gs."
+                className="w-36 px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border" style={{ borderColor: 'rgba(34,197,94,0.25)' }} />
+              {isAdmin && !selectedBranch && (
+                <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg border flex-1 min-w-36" style={{ borderColor: 'rgba(34,197,94,0.20)', background: 'rgba(255,255,255,0.02)' }}>
+                  <MapPin size={11} style={{ color: 'rgba(34,197,94,0.6)', flexShrink: 0 }} />
+                  <select value={ingBranch} onChange={e => setIngBranch(e.target.value)} className="bg-transparent text-xs outline-none flex-1" style={{ color: ingBranch ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.38)' }}>
+                    <option value="" style={{ background: '#111' }}>Sede...</option>
+                    {SUCURSALES.map(s => <option key={s} value={s} style={{ background: '#111' }}>{s}</option>)}
+                  </select>
+                </div>
+              )}
+            </div>
+            <div className="flex gap-1.5 flex-wrap">
+              {METHODS.map(m => (
+                <button key={m.id} onClick={() => setIngMethod(m.id)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-light"
+                  style={{ background: ingMethod === m.id ? `${m.color}18` : 'rgba(255,255,255,0.03)', border: `1px solid ${ingMethod === m.id ? m.color+'44' : 'rgba(255,255,255,0.07)'}`, color: ingMethod === m.id ? m.color : 'rgba(255,255,255,0.38)' }}>
+                  {m.icon}<span>{m.label}</span>
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={addIngreso} disabled={savingIng || !ingDesc.trim() || !ingAmount}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-xs font-medium"
+                style={{ background: (!ingDesc.trim() || !ingAmount) ? 'rgba(34,197,94,0.08)' : '#22c55e', color: (!ingDesc.trim() || !ingAmount) ? 'rgba(34,197,94,0.4)' : '#000', cursor: (!ingDesc.trim() || !ingAmount) ? 'not-allowed' : 'pointer' }}>
+                <Plus size={12} />{savingIng ? 'Guardando...' : 'Registrar Ingreso'}
+              </button>
+              <button onClick={() => { setShowAddIng(false); setIngDesc(''); setIngAmount(''); }}
+                className="px-3 py-2 rounded-lg text-xs font-light"
+                style={{ color: 'rgba(255,255,255,0.36)', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+
+        {ingresos.length === 0 ? (
+          <div className="text-center py-6"><p className="text-xs" style={{ color: 'rgba(255,255,255,0.25)' }}>Sin ingresos manuales registrados</p></div>
+        ) : (
+          <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+            {ingresos.map(ing => (
+              <div key={ing.id} className="flex items-center gap-4 px-5 py-3 text-xs font-light">
+                <div className="flex-1 min-w-0">
+                  <p className="text-white truncate">{ing.description}</p>
+                  {ing.branch_name && <span style={{ color: 'rgba(255,255,255,0.28)' }}>{ing.branch_name}</span>}
+                </div>
+                <span className="shrink-0" style={{ color: '#22c55e' }}>+ Gs. {fmt(Number(ing.amount))}</span>
+                <span className="px-2 py-0.5 rounded shrink-0" style={{ background: 'rgba(34,197,94,0.10)', color: '#22c55e' }}>{ing.method}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── Egresos ───────────────────────────────────────────────────────── */}
       <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
         <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           <div className="flex items-center gap-2">
@@ -476,6 +608,7 @@ export default function CashPage() {
             {showAddExp ? 'Cancelar' : 'Registrar Gasto'}
           </button>
         </div>
+
         {showAddExp && (
           <div className="px-5 py-4 space-y-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(239,68,68,0.02)' }}>
             <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(239,68,68,0.55)' }}>Nuevo Egreso</p>
@@ -523,6 +656,7 @@ export default function CashPage() {
             </div>
           </div>
         )}
+
         {expenses.length === 0 ? (
           <div className="text-center py-6"><p className="text-xs" style={{ color: 'rgba(255,255,255,0.25)' }}>Sin egresos registrados</p></div>
         ) : (
@@ -547,7 +681,7 @@ export default function CashPage() {
         )}
       </div>
 
-      {/* Cobros del día */}
+      {/* ── Cobros del día ────────────────────────────────────────────────── */}
       <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
         <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           <div className="flex items-center gap-2">
@@ -594,7 +728,7 @@ export default function CashPage() {
                     <div className="text-xs font-mono shrink-0 hidden lg:block" style={{ color: '#C5A059', width: 120 }}>#{p.sale_number}</div>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs text-white font-light truncate">{p.customer_name || '—'}</p>
-                      <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>{p.seller_name || '—'}</p>
+                      <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>{p.seller_name || '—'}{p.branch_name ? ` · ${p.branch_name}` : ''}</p>
                     </div>
                     <span className="text-xs px-2 py-0.5 rounded-full shrink-0" style={{ background: `${mc}18`, color: mc }}>
                       {METHODS.find(m => m.id === p.method)?.label ?? p.method}
