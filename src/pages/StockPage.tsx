@@ -2,19 +2,18 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Package, Plus, Search, RefreshCw, Edit2, Trash2, X, Check,
   ChevronDown, Eye, EyeOff, AlertTriangle, Glasses, DollarSign,
-  BarChart2, Camera,
+  BarChart2, Camera, TrendingUp, Clock, Trophy,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { compressImage } from '../lib/salesStorage';
-
-// ─── Tipos ────────────────────────────────────────────────────────────────────
 
 type Frame = {
   id: string;
   codigo: string;
   nombre: string;
   foto_url: string;
+  color: string;
   precio: number;
   stock_azara: number;
   stock_fernando: number;
@@ -28,6 +27,7 @@ type FormData = {
   codigo: string;
   nombre: string;
   foto_url: string;
+  color: string;
   precio: number;
   stock_azara: number;
   stock_fernando: number;
@@ -35,7 +35,24 @@ type FormData = {
   stock_la_fina: number;
 };
 
-// ─── Constantes ───────────────────────────────────────────────────────────────
+type Movimiento = {
+  id: string;
+  armazon_id: string;
+  armazon_nombre: string;
+  armazon_codigo: string;
+  cantidad: number;
+  tipo: string;
+  sucursal: string;
+  vendedora: string;
+  venta_id: string;
+  created_at: string;
+};
+
+type MasVendido = {
+  armazon_nombre: string;
+  armazon_codigo: string;
+  total: number;
+};
 
 const SEDES = [
   { key: 'stock_azara',    label: 'Azara',    color: '#22c55e' },
@@ -50,7 +67,7 @@ function fmt(n: number) {
 
 function emptyForm(): FormData {
   return {
-    codigo: '', nombre: '', foto_url: '', precio: 0,
+    codigo: '', nombre: '', foto_url: '', color: '', precio: 0,
     stock_azara: 0, stock_fernando: 0, stock_caacupe: 0, stock_la_fina: 0,
   };
 }
@@ -59,18 +76,16 @@ function totalStock(f: Frame | FormData) {
   return (f.stock_azara || 0) + (f.stock_fernando || 0) + (f.stock_caacupe || 0) + (f.stock_la_fina || 0);
 }
 
-// ─── Componente principal ─────────────────────────────────────────────────────
-
 export default function StockPage() {
   const { profile } = useAuth();
 
-  const isAdmin        = profile?.role === 'admin' || profile?.role === 'gerente';
-  const isVendedora    = profile?.role === 'vendedora';
+  const isAdmin          = profile?.role === 'admin' || profile?.role === 'gerente';
+  const isVendedora      = profile?.role === 'vendedora';
   const puedeCargarStock = isAdmin || (profile as any)?.puede_cargar_stock === true;
+  const defaultBranch    = (profile as any)?.branch_id || '';
 
-  // Detectar sede de la vendedora
   const vendedoraSede = (() => {
-    const b = (profile?.branch_id || '').toLowerCase()
+    const b = defaultBranch.toLowerCase()
       .replace(/á/g,'a').replace(/é/g,'e').replace(/í/g,'i').replace(/ó/g,'o').replace(/ú/g,'u')
       .replace(/ /g,'_');
     if (b.includes('azara'))    return 'stock_azara';
@@ -80,10 +95,13 @@ export default function StockPage() {
     return 'stock_azara';
   })();
 
-  const [frames, setFrames]     = useState<Frame[]>([]);
-  const [loading, setLoading]   = useState(false);
-  const [search, setSearch]     = useState('');
-  const [sortBy, setSortBy]     = useState<'nombre' | 'precio' | 'stock'>('nombre');
+  const [frames, setFrames]           = useState<Frame[]>([]);
+  const [loading, setLoading]         = useState(false);
+  const [search, setSearch]           = useState('');
+  const [sortBy, setSortBy]           = useState<'nombre' | 'precio' | 'stock'>('nombre');
+  const [movimientos, setMovimientos] = useState<Movimiento[]>([]);
+  const [masVendidos, setMasVendidos] = useState<MasVendido[]>([]);
+  const [loadingMov, setLoadingMov]   = useState(false);
 
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing]     = useState<Frame | null>(null);
@@ -92,7 +110,6 @@ export default function StockPage() {
   const [saveOk, setSaveOk]       = useState(false);
   const photoRef = useRef<HTMLInputElement | null>(null);
 
-  // Modal rápido vendedora
   const [showQuickModal, setShowQuickModal] = useState(false);
   const [quickFrame, setQuickFrame]         = useState<Frame | null>(null);
   const [quickCodigo, setQuickCodigo]       = useState('');
@@ -104,29 +121,53 @@ export default function StockPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [deleteId, setDeleteId]     = useState<string | null>(null);
 
-  // ─── Carga ────────────────────────────────────────────────────────────────
+  // ─── Carga ───────────────────────────────────────────────────────────────
 
   const load = useCallback(async () => {
     setLoading(true);
     const { data, error } = await supabase
-      .from('armazones')
-      .select('*')
-      .order('nombre', { ascending: true });
+      .from('armazones').select('*').order('nombre', { ascending: true });
     if (!error && data) setFrames(data as Frame[]);
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  const loadMovimientos = useCallback(async () => {
+    setLoadingMov(true);
+    const { data } = await supabase
+      .from('stock_movimientos')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(20);
+    if (data) setMovimientos(data as Movimiento[]);
 
-  // ─── Filtros ──────────────────────────────────────────────────────────────
+    // Más vendidos del mes
+    const mesStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
+    const { data: mvData } = await supabase
+      .from('stock_movimientos')
+      .select('armazon_nombre, armazon_codigo, cantidad')
+      .eq('tipo', 'venta')
+      .gte('created_at', mesStart);
+
+    if (mvData) {
+      const map: Record<string, MasVendido> = {};
+      for (const m of mvData) {
+        const key = m.armazon_codigo;
+        if (!map[key]) map[key] = { armazon_nombre: m.armazon_nombre, armazon_codigo: m.armazon_codigo, total: 0 };
+        map[key].total += m.cantidad;
+      }
+      setMasVendidos(Object.values(map).sort((a, b) => b.total - a.total).slice(0, 5));
+    }
+    setLoadingMov(false);
+  }, []);
+
+  useEffect(() => { load(); loadMovimientos(); }, [load, loadMovimientos]);
+
+  // ─── Filtros ─────────────────────────────────────────────────────────────
 
   const visible = frames.filter(f => {
     if (!search) return true;
     const q = search.toLowerCase();
-    return (
-      f.nombre.toLowerCase().includes(q) ||
-      f.codigo.toLowerCase().includes(q)
-    );
+    return f.nombre.toLowerCase().includes(q) || f.codigo.toLowerCase().includes(q) || (f.color || '').toLowerCase().includes(q);
   }).sort((a, b) => {
     if (sortBy === 'precio') return b.precio - a.precio;
     if (sortBy === 'stock')  return totalStock(b) - totalStock(a);
@@ -135,7 +176,7 @@ export default function StockPage() {
 
   // ─── Stats ────────────────────────────────────────────────────────────────
 
-  const totalModelos = frames.length;
+  const totalModelos  = frames.length;
   const totalUnidades = frames.reduce((s, f) => s + totalStock(f), 0);
   const totalValor    = frames.reduce((s, f) => s + totalStock(f) * f.precio, 0);
 
@@ -150,7 +191,8 @@ export default function StockPage() {
   function openEdit(f: Frame) {
     setEditing(f);
     setForm({
-      codigo: f.codigo, nombre: f.nombre, foto_url: f.foto_url || '', precio: f.precio,
+      codigo: f.codigo, nombre: f.nombre, foto_url: f.foto_url || '',
+      color: (f as any).color || '', precio: f.precio,
       stock_azara: f.stock_azara, stock_fernando: f.stock_fernando,
       stock_caacupe: f.stock_caacupe, stock_la_fina: f.stock_la_fina,
     });
@@ -158,8 +200,7 @@ export default function StockPage() {
   }
 
   async function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const file = e.target.files?.[0]; if (!file) return;
     const reader = new FileReader();
     reader.onload = async ev => {
       const compressed = await compressImage(ev.target?.result as string);
@@ -177,39 +218,31 @@ export default function StockPage() {
       await supabase.from('armazones').insert([{ ...form, id: crypto.randomUUID() }]);
     }
     await load();
-    setSaving(false);
-    setSaveOk(true);
+    setSaving(false); setSaveOk(true);
     setTimeout(() => { setSaveOk(false); setShowModal(false); }, 1200);
   }
 
   async function confirmDelete() {
     if (!deleteId) return;
     await supabase.from('armazones').delete().eq('id', deleteId);
-    setDeleteId(null);
-    await load();
+    setDeleteId(null); await load();
   }
 
   async function adjustStock(id: string, sede: string, delta: number) {
-    const f = frames.find(x => x.id === id);
-    if (!f) return;
+    const f = frames.find(x => x.id === id); if (!f) return;
     const current = (f as any)[sede] || 0;
     const newVal  = Math.max(0, current + delta);
     await supabase.from('armazones').update({ [sede]: newVal, updated_at: new Date().toISOString() }).eq('id', id);
     setFrames(prev => prev.map(x => x.id === id ? { ...x, [sede]: newVal } : x));
   }
 
-  // ─── Quick edit vendedora ─────────────────────────────────────────────────
-
   function openQuick(f: Frame) {
-    setQuickFrame(f);
-    setQuickCodigo(f.codigo);
-    setQuickFoto(f.foto_url || '');
+    setQuickFrame(f); setQuickCodigo(f.codigo); setQuickFoto(f.foto_url || '');
     setShowQuickModal(true);
   }
 
   async function handleQuickPhoto(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const file = e.target.files?.[0]; if (!file) return;
     const reader = new FileReader();
     reader.onload = async ev => {
       const compressed = await compressImage(ev.target?.result as string);
@@ -221,12 +254,9 @@ export default function StockPage() {
   async function saveQuick() {
     if (!quickFrame) return;
     setQuickSaving(true);
-    await supabase.from('armazones')
-      .update({ codigo: quickCodigo, foto_url: quickFoto, updated_at: new Date().toISOString() })
-      .eq('id', quickFrame.id);
+    await supabase.from('armazones').update({ codigo: quickCodigo, foto_url: quickFoto, updated_at: new Date().toISOString() }).eq('id', quickFrame.id);
     await load();
-    setQuickSaving(false);
-    setQuickOk(true);
+    setQuickSaving(false); setQuickOk(true);
     setTimeout(() => { setQuickOk(false); setShowQuickModal(false); }, 1200);
   }
 
@@ -239,15 +269,12 @@ export default function StockPage() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-light tracking-wider text-white flex items-center gap-2">
-            <Glasses size={18} style={{ color: '#C5A059' }} />
-            Stock de Armazones
+            <Glasses size={18} style={{ color: '#C5A059' }} />Stock de Armazones
           </h1>
-          <p className="text-xs mt-0.5 tracking-wide" style={{ color: 'rgba(197,160,89,0.65)' }}>
-            Inventario de monturas por sede
-          </p>
+          <p className="text-xs mt-0.5 tracking-wide" style={{ color: 'rgba(197,160,89,0.65)' }}>Inventario de monturas por sede</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={load} disabled={loading}
+          <button onClick={() => { load(); loadMovimientos(); }} disabled={loading}
             className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-light"
             style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.55)' }}>
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
@@ -265,12 +292,11 @@ export default function StockPage() {
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3">
         {[
-          { label: 'Modelos',   value: totalModelos,  unit: 'modelos',  color: '#C5A059', icon: <Package size={14} /> },
-          { label: 'Unidades',  value: totalUnidades, unit: 'unidades', color: '#22c55e', icon: <BarChart2 size={14} /> },
-          { label: 'Valor',     value: totalValor,    unit: 'Gs.',      color: '#3b82f6', icon: <DollarSign size={14} />, money: true },
+          { label: 'Modelos',  value: totalModelos,  unit: 'modelos',  color: '#C5A059', icon: <Package size={14} /> },
+          { label: 'Unidades', value: totalUnidades, unit: 'unidades', color: '#22c55e', icon: <BarChart2 size={14} /> },
+          { label: 'Valor',    value: totalValor,    unit: 'Gs.',      color: '#3b82f6', icon: <DollarSign size={14} />, money: true },
         ].map(item => (
-          <div key={item.label} className="rounded-xl p-4"
-            style={{ background: `${item.color}08`, border: `1px solid ${item.color}28` }}>
+          <div key={item.label} className="rounded-xl p-4" style={{ background: `${item.color}08`, border: `1px solid ${item.color}28` }}>
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.44)' }}>{item.label}</span>
               <span style={{ color: item.color, opacity: 0.7 }}>{item.icon}</span>
@@ -288,8 +314,7 @@ export default function StockPage() {
         {SEDES.map(s => {
           const total = frames.reduce((sum, f) => sum + ((f as any)[s.key] || 0), 0);
           return (
-            <div key={s.key} className="rounded-xl p-3"
-              style={{ background: `${s.color}08`, border: `1px solid ${s.color}22` }}>
+            <div key={s.key} className="rounded-xl p-3" style={{ background: `${s.color}08`, border: `1px solid ${s.color}22` }}>
               <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>{s.label}</p>
               <p className="text-lg font-light" style={{ color: s.color }}>{total}</p>
               <p className="text-xs" style={{ color: 'rgba(255,255,255,0.2)' }}>unidades</p>
@@ -298,22 +323,96 @@ export default function StockPage() {
         })}
       </div>
 
+      {/* Más vendidos del mes + Últimos movimientos */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+        {/* Más vendidos */}
+        <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(197,160,89,0.15)' }}>
+          <div className="flex items-center gap-2 px-4 py-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(197,160,89,0.04)' }}>
+            <Trophy size={13} style={{ color: '#C5A059' }} />
+            <span className="text-xs font-light tracking-wider text-white">Más vendidos del mes</span>
+          </div>
+          {loadingMov ? (
+            <div className="p-4 space-y-2">{[...Array(3)].map((_, i) => <div key={i} className="h-8 rounded shimmer" />)}</div>
+          ) : masVendidos.length === 0 ? (
+            <div className="text-center py-8">
+              <Trophy size={22} style={{ color: 'rgba(255,255,255,0.08)', margin: '0 auto 8px' }} />
+              <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.28)' }}>Sin ventas este mes</p>
+            </div>
+          ) : (
+            <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+              {masVendidos.map((m, i) => (
+                <div key={m.armazon_codigo} className="flex items-center gap-3 px-4 py-2.5">
+                  <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-medium shrink-0"
+                    style={{ background: i === 0 ? 'rgba(197,160,89,0.2)' : 'rgba(255,255,255,0.06)', color: i === 0 ? '#C5A059' : 'rgba(255,255,255,0.4)' }}>
+                    {i + 1}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-white font-light truncate">{m.armazon_nombre}</p>
+                    <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.35)' }}>#{m.armazon_codigo}</p>
+                  </div>
+                  <span className="text-xs font-light shrink-0 px-2 py-0.5 rounded-full"
+                    style={{ background: 'rgba(34,197,94,0.10)', color: '#22c55e' }}>
+                    {m.total} vend.
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Últimos movimientos */}
+        <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
+          <div className="flex items-center gap-2 px-4 py-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
+            <Clock size={13} style={{ color: 'rgba(255,255,255,0.5)' }} />
+            <span className="text-xs font-light tracking-wider text-white">Últimas ventas registradas</span>
+          </div>
+          {loadingMov ? (
+            <div className="p-4 space-y-2">{[...Array(3)].map((_, i) => <div key={i} className="h-8 rounded shimmer" />)}</div>
+          ) : movimientos.length === 0 ? (
+            <div className="text-center py-8">
+              <Clock size={22} style={{ color: 'rgba(255,255,255,0.08)', margin: '0 auto 8px' }} />
+              <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.28)' }}>Sin movimientos registrados</p>
+            </div>
+          ) : (
+            <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+              {movimientos.slice(0, 8).map(m => (
+                <div key={m.id} className="flex items-center gap-3 px-4 py-2.5">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-white font-light truncate">{m.armazon_nombre}</p>
+                    <p className="text-xs font-light truncate" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                      {m.sucursal} · {m.vendedora}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-xs font-light" style={{ color: '#ef4444' }}>−{m.cantidad}</p>
+                    <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.28)' }}>
+                      {new Date(m.created_at).toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' })}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Filtros */}
       <div className="flex items-center gap-2 flex-wrap">
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg flex-1 min-w-40"
           style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.09)' }}>
           <Search size={13} style={{ color: 'rgba(255,255,255,0.35)' }} />
           <input value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Buscar nombre o código..."
+            placeholder="Buscar nombre, código o color..."
             className="bg-transparent text-xs text-white outline-none flex-1" />
           {search && <button onClick={() => setSearch('')}><X size={11} style={{ color: 'rgba(255,255,255,0.3)' }} /></button>}
         </div>
         <select value={sortBy} onChange={e => setSortBy(e.target.value as any)}
           className="px-3 py-2 rounded-lg text-xs outline-none border"
           style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.5)' }}>
-          <option value="nombre" style={{ background: '#111' }}>A-Z</option>
-          <option value="precio" style={{ background: '#111' }}>Precio ↓</option>
-          <option value="stock"  style={{ background: '#111' }}>Stock ↓</option>
+          <option value="nombre"       style={{ background: '#111' }}>A-Z</option>
+          <option value="precio"       style={{ background: '#111' }}>Precio ↓</option>
+          <option value="stock"        style={{ background: '#111' }}>Stock ↓</option>
         </select>
       </div>
 
@@ -321,17 +420,11 @@ export default function StockPage() {
         {visible.length} resultado{visible.length !== 1 ? 's' : ''}
       </p>
 
-      {/* Lista de armazones */}
+      {/* Tabla */}
       <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
-
-        {/* Header tabla */}
         <div className="hidden lg:grid px-5 py-3 text-xs font-light"
           style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 40px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)', color: 'rgba(255,255,255,0.32)' }}>
-          <span>Nombre / Código</span>
-          <span>Precio</span>
-          <span>Stock total</span>
-          <span>Por sede</span>
-          <span></span>
+          <span>Nombre / Código</span><span>Color</span><span>Precio</span><span>Stock total</span><span></span>
         </div>
 
         {visible.length === 0 ? (
@@ -342,17 +435,13 @@ export default function StockPage() {
         ) : (
           <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
             {visible.map((f, i) => {
-              const isExp   = expandedId === f.id;
-              const total   = totalStock(f);
+              const isExp  = expandedId === f.id;
+              const total  = totalStock(f);
 
               return (
                 <div key={f.id}>
-                  {/* Fila */}
                   <div className="flex lg:grid items-center gap-3 px-4 py-3 cursor-pointer"
-                    style={{
-                      gridTemplateColumns: '2fr 1fr 1fr 1fr 40px',
-                      background: isExp ? 'rgba(197,160,89,0.03)' : i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)',
-                    }}
+                    style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 40px', background: isExp ? 'rgba(197,160,89,0.03)' : i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}
                     onClick={() => setExpandedId(isExp ? null : f.id)}>
 
                     {/* Foto + nombre */}
@@ -370,78 +459,48 @@ export default function StockPage() {
                       </div>
                     </div>
 
-                    {/* Precio — oculto en móvil */}
-                    <p className="hidden lg:block text-xs font-light" style={{ color: '#C5A059' }}>
-                      Gs. {fmt(f.precio)}
-                    </p>
+                    <p className="hidden lg:block text-xs font-light truncate" style={{ color: 'rgba(255,255,255,0.5)' }}>{(f as any).color || '—'}</p>
+                    <p className="hidden lg:block text-xs font-light" style={{ color: '#C5A059' }}>Gs. {fmt(f.precio)}</p>
 
-                    {/* Stock total */}
                     <div className="hidden lg:flex items-center gap-1.5">
                       <span className="text-sm font-light text-white">{total}</span>
                       <span className="text-xs" style={{ color: 'rgba(255,255,255,0.3)' }}>uds.</span>
                     </div>
 
-                    {/* Badges por sede — oculto en móvil */}
-                    <div className="hidden lg:flex items-center gap-1 flex-wrap">
-                      {SEDES.map(s => {
-                        const qty = (f as any)[s.key] || 0;
-                        return (
-                          <span key={s.key} className="text-xs px-1.5 py-0.5 rounded"
-                            style={{ background: qty > 0 ? `${s.color}18` : 'rgba(255,255,255,0.04)', color: qty > 0 ? s.color : 'rgba(255,255,255,0.2)' }}>
-                            {s.label.slice(0,3)}: {qty}
-                          </span>
-                        );
-                      })}
-                    </div>
-
-                    {/* Chevron */}
                     <ChevronDown size={13} style={{ color: 'rgba(255,255,255,0.3)', transform: isExp ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }} />
                   </div>
 
-                  {/* Expandido */}
                   {isExp && (
                     <div className="px-4 pb-4 pt-3 space-y-4" style={{ background: 'rgba(197,160,89,0.02)', borderTop: '1px solid rgba(197,160,89,0.08)' }}>
-
-                      {/* Info básica */}
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="rounded-lg p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-                          <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Precio</p>
-                          <p className="text-sm font-light" style={{ color: '#C5A059' }}>Gs. {fmt(f.precio)}</p>
-                        </div>
-                        <div className="rounded-lg p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-                          <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Color</p>
-                          <p className="text-sm font-light text-white">{(f as any).color || '—'}</p>
-                        </div>
-                        <div className="rounded-lg p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-                          <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Stock total</p>
-                          <p className="text-sm font-light text-white">{totalStock(f)} unidades</p>
-                        </div>
-                        <div className="rounded-lg p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-                          <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Código</p>
-                          <p className="text-sm font-light text-white">{f.codigo || '—'}</p>
-                        </div>
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                        {[
+                          { label: 'Precio',      value: `Gs. ${fmt(f.precio)}`,          color: '#C5A059' },
+                          { label: 'Color',       value: (f as any).color || '—',          color: 'white' },
+                          { label: 'Stock total', value: `${totalStock(f)} unidades`,      color: 'white' },
+                          { label: 'Código',      value: f.codigo || '—',                  color: 'white' },
+                        ].map(d => (
+                          <div key={d.label} className="rounded-lg p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                            <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>{d.label}</p>
+                            <p className="text-sm font-light" style={{ color: d.color }}>{d.value}</p>
+                          </div>
+                        ))}
                       </div>
 
-                      {/* Stock por sede con ajuste */}
+                      {/* Stock por sede */}
                       <div>
                         <p className="text-xs font-light mb-2 tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.55)' }}>Stock por sede</p>
                         <div className="grid grid-cols-2 gap-2">
                           {SEDES.map(s => {
                             const qty = (f as any)[s.key] || 0;
-                            // Vendedora solo ve su sede
                             if (isVendedora && s.key !== vendedoraSede) return null;
                             return (
                               <div key={s.key} className="flex items-center justify-between px-3 py-2 rounded-lg"
                                 style={{ background: `${s.color}08`, border: `1px solid ${s.color}22` }}>
                                 <span className="text-xs font-light" style={{ color: s.color }}>{s.label}</span>
                                 <div className="flex items-center gap-1.5">
-                                  <button onClick={() => adjustStock(f.id, s.key, -1)}
-                                    className="w-6 h-6 rounded flex items-center justify-center text-sm"
-                                    style={{ background: 'rgba(239,68,68,0.10)', color: '#ef4444' }}>−</button>
+                                  <button onClick={() => adjustStock(f.id, s.key, -1)} className="w-6 h-6 rounded flex items-center justify-center text-sm" style={{ background: 'rgba(239,68,68,0.10)', color: '#ef4444' }}>−</button>
                                   <span className="text-sm font-light text-white w-5 text-center">{qty}</span>
-                                  <button onClick={() => adjustStock(f.id, s.key, +1)}
-                                    className="w-6 h-6 rounded flex items-center justify-center text-sm"
-                                    style={{ background: 'rgba(34,197,94,0.10)', color: '#22c55e' }}>+</button>
+                                  <button onClick={() => adjustStock(f.id, s.key, +1)} className="w-6 h-6 rounded flex items-center justify-center text-sm" style={{ background: 'rgba(34,197,94,0.10)', color: '#22c55e' }}>+</button>
                                 </div>
                               </div>
                             );
@@ -452,22 +511,16 @@ export default function StockPage() {
                       {/* Acciones */}
                       <div className="flex items-center gap-2 flex-wrap pt-1">
                         {isVendedora && (
-                          <button onClick={() => openQuick(f)}
-                            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light"
-                            style={{ background: 'rgba(197,160,89,0.08)', border: '1px solid rgba(197,160,89,0.25)', color: '#C5A059' }}>
+                          <button onClick={() => openQuick(f)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light" style={{ background: 'rgba(197,160,89,0.08)', border: '1px solid rgba(197,160,89,0.25)', color: '#C5A059' }}>
                             <Camera size={11} />Código / Foto
                           </button>
                         )}
                         {isAdmin && (
                           <>
-                            <button onClick={() => openEdit(f)}
-                              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light"
-                              style={{ background: 'rgba(197,160,89,0.08)', border: '1px solid rgba(197,160,89,0.25)', color: '#C5A059' }}>
+                            <button onClick={() => openEdit(f)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light" style={{ background: 'rgba(197,160,89,0.08)', border: '1px solid rgba(197,160,89,0.25)', color: '#C5A059' }}>
                               <Edit2 size={11} />Editar
                             </button>
-                            <button onClick={() => setDeleteId(f.id)}
-                              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light"
-                              style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.20)', color: 'rgba(239,68,68,0.7)' }}>
+                            <button onClick={() => setDeleteId(f.id)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.20)', color: 'rgba(239,68,68,0.7)' }}>
                               <Trash2 size={11} />Eliminar
                             </button>
                           </>
@@ -482,11 +535,10 @@ export default function StockPage() {
         )}
       </div>
 
-      {/* ─── Modal agregar/editar (admin) ───────────────────────────────── */}
+      {/* ─── Modal completo admin ─────────────────────────────────────────── */}
       {showModal && puedeCargarStock && (
         <div className="fixed inset-0 z-[900] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.88)' }}>
           <div className="w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: '#0d0d0d', border: '1px solid rgba(197,160,89,0.25)' }}>
-
             <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)', background: 'rgba(197,160,89,0.04)' }}>
               <div className="flex items-center gap-2">
                 <Glasses size={15} style={{ color: '#C5A059' }} />
@@ -496,7 +548,6 @@ export default function StockPage() {
             </div>
 
             <div className="px-5 py-5 space-y-4 max-h-[78vh] overflow-y-auto">
-
               {/* Foto */}
               <div>
                 <label className="text-xs font-light mb-2 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Foto del armazón</label>
@@ -517,34 +568,22 @@ export default function StockPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-light mb-1.5 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Nombre *</label>
-                  <input value={form.nombre} onChange={e => setForm(p => ({ ...p, nombre: e.target.value }))}
-                    placeholder="Ej: Ray-Ban Clubmaster"
-                    className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border"
-                    style={{ borderColor: 'rgba(197,160,89,0.25)' }} />
+                  <input value={form.nombre} onChange={e => setForm(p => ({ ...p, nombre: e.target.value }))} placeholder="Ej: Ray-Ban Clubmaster" className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border" style={{ borderColor: 'rgba(197,160,89,0.25)' }} />
                 </div>
                 <div>
                   <label className="text-xs font-light mb-1.5 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Código *</label>
-                  <input value={form.codigo} onChange={e => setForm(p => ({ ...p, codigo: e.target.value }))}
-                    placeholder="Ej: RB-001"
-                    className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border"
-                    style={{ borderColor: 'rgba(197,160,89,0.25)' }} />
+                  <input value={form.codigo} onChange={e => setForm(p => ({ ...p, codigo: e.target.value }))} placeholder="Ej: RB-001" className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border" style={{ borderColor: 'rgba(197,160,89,0.25)' }} />
                 </div>
                 <div className="col-span-2">
                   <label className="text-xs font-light mb-1.5 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Color</label>
-                  <input value={(form as any).color || ''} onChange={e => setForm(p => ({ ...p, color: e.target.value }))}
-                    placeholder="Ej: Negro brillante, Carey, Azul"
-                    className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border"
-                    style={{ borderColor: 'rgba(255,255,255,0.12)' }} />
+                  <input value={form.color || ''} onChange={e => setForm(p => ({ ...p, color: e.target.value }))} placeholder="Ej: Negro brillante, Carey, Azul" className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border" style={{ borderColor: 'rgba(255,255,255,0.12)' }} />
                 </div>
               </div>
 
               {/* Precio */}
               <div>
                 <label className="text-xs font-light mb-1.5 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Precio de venta (Gs.)</label>
-                <input type="number" value={form.precio || ''} onChange={e => setForm(p => ({ ...p, precio: Number(e.target.value) }))}
-                  placeholder="0"
-                  className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border"
-                  style={{ borderColor: 'rgba(197,160,89,0.25)' }} />
+                <input type="number" value={form.precio || ''} onChange={e => setForm(p => ({ ...p, precio: Number(e.target.value) }))} placeholder="0" className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border" style={{ borderColor: 'rgba(197,160,89,0.25)' }} />
               </div>
 
               {/* Stock por sede */}
@@ -554,10 +593,7 @@ export default function StockPage() {
                   {SEDES.map(s => (
                     <div key={s.key} className="rounded-lg p-3" style={{ background: `${s.color}08`, border: `1px solid ${s.color}22` }}>
                       <label className="text-xs font-light mb-1.5 block" style={{ color: s.color }}>{s.label}</label>
-                      <input type="number" value={(form as any)[s.key] || ''} onChange={e => setForm(p => ({ ...p, [s.key]: Number(e.target.value) }))}
-                        placeholder="0" min="0"
-                        className="w-full px-2.5 py-2 rounded-lg bg-transparent text-white text-xs outline-none border"
-                        style={{ borderColor: `${s.color}30` }} />
+                      <input type="number" value={(form as any)[s.key] || ''} onChange={e => setForm(p => ({ ...p, [s.key]: Number(e.target.value) }))} placeholder="0" min="0" className="w-full px-2.5 py-2 rounded-lg bg-transparent text-white text-xs outline-none border" style={{ borderColor: `${s.color}30` }} />
                     </div>
                   ))}
                 </div>
@@ -568,12 +604,7 @@ export default function StockPage() {
               <button onClick={() => setShowModal(false)} className="px-4 py-2 rounded-lg text-xs font-light" style={{ color: 'rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>Cancelar</button>
               <button onClick={save} disabled={saving || !form.nombre.trim() || !form.codigo.trim()}
                 className="flex items-center gap-2 px-5 py-2 rounded-lg text-xs font-medium"
-                style={{
-                  background: saveOk ? 'rgba(34,197,94,0.15)' : (!form.nombre.trim() || !form.codigo.trim()) ? 'rgba(197,160,89,0.06)' : 'rgba(197,160,89,0.15)',
-                  border: saveOk ? '1px solid rgba(34,197,94,0.4)' : '1px solid rgba(197,160,89,0.35)',
-                  color: saveOk ? '#22c55e' : (!form.nombre.trim() || !form.codigo.trim()) ? 'rgba(197,160,89,0.35)' : '#C5A059',
-                  cursor: (!form.nombre.trim() || !form.codigo.trim()) ? 'not-allowed' : 'pointer',
-                }}>
+                style={{ background: saveOk ? 'rgba(34,197,94,0.15)' : (!form.nombre.trim() || !form.codigo.trim()) ? 'rgba(197,160,89,0.06)' : 'rgba(197,160,89,0.15)', border: saveOk ? '1px solid rgba(34,197,94,0.4)' : '1px solid rgba(197,160,89,0.35)', color: saveOk ? '#22c55e' : (!form.nombre.trim() || !form.codigo.trim()) ? 'rgba(197,160,89,0.35)' : '#C5A059', cursor: (!form.nombre.trim() || !form.codigo.trim()) ? 'not-allowed' : 'pointer' }}>
                 {saveOk ? <><Check size={12} />Guardado</> : saving ? 'Guardando...' : <><Package size={12} />{editing ? 'Guardar cambios' : 'Agregar armazón'}</>}
               </button>
             </div>
@@ -581,7 +612,7 @@ export default function StockPage() {
         </div>
       )}
 
-      {/* ─── Modal rápido vendedora ──────────────────────────────────────── */}
+      {/* ─── Modal rápido vendedora ───────────────────────────────────────── */}
       {showQuickModal && quickFrame && (
         <div className="fixed inset-0 z-[900] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.88)' }}>
           <div className="w-full max-w-sm rounded-2xl overflow-hidden" style={{ background: '#0d0d0d', border: '1px solid rgba(197,160,89,0.25)' }}>
@@ -593,9 +624,7 @@ export default function StockPage() {
               <p className="text-xs font-light truncate" style={{ color: 'rgba(197,160,89,0.7)' }}>{quickFrame.nombre}</p>
               <div>
                 <label className="text-xs font-light mb-1.5 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Código / SKU</label>
-                <input value={quickCodigo} onChange={e => setQuickCodigo(e.target.value)} placeholder="Ej: RB-001"
-                  className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border"
-                  style={{ borderColor: 'rgba(197,160,89,0.25)' }} />
+                <input value={quickCodigo} onChange={e => setQuickCodigo(e.target.value)} placeholder="Ej: RB-001" className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border" style={{ borderColor: 'rgba(197,160,89,0.25)' }} />
               </div>
               <div>
                 <label className="text-xs font-light mb-2 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Foto</label>
@@ -624,7 +653,7 @@ export default function StockPage() {
         </div>
       )}
 
-      {/* ─── Confirm delete ──────────────────────────────────────────────── */}
+      {/* ─── Confirm delete ───────────────────────────────────────────────── */}
       {deleteId && (
         <div className="fixed inset-0 z-[950] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.88)' }}>
           <div className="w-full max-w-sm rounded-2xl p-6 space-y-4" style={{ background: '#0d0d0d', border: '1px solid rgba(239,68,68,0.30)' }}>
