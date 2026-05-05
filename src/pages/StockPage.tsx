@@ -409,8 +409,16 @@ export default function StockPage() {
                           <p className="text-sm font-light" style={{ color: '#C5A059' }}>Gs. {fmt(f.precio)}</p>
                         </div>
                         <div className="rounded-lg p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                          <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Color</p>
+                          <p className="text-sm font-light text-white">{(f as any).color || '—'}</p>
+                        </div>
+                        <div className="rounded-lg p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
                           <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Stock total</p>
                           <p className="text-sm font-light text-white">{totalStock(f)} unidades</p>
+                        </div>
+                        <div className="rounded-lg p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                          <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Código</p>
+                          <p className="text-sm font-light text-white">{f.codigo || '—'}</p>
                         </div>
                       </div>
 
@@ -505,7 +513,7 @@ export default function StockPage() {
                 <input ref={photoRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
               </div>
 
-              {/* Nombre y Código */}
+              {/* Nombre, Código y Color */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-light mb-1.5 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Nombre *</label>
@@ -520,6 +528,13 @@ export default function StockPage() {
                     placeholder="Ej: RB-001"
                     className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border"
                     style={{ borderColor: 'rgba(197,160,89,0.25)' }} />
+                </div>
+                <div className="col-span-2">
+                  <label className="text-xs font-light mb-1.5 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Color</label>
+                  <input value={(form as any).color || ''} onChange={e => setForm(p => ({ ...p, color: e.target.value }))}
+                    placeholder="Ej: Negro brillante, Carey, Azul"
+                    className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border"
+                    style={{ borderColor: 'rgba(255,255,255,0.12)' }} />
                 </div>
               </div>
 
