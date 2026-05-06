@@ -66,7 +66,6 @@ function markReviewed(id: string) {
   const s = getReviewed(); s.add(id);
   localStorage.setItem(LS_REVIEWED_KEY, JSON.stringify([...s]));
 }
-
 function fmt(n: number) {
   return n.toLocaleString('es-PY', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
@@ -84,7 +83,6 @@ function branchMatch(stored: string, selected: string): boolean {
   const n = (s: string) => s.toLowerCase().replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i').replace(/[óòö]/g,'o').replace(/[úùü]/g,'u');
   return n(stored).includes(n(selected)) || n(selected).includes(n(stored));
 }
-
 function getWeekRange(): { start: string; end: string; isClosed: boolean } {
   const now  = new Date();
   const day  = now.getDay();
@@ -106,10 +104,7 @@ export default function CashPage() {
 
   const [selectedDate, setSelectedDate] = useState(() => {
     const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, '0');
-    const d = String(now.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
+    return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
   });
   const [selectedBranch, setSelectedBranch] = useState<string>('');
   const [selectedSeller, setSelectedSeller] = useState<string>('');
@@ -133,32 +128,37 @@ export default function CashPage() {
   const [expBranch,   setExpBranch]   = useState('');
   const [savingExp,   setSavingExp]   = useState(false);
   const [expSuccess,  setExpSuccess]  = useState(false);
+  const [expErr,      setExpErr]      = useState('');
 
-  // Ingreso manual
-  const [showAddIng,  setShowAddIng]  = useState(false);
-  const [ingDesc,     setIngDesc]     = useState('');
-  const [ingAmount,   setIngAmount]   = useState('');
-  const [ingMethod,   setIngMethod]   = useState<PaymentMethod>('efectivo');
-  const [ingBranch,   setIngBranch]   = useState('');
-  const [savingIng,   setSavingIng]   = useState(false);
-  const [ingSuccess,  setIngSuccess]  = useState(false);
+  // Ingreso
+  const [showAddIng, setShowAddIng] = useState(false);
+  const [ingDesc,    setIngDesc]    = useState('');
+  const [ingAmount,  setIngAmount]  = useState('');
+  const [ingMethod,  setIngMethod]  = useState<PaymentMethod>('efectivo');
+  const [ingBranch,  setIngBranch]  = useState('');
+  const [savingIng,  setSavingIng]  = useState(false);
+  const [ingSuccess, setIngSuccess] = useState(false);
+  const [ingErr,     setIngErr]     = useState('');
 
   const isAdmin     = profile?.role === 'admin' || profile?.role === 'gerente';
   const isVendedora = profile?.role === 'vendedora';
   const weekRange   = isVendedora ? getWeekRange() : null;
+  const allSellers  = [...new Set(allSales.map(v => v.vendedora).filter(Boolean))].sort();
 
-  const allSellers = [...new Set(allSales.map(v => v.vendedora).filter(Boolean))].sort();
-
+  // Setear sede inicial
   useEffect(() => {
     if (isVendedora && profile?.branch_id && !selectedBranch) setSelectedBranch(profile.branch_id);
     else if (activeBranch && !selectedBranch) setSelectedBranch(activeBranch.name);
-    if (isVendedora) setSelectedDate(new Date().toISOString().slice(0, 10));
-  }, [activeBranch, selectedBranch, isVendedora, profile?.branch_id]);
+    if (isVendedora) setSelectedDate(new Date().toISOString().slice(0,10));
+  }, [activeBranch, isVendedora, profile?.branch_id]);
 
+  // Sincronizar sede en formularios cuando cambia el filtro
   useEffect(() => {
-    if (selectedBranch && !expBranch) setExpBranch(selectedBranch);
-    if (selectedBranch && !ingBranch) setIngBranch(selectedBranch);
-  }, [selectedBranch, expBranch, ingBranch]);
+    if (selectedBranch) {
+      setExpBranch(selectedBranch);
+      setIngBranch(selectedBranch);
+    }
+  }, [selectedBranch]);
 
   function buildAndCommit(rows: PaymentRow[], expList: Expense[], ingList: Ingreso[]) {
     let agg = emptyAgg();
@@ -166,7 +166,6 @@ export default function CashPage() {
     agg.expenses = expList.reduce((s, e) => s + Number(e.amount), 0);
     agg.ingresos = ingList.reduce((s, i) => s + Number(i.amount), 0);
     setPayments(rows); setExpenses(expList); setIngresos(ingList); setSummary(agg);
-
     const sellerMap: Record<string, SellerRow> = {};
     for (const r of rows) {
       const s = r.seller_name || 'Sin vendedor';
@@ -177,7 +176,6 @@ export default function CashPage() {
     setBySeller(Object.values(sellerMap).sort((a, b) => b.total - a.total));
   }
 
-  // ── FIX: load ahora es async y carga ingresos desde Supabase ──
   const load = useCallback(async () => {
     setLoading(true);
     const sellerFilter = isVendedora ? profile?.full_name : selectedSeller || null;
@@ -205,14 +203,13 @@ export default function CashPage() {
 
     const recordedIds = new Set(dayPayments.map(p => p.saleId));
     const fallbackRows: PaymentRow[] = daySales.filter(v => !recordedIds.has(v.id)).map(v => {
-      const paid = Math.max(0, (Number(v.total) || 0) - (Number(v.saldo) || 0));
+      const paid = Math.max(0, (Number(v.total)||0) - (Number(v.saldo)||0));
       return {
         id: `ls-${v.id}`, sale_number: `VTA-${v.id}`,
         customer_name: `${v.cliente.nombre} ${v.cliente.apellido}`.trim(),
-        amount: paid > 0 ? paid : (Number(v.sena) || 0),
+        amount: paid > 0 ? paid : (Number(v.sena)||0),
         method: v.metodoPago as PaymentMethod, paid_at: v.fecha,
-        seller_name: v.vendedora, reference: '', branch_name: v.sucursalCobro,
-        sale_id: v.id,
+        seller_name: v.vendedora, reference: '', branch_name: v.sucursalCobro, sale_id: v.id,
       };
     });
 
@@ -223,113 +220,84 @@ export default function CashPage() {
       return true;
     });
 
-    // ── CARGA DE INGRESOS DESDE SUPABASE (fix) ──
+    // Cargar ingresos desde Supabase
     try {
-      let ingQuery = supabase
-        .from('cash_ingresos')
-        .select('*')
-        .eq('fecha', selectedDate)
-        .order('created_at', { ascending: true });
-
-      if (selectedBranch) {
-        ingQuery = ingQuery.ilike('sucursal', `%${selectedBranch}%`);
-      }
-      if (isVendedora && profile?.full_name) {
-        ingQuery = ingQuery.eq('vendedora', profile.full_name);
-      }
-
-      const { data: ingData } = await ingQuery;
-
-      const dayIngresos: Ingreso[] = (ingData || []).map((i: any) => ({
-        id: String(i.id),
-        description: i.descripcion,
-        amount: Number(i.monto),
-        method: i.metodo,
-        date: i.fecha,
-        branch_name: i.sucursal,
-      }));
-
+      let q = supabase.from('cash_ingresos').select('*').eq('fecha', selectedDate).order('created_at', { ascending: true });
+      if (selectedBranch) q = q.ilike('sucursal', `%${selectedBranch}%`);
+      if (isVendedora && profile?.full_name) q = q.eq('vendedora', profile.full_name);
+      const { data: ingData } = await q;
       buildAndCommit(
         [...payRows, ...fallbackRows],
-        dayExpenses.map(e => ({
-          id: String(e.id), description: e.descripcion, category: e.categoria,
-          amount: Number(e.monto), method: e.metodo, expense_date: e.fecha, branch_name: e.sucursal,
-        })),
-        dayIngresos, // ✅ ahora sí carga los ingresos
+        dayExpenses.map(e => ({ id: String(e.id), description: e.descripcion, category: e.categoria, amount: Number(e.monto), method: e.metodo, expense_date: e.fecha, branch_name: e.sucursal })),
+        (ingData || []).map((i: any) => ({ id: String(i.id), description: i.descripcion, amount: Number(i.monto), method: i.metodo, date: i.fecha, branch_name: i.sucursal })),
       );
     } catch {
-      // Si falla Supabase, al menos mostrar cobros y egresos
       buildAndCommit(
         [...payRows, ...fallbackRows],
-        dayExpenses.map(e => ({
-          id: String(e.id), description: e.descripcion, category: e.categoria,
-          amount: Number(e.monto), method: e.metodo, expense_date: e.fecha, branch_name: e.sucursal,
-        })),
+        dayExpenses.map(e => ({ id: String(e.id), description: e.descripcion, category: e.categoria, amount: Number(e.monto), method: e.metodo, expense_date: e.fecha, branch_name: e.sucursal })),
         [],
       );
     }
-
     setLoading(false);
   }, [selectedBranch, selectedDate, selectedSeller, isVendedora, profile?.full_name, allPayments, allSales, allExpenses]);
 
   useEffect(() => { load(); }, [load]);
 
-  function handleReview(payId: string) {
-    markReviewed(payId);
-    setReviewed(getReviewed());
+  function handleReview(payId: string) { markReviewed(payId); setReviewed(getReviewed()); }
+  function getSaleDetail(saleId?: number) { if (!saleId) return null; return allSales.find(v => v.id === saleId) ?? null; }
+
+  function openIngreso() {
+    setIngErr('');
+    setIngBranch(selectedBranch || activeBranch?.name || '');
+    setShowAddIng(!showAddIng);
   }
 
-  function getSaleDetail(saleId?: number) {
-    if (!saleId) return null;
-    return allSales.find(v => v.id === saleId) ?? null;
+  function openEgreso() {
+    setExpErr('');
+    setExpBranch(selectedBranch || activeBranch?.name || '');
+    setShowAddExp(!showAddExp);
+  }
+
+  async function addIngreso() {
+    setIngErr('');
+    const amt = parseFloat(ingAmount);
+    if (!ingDesc.trim())  { setIngErr('Escribí una descripción.'); return; }
+    if (!amt || amt <= 0) { setIngErr('Ingresá un monto válido.'); return; }
+    if (!ingBranch)       { setIngErr('Seleccioná una sucursal.'); return; }
+    setSavingIng(true);
+    const { error } = await supabase.from('cash_ingresos').insert([{
+      fecha: selectedDate, descripcion: ingDesc.trim(),
+      monto: amt, metodo: ingMethod,
+      sucursal: ingBranch, vendedora: profile?.full_name || '',
+    }]);
+    if (error) { setIngErr('Error al guardar. Intentá de nuevo.'); setSavingIng(false); return; }
+    setIngDesc(''); setIngAmount(''); setIngMethod('efectivo');
+    setShowAddIng(false); setIngSuccess(true);
+    setTimeout(() => setIngSuccess(false), 4000);
+    setSavingIng(false);
+    await load();
   }
 
   async function addExpense() {
+    setExpErr('');
     const amt = parseFloat(expAmount);
-    const branchName = expBranch || selectedBranch || activeBranch?.name || '';
-    if (!amt || !expDesc.trim() || !branchName) return;
+    if (!expDesc.trim())  { setExpErr('Escribí una descripción.'); return; }
+    if (!amt || amt <= 0) { setExpErr('Ingresá un monto válido.'); return; }
+    if (!expBranch)       { setExpErr('Seleccioná una sucursal.'); return; }
     setSavingExp(true);
     await saveExpense({
       id: Date.now(), fecha: selectedDate, descripcion: expDesc.trim(),
-      categoria: expCategory, monto: Number(amt), metodo: expMethod,
-      sucursal: branchName, vendedora: profile?.full_name || '',
+      categoria: expCategory, monto: amt, metodo: expMethod,
+      sucursal: expBranch, vendedora: profile?.full_name || '',
     });
-    setExpDesc(''); setExpAmount(''); setExpCategory('otros');
-    setExpMethod('efectivo'); setShowAddExp(false);
-    setExpSuccess(true);
+    setExpDesc(''); setExpAmount(''); setExpCategory('otros'); setExpMethod('efectivo');
+    setShowAddExp(false); setExpSuccess(true);
     setTimeout(() => setExpSuccess(false), 4000);
     setSavingExp(false);
     await refresh();
   }
 
-  async function addIngreso() {
-    const amt = parseFloat(ingAmount);
-    const branchName = ingBranch || selectedBranch || activeBranch?.name || '';
-    if (!amt || !ingDesc.trim() || !branchName) return;
-    setSavingIng(true);
-
-    const { error } = await supabase.from('cash_ingresos').insert([{
-      fecha:       selectedDate,
-      descripcion: ingDesc.trim(),
-      monto:       Number(amt),
-      metodo:      ingMethod,
-      sucursal:    branchName,
-      vendedora:   profile?.full_name || '',
-    }]);
-
-    if (!error) {
-      setIngDesc(''); setIngAmount('');
-      setIngMethod('efectivo'); setShowAddIng(false);
-      setIngSuccess(true);
-      setTimeout(() => setIngSuccess(false), 4000);
-    }
-    setSavingIng(false);
-    await load(); // ✅ recarga ingresos desde Supabase
-  }
-
-  const visiblePayments = isVendedora
-    ? payments.filter(p => p.seller_name === profile?.full_name)
-    : payments;
+  const visiblePayments = isVendedora ? payments.filter(p => p.seller_name === profile?.full_name) : payments;
   const filtered = methodFilter === 'all' ? visiblePayments : visiblePayments.filter(p => p.method === methodFilter);
 
   const visibleSummary = (() => {
@@ -340,16 +308,15 @@ export default function CashPage() {
     return agg;
   })();
 
-  const netTotal     = visibleSummary.total + visibleSummary.ingresos - visibleSummary.expenses;
-  const efectivoNeto = visibleSummary.efectivo + visibleSummary.ingresos - visibleSummary.expenses;
+  const netTotal = visibleSummary.total + visibleSummary.ingresos - visibleSummary.expenses;
 
   const totalPendiente = allSales.filter(v => {
-    if ((Number(v.saldo) || 0) <= 0) return false;
+    if ((Number(v.saldo)||0) <= 0) return false;
     if (v.estadoTrabajo === 'entregado' || v.estadoTrabajo === 'cancelado') return false;
     if (selectedBranch && !branchMatch(v.sucursalCobro || v.sucursalVenta || '', selectedBranch)) return false;
     if (selectedSeller && v.vendedora !== selectedSeller) return false;
     return true;
-  }).reduce((s, v) => s + (Number(v.saldo) || 0), 0);
+  }).reduce((s, v) => s + (Number(v.saldo)||0), 0);
 
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
@@ -404,13 +371,19 @@ export default function CashPage() {
         </div>
       </div>
 
-      {(expSuccess || ingSuccess) && (
+      {/* Toasts */}
+      {ingSuccess && (
         <div className="flex items-center gap-3 px-4 py-3 rounded-xl"
-          style={{ background: ingSuccess ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)', border: `1px solid ${ingSuccess ? 'rgba(34,197,94,0.30)' : 'rgba(239,68,68,0.30)'}` }}>
-          <CheckCircle size={14} style={{ color: ingSuccess ? '#22c55e' : '#ef4444' }} />
-          <p className="text-sm font-light" style={{ color: ingSuccess ? '#22c55e' : '#ef4444' }}>
-            {ingSuccess ? 'Ingreso registrado correctamente' : 'Gasto registrado correctamente'}
-          </p>
+          style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.30)' }}>
+          <CheckCircle size={14} style={{ color: '#22c55e' }} />
+          <p className="text-sm font-light" style={{ color: '#22c55e' }}>Ingreso registrado correctamente</p>
+        </div>
+      )}
+      {expSuccess && (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl"
+          style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.30)' }}>
+          <CheckCircle size={14} style={{ color: '#ef4444' }} />
+          <p className="text-sm font-light" style={{ color: '#ef4444' }}>Gasto registrado correctamente</p>
         </div>
       )}
 
@@ -438,7 +411,7 @@ export default function CashPage() {
         ))}
       </div>
 
-      {/* Totales netos */}
+      {/* Totales */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="rounded-xl p-5" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(197,160,89,0.20)' }}>
           <p className="text-xs font-light mb-2 flex items-center gap-1.5" style={{ color: 'rgba(255,255,255,0.44)' }}>
@@ -479,7 +452,7 @@ export default function CashPage() {
         </div>
       )}
 
-      {/* Por vendedora — admin */}
+      {/* Por vendedora */}
       {isAdmin && bySeller.length > 0 && (
         <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
           <div className="flex items-center gap-2 px-5 py-3.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
@@ -497,7 +470,7 @@ export default function CashPage() {
             </thead>
             <tbody>
               {bySeller.map((r, i) => (
-                <tr key={r.seller} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                <tr key={r.seller} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', background: i%2===0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
                   <td className="px-4 py-3 text-xs font-light text-white">{r.seller}</td>
                   <td className="px-4 py-3 text-xs font-light" style={{ color: '#22c55e' }}>{fmt(r.efectivo)}</td>
                   <td className="px-4 py-3 text-xs font-light" style={{ color: '#f59e0b' }}>{fmt(r.tarjeta)}</td>
@@ -519,7 +492,9 @@ export default function CashPage() {
           <div className="flex items-center gap-2.5 px-5 py-4"
             style={{ background: 'rgba(197,160,89,0.04)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
             <Unlock size={14} style={{ color: '#C5A059' }} />
-            <p className="text-sm font-light" style={{ color: 'rgba(255,255,255,0.75)' }}>Resumen del día{selectedBranch ? ` — ${selectedBranch}` : ''}{selectedSeller ? ` · ${selectedSeller}` : ''}</p>
+            <p className="text-sm font-light" style={{ color: 'rgba(255,255,255,0.75)' }}>
+              Resumen del día{selectedBranch ? ` — ${selectedBranch}` : ''}{selectedSeller ? ` · ${selectedSeller}` : ''}
+            </p>
           </div>
           <div className="px-5 py-5">
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -561,16 +536,16 @@ export default function CashPage() {
         </div>
       )}
 
-      {/* Ingresos manuales */}
+      {/* ── INGRESOS MANUALES ── */}
       <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(34,197,94,0.15)' }}>
         <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           <div className="flex items-center gap-2">
             <Plus size={14} style={{ color: '#22c55e' }} />
             <span className="text-xs font-light tracking-wider text-white">Ingresos manuales</span>
             <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e' }}>{ingresos.length}</span>
-            {ingresos.length > 0 && <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.32)' }}>· Gs. {fmt(ingresos.reduce((s,i) => s+i.amount, 0))}</span>}
+            {ingresos.length > 0 && <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.32)' }}>· Gs. {fmt(ingresos.reduce((s,i)=>s+i.amount,0))}</span>}
           </div>
-          <button onClick={() => { setShowAddIng(!showAddIng); setIngBranch(selectedBranch || activeBranch?.name || ''); }}
+          <button onClick={openIngreso}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-light"
             style={{ background: 'rgba(34,197,94,0.08)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.22)' }}>
             {showAddIng ? <X size={12} /> : <Plus size={12} />}
@@ -581,16 +556,24 @@ export default function CashPage() {
         {showAddIng && (
           <div className="px-5 py-4 space-y-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(34,197,94,0.02)' }}>
             <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(34,197,94,0.55)' }}>Nuevo Ingreso</p>
-            <input value={ingDesc} onChange={e => setIngDesc(e.target.value)} placeholder="Ej: Fondo de caja, cambio, ingreso extra..."
-              className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border" style={{ borderColor: 'rgba(34,197,94,0.25)' }} />
+            {ingErr && <p className="text-xs px-3 py-2 rounded-lg" style={{ background: 'rgba(239,68,68,0.08)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)' }}>{ingErr}</p>}
+            <input value={ingDesc} onChange={e => setIngDesc(e.target.value)}
+              placeholder="Ej: Fondo de caja, cambio, ingreso extra..."
+              className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border"
+              style={{ borderColor: 'rgba(34,197,94,0.25)' }} />
             <div className="flex gap-2 flex-wrap">
               <input value={ingAmount} onChange={e => setIngAmount(e.target.value)} type="number" placeholder="Monto Gs."
-                className="w-36 px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border" style={{ borderColor: 'rgba(34,197,94,0.25)' }} />
-              {isAdmin && !selectedBranch && (
-                <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg border flex-1 min-w-36" style={{ borderColor: 'rgba(34,197,94,0.20)', background: 'rgba(255,255,255,0.02)' }}>
-                  <MapPin size={11} style={{ color: 'rgba(34,197,94,0.6)', flexShrink: 0 }} />
-                  <select value={ingBranch} onChange={e => setIngBranch(e.target.value)} className="bg-transparent text-xs outline-none flex-1" style={{ color: ingBranch ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.38)' }}>
-                    <option value="" style={{ background: '#111' }}>Sede...</option>
+                className="w-36 px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border"
+                style={{ borderColor: 'rgba(34,197,94,0.25)' }} />
+              {/* Selector de sucursal — SIEMPRE visible para admin */}
+              {isAdmin && (
+                <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg border flex-1 min-w-36"
+                  style={{ borderColor: ingBranch ? 'rgba(34,197,94,0.40)' : 'rgba(239,68,68,0.35)', background: 'rgba(255,255,255,0.02)' }}>
+                  <MapPin size={11} style={{ color: ingBranch ? 'rgba(34,197,94,0.6)' : 'rgba(239,68,68,0.6)', flexShrink: 0 }} />
+                  <select value={ingBranch} onChange={e => setIngBranch(e.target.value)}
+                    className="bg-transparent text-xs outline-none flex-1"
+                    style={{ color: ingBranch ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.38)' }}>
+                    <option value="" style={{ background: '#111' }}>Sede *</option>
                     {SUCURSALES.map(s => <option key={s} value={s} style={{ background: '#111' }}>{s}</option>)}
                   </select>
                 </div>
@@ -600,18 +583,18 @@ export default function CashPage() {
               {METHODS.map(m => (
                 <button key={m.id} onClick={() => setIngMethod(m.id)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-light"
-                  style={{ background: ingMethod === m.id ? `${m.color}18` : 'rgba(255,255,255,0.03)', border: `1px solid ${ingMethod === m.id ? m.color+'44' : 'rgba(255,255,255,0.07)'}`, color: ingMethod === m.id ? m.color : 'rgba(255,255,255,0.38)' }}>
+                  style={{ background: ingMethod===m.id ? `${m.color}18` : 'rgba(255,255,255,0.03)', border: `1px solid ${ingMethod===m.id ? m.color+'44' : 'rgba(255,255,255,0.07)'}`, color: ingMethod===m.id ? m.color : 'rgba(255,255,255,0.38)' }}>
                   {m.icon}<span>{m.label}</span>
                 </button>
               ))}
             </div>
             <div className="flex items-center gap-2">
-              <button onClick={addIngreso} disabled={savingIng || !ingDesc.trim() || !ingAmount}
+              <button onClick={addIngreso} disabled={savingIng}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-xs font-medium"
-                style={{ background: (!ingDesc.trim() || !ingAmount) ? 'rgba(34,197,94,0.08)' : '#22c55e', color: (!ingDesc.trim() || !ingAmount) ? 'rgba(34,197,94,0.4)' : '#000', cursor: (!ingDesc.trim() || !ingAmount) ? 'not-allowed' : 'pointer' }}>
+                style={{ background: '#22c55e', color: '#000' }}>
                 <Plus size={12} />{savingIng ? 'Guardando...' : 'Registrar Ingreso'}
               </button>
-              <button onClick={() => { setShowAddIng(false); setIngDesc(''); setIngAmount(''); }}
+              <button onClick={() => { setShowAddIng(false); setIngDesc(''); setIngAmount(''); setIngErr(''); }}
                 className="px-3 py-2 rounded-lg text-xs font-light"
                 style={{ color: 'rgba(255,255,255,0.36)', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
                 Cancelar
@@ -638,16 +621,16 @@ export default function CashPage() {
         )}
       </div>
 
-      {/* Egresos */}
+      {/* ── EGRESOS ── */}
       <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
         <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           <div className="flex items-center gap-2">
             <Minus size={14} style={{ color: '#ef4444' }} />
             <span className="text-xs font-light tracking-wider text-white">Egresos del día</span>
             <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444' }}>{expenses.length}</span>
-            {expenses.length > 0 && <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.32)' }}>· Total: Gs. {fmt(expenses.reduce((s,e) => s+e.amount,0))}</span>}
+            {expenses.length > 0 && <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.32)' }}>· Total: Gs. {fmt(expenses.reduce((s,e)=>s+e.amount,0))}</span>}
           </div>
-          <button onClick={() => { setShowAddExp(!showAddExp); setExpBranch(selectedBranch || activeBranch?.name || ''); }}
+          <button onClick={openEgreso}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-light"
             style={{ background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.55)', border: '1px solid rgba(255,255,255,0.08)' }}>
             {showAddExp ? <X size={12} /> : <Plus size={12} />}
@@ -658,22 +641,31 @@ export default function CashPage() {
         {showAddExp && (
           <div className="px-5 py-4 space-y-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(239,68,68,0.02)' }}>
             <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(239,68,68,0.55)' }}>Nuevo Egreso</p>
+            {expErr && <p className="text-xs px-3 py-2 rounded-lg" style={{ background: 'rgba(239,68,68,0.08)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)' }}>{expErr}</p>}
             <input value={expDesc} onChange={e => setExpDesc(e.target.value)} placeholder="Motivo del gasto"
-              className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border" style={{ borderColor: 'rgba(239,68,68,0.25)' }} />
+              className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border"
+              style={{ borderColor: 'rgba(239,68,68,0.25)' }} />
             <div className="flex gap-2 flex-wrap">
               <input value={expAmount} onChange={e => setExpAmount(e.target.value)} type="number" placeholder="Monto Gs."
-                className="w-36 px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border" style={{ borderColor: 'rgba(239,68,68,0.25)' }} />
-              <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg border flex-1 min-w-36" style={{ borderColor: 'rgba(239,68,68,0.20)', background: 'rgba(255,255,255,0.02)' }}>
+                className="w-36 px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border"
+                style={{ borderColor: 'rgba(239,68,68,0.25)' }} />
+              <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg border flex-1 min-w-36"
+                style={{ borderColor: 'rgba(239,68,68,0.20)', background: 'rgba(255,255,255,0.02)' }}>
                 <Tag size={11} style={{ color: 'rgba(239,68,68,0.6)', flexShrink: 0 }} />
-                <select value={expCategory} onChange={e => setExpCategory(e.target.value)} className="bg-transparent text-xs outline-none flex-1" style={{ color: 'rgba(255,255,255,0.7)' }}>
+                <select value={expCategory} onChange={e => setExpCategory(e.target.value)}
+                  className="bg-transparent text-xs outline-none flex-1" style={{ color: 'rgba(255,255,255,0.7)' }}>
                   {EXPENSE_CATEGORIES.map(c => <option key={c.id} value={c.id} style={{ background: '#111' }}>{c.label}</option>)}
                 </select>
               </div>
-              {isAdmin && !selectedBranch && (
-                <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg border flex-1 min-w-36" style={{ borderColor: 'rgba(239,68,68,0.20)', background: 'rgba(255,255,255,0.02)' }}>
+              {/* Selector de sucursal — SIEMPRE visible para admin */}
+              {isAdmin && (
+                <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg border flex-1 min-w-36"
+                  style={{ borderColor: expBranch ? 'rgba(239,68,68,0.40)' : 'rgba(239,68,68,0.20)', background: 'rgba(255,255,255,0.02)' }}>
                   <MapPin size={11} style={{ color: 'rgba(239,68,68,0.6)', flexShrink: 0 }} />
-                  <select value={expBranch} onChange={e => setExpBranch(e.target.value)} className="bg-transparent text-xs outline-none flex-1" style={{ color: expBranch ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.38)' }}>
-                    <option value="" style={{ background: '#111' }}>Sede del gasto...</option>
+                  <select value={expBranch} onChange={e => setExpBranch(e.target.value)}
+                    className="bg-transparent text-xs outline-none flex-1"
+                    style={{ color: expBranch ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.38)' }}>
+                    <option value="" style={{ background: '#111' }}>Sede *</option>
                     {SUCURSALES.map(s => <option key={s} value={s} style={{ background: '#111' }}>{s}</option>)}
                   </select>
                 </div>
@@ -683,18 +675,18 @@ export default function CashPage() {
               {METHODS.map(m => (
                 <button key={m.id} onClick={() => setExpMethod(m.id)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-light"
-                  style={{ background: expMethod === m.id ? `${m.color}18` : 'rgba(255,255,255,0.03)', border: `1px solid ${expMethod === m.id ? m.color+'44' : 'rgba(255,255,255,0.07)'}`, color: expMethod === m.id ? m.color : 'rgba(255,255,255,0.38)' }}>
+                  style={{ background: expMethod===m.id ? `${m.color}18` : 'rgba(255,255,255,0.03)', border: `1px solid ${expMethod===m.id ? m.color+'44' : 'rgba(255,255,255,0.07)'}`, color: expMethod===m.id ? m.color : 'rgba(255,255,255,0.38)' }}>
                   {m.icon}<span>{m.label}</span>
                 </button>
               ))}
             </div>
             <div className="flex items-center gap-2">
-              <button onClick={addExpense} disabled={savingExp || !expDesc.trim() || !expAmount}
+              <button onClick={addExpense} disabled={savingExp}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-xs font-medium"
-                style={{ background: (!expDesc.trim() || !expAmount) ? 'rgba(239,68,68,0.08)' : '#ef4444', color: (!expDesc.trim() || !expAmount) ? 'rgba(239,68,68,0.4)' : '#fff', cursor: (!expDesc.trim() || !expAmount) ? 'not-allowed' : 'pointer' }}>
+                style={{ background: '#ef4444', color: '#fff' }}>
                 <Minus size={12} />{savingExp ? 'Guardando...' : 'Registrar Gasto'}
               </button>
-              <button onClick={() => { setShowAddExp(false); setExpDesc(''); setExpAmount(''); }}
+              <button onClick={() => { setShowAddExp(false); setExpDesc(''); setExpAmount(''); setExpErr(''); }}
                 className="px-3 py-2 rounded-lg text-xs font-light"
                 style={{ color: 'rgba(255,255,255,0.36)', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
                 Cancelar
@@ -727,7 +719,7 @@ export default function CashPage() {
         )}
       </div>
 
-      {/* Cobros del día */}
+      {/* ── COBROS DEL DÍA ── */}
       <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
         <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           <div className="flex items-center gap-2">
@@ -739,7 +731,7 @@ export default function CashPage() {
             {['all', ...METHODS.map(m => m.id)].map(m => (
               <button key={m} onClick={() => setMethodFilter(m)}
                 className="px-2 py-1 rounded text-xs font-light"
-                style={{ background: methodFilter === m ? 'rgba(197,160,89,0.14)' : 'transparent', color: methodFilter === m ? '#C5A059' : 'rgba(255,255,255,0.36)', border: methodFilter === m ? '1px solid rgba(197,160,89,0.30)' : '1px solid transparent' }}>
+                style={{ background: methodFilter===m ? 'rgba(197,160,89,0.14)' : 'transparent', color: methodFilter===m ? '#C5A059' : 'rgba(255,255,255,0.36)', border: methodFilter===m ? '1px solid rgba(197,160,89,0.30)' : '1px solid transparent' }}>
                 {m === 'all' ? 'Todos' : METHODS.find(x => x.id === m)?.label ?? m}
               </button>
             ))}
@@ -759,14 +751,13 @@ export default function CashPage() {
               const isRev = reviewed.has(p.id);
               const sale  = isExp ? getSaleDetail(p.sale_id) : null;
               const allAnteojos = sale ? (sale.anteojos as any[]) : [];
-
               return (
                 <div key={p.id}>
                   <div className="flex items-center gap-3 px-4 py-3 cursor-pointer"
-                    style={{ background: isExp ? 'rgba(197,160,89,0.03)' : i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}
+                    style={{ background: isExp ? 'rgba(197,160,89,0.03)' : i%2===0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}
                     onClick={() => setExpandedPay(isExp ? null : p.id)}>
                     <div className="shrink-0 w-6 text-center">
-                      <span className="text-xs font-light" style={{ color: 'rgba(197,160,89,0.5)' }}>{i + 1}</span>
+                      <span className="text-xs font-light" style={{ color: 'rgba(197,160,89,0.5)' }}>{i+1}</span>
                     </div>
                     <div className="text-xs font-light w-14 shrink-0" style={{ color: 'rgba(255,255,255,0.38)' }}>
                       {new Date(p.paid_at).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
@@ -791,9 +782,9 @@ export default function CashPage() {
                       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                         {[
                           { label: 'Método',    value: METHODS.find(m => m.id === p.method)?.label ?? p.method, color: mc },
-                          { label: 'Monto',     value: `Gs. ${fmt(p.amount)}`,  color: '#22c55e' },
-                          { label: 'Vendedora', value: p.seller_name || '—',    color: 'rgba(255,255,255,0.8)' },
-                          { label: 'Sucursal',  value: p.branch_name || '—',    color: 'rgba(255,255,255,0.8)' },
+                          { label: 'Monto',     value: `Gs. ${fmt(p.amount)}`, color: '#22c55e' },
+                          { label: 'Vendedora', value: p.seller_name || '—',   color: 'rgba(255,255,255,0.8)' },
+                          { label: 'Sucursal',  value: p.branch_name || '—',   color: 'rgba(255,255,255,0.8)' },
                         ].map(item => (
                           <div key={item.label} className="rounded-lg p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
                             <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>{item.label}</p>
