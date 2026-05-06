@@ -33,6 +33,14 @@ function fmt(n: number) {
   return n.toLocaleString('es-PY', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
 
+function getLocalDate(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 function getWeekRange(dateStr: string): { start: string; end: string } {
   const d   = new Date(dateStr + 'T12:00:00');
   const day = d.getDay();
@@ -83,13 +91,8 @@ export default function ReportPage() {
   const { profile } = useAuth();
   const isAdmin = profile?.role === 'admin' || profile?.role === 'gerente';
 
-const [selectedDate, setSelectedDate] = useState(() => {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-});
+  const today = getLocalDate();
+
   const [selectedDate, setSelectedDate] = useState(today);
   const [scope,        setScope]        = useState<'day' | 'week' | 'month' | 'year'>('day');
   const [sellerFilter, setSellerFilter] = useState('');
@@ -98,22 +101,20 @@ const [selectedDate, setSelectedDate] = useState(() => {
   const { sales: allSalesData, payments: allPaymentsData } = useData();
 
   const [totalSales,      setTotalSales]      = useState(0);
-  const [totalAmount,     setTotalAmount]      = useState(0);
-  const [totalCollected,  setTotalCollected]   = useState(0);
-  const [bySeller,        setBySeller]         = useState<SellerRow[]>([]);
-  const [byBranch,        setByBranch]         = useState<BranchRow[]>([]);
-  const [photos,          setPhotos]           = useState<PhotoEntry[]>([]);
-  const [photoBranch,     setPhotoBranch]      = useState('');
-  const [salesList,       setSalesList]        = useState<any[]>([]);
-  const [expandedSale,    setExpandedSale]     = useState<string | null>(null);
-  const [highlightedSale, setHighlightedSale]  = useState<string | null>(null);
-  const [reviewed,        setReviewed]         = useState<Set<string>>(getReviewed());
-  const [lightbox,        setLightbox]         = useState<string | null>(null);
-  const [alerts,          setAlerts]           = useState<any[]>([]);
-  const [allSellers,      setAllSellers]       = useState<string[]>([]);
-
-  // ── Nuevas ventas no vistas ───────────────────────────────────────────────
-  const [newSalesAlerts, setNewSalesAlerts] = useState<any[]>([]);
+  const [totalAmount,     setTotalAmount]     = useState(0);
+  const [totalCollected,  setTotalCollected]  = useState(0);
+  const [bySeller,        setBySeller]        = useState<SellerRow[]>([]);
+  const [byBranch,        setByBranch]        = useState<BranchRow[]>([]);
+  const [photos,          setPhotos]          = useState<PhotoEntry[]>([]);
+  const [photoBranch,     setPhotoBranch]     = useState('');
+  const [salesList,       setSalesList]       = useState<any[]>([]);
+  const [expandedSale,    setExpandedSale]    = useState<string | null>(null);
+  const [highlightedSale, setHighlightedSale] = useState<string | null>(null);
+  const [reviewed,        setReviewed]        = useState<Set<string>>(getReviewed());
+  const [lightbox,        setLightbox]        = useState<string | null>(null);
+  const [alerts,          setAlerts]          = useState<any[]>([]);
+  const [allSellers,      setAllSellers]      = useState<string[]>([]);
+  const [newSalesAlerts,  setNewSalesAlerts]  = useState<any[]>([]);
 
   const saleRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -123,13 +124,10 @@ const [selectedDate, setSelectedDate] = useState(() => {
     const sellers = [...new Set(allVentas.map(v => v.vendedora).filter(Boolean))].sort();
     setAllSellers(sellers);
 
-    // ── Calcular ventas nuevas no vistas (solo admin) ──
     if (isAdmin) {
       const seen = getSeenSales();
       const todayVentas = allVentas.filter(v => (v.fecha || '').startsWith(today));
       const unseen = todayVentas.filter(v => !seen.has(String(v.id)));
-
-      // Agrupar por vendedora
       const bySellerMap: Record<string, any[]> = {};
       for (const v of unseen) {
         const s = v.vendedora || 'Sin vendedor';
@@ -357,7 +355,7 @@ const [selectedDate, setSelectedDate] = useState(() => {
         )}
       </div>
 
-      {/* ── RECORDATORIO VENTAS NUEVAS (solo admin) ── */}
+      {/* Ventas nuevas no vistas */}
       {isAdmin && newSalesAlerts.length > 0 && (
         <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(197,160,89,0.35)', background: 'rgba(197,160,89,0.04)' }}>
           <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid rgba(197,160,89,0.15)' }}>
@@ -398,14 +396,11 @@ const [selectedDate, setSelectedDate] = useState(() => {
                       className="w-full text-left flex items-center gap-3 px-3 py-2 rounded-lg group"
                       style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(197,160,89,0.10)' }}>
                       <span className="text-xs font-mono" style={{ color: '#C5A059' }}>VTA-{v.id}</span>
-                      <span className="text-xs text-white font-light flex-1 truncate">
-                        {v.cliente.nombre} {v.cliente.apellido}
-                      </span>
+                      <span className="text-xs text-white font-light flex-1 truncate">{v.cliente.nombre} {v.cliente.apellido}</span>
                       <span className="text-xs font-light" style={{ color: '#22c55e' }}>Gs. {fmt(Number(v.total))}</span>
                       <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.3)' }}>
                         {new Date(v.fecha).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
                       </span>
-                      <span className="text-xs opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: '#C5A059' }}>👆 ver</span>
                     </button>
                   ))}
                 </div>
@@ -415,7 +410,7 @@ const [selectedDate, setSelectedDate] = useState(() => {
         </div>
       )}
 
-      {/* ── ALERTAS DE ENTREGA ── */}
+      {/* Alertas de entrega */}
       {alerts.length > 0 && (
         <div className="space-y-2">
           <p className="text-xs font-light tracking-widest uppercase" style={{ color: '#f59e0b' }}>
@@ -429,10 +424,8 @@ const [selectedDate, setSelectedDate] = useState(() => {
                   📦 <strong>{alert.customer}</strong> · <span style={{ color: '#C5A059' }}>{alert.saleNumber}</span>
                 </p>
                 <p className="text-xs font-light mt-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>
-                  Entregado por {alert.vendedora} · {new Date(alert.timestamp).toLocaleDateString('es-PY')} {new Date(alert.timestamp).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
-                  · Total: Gs. {Number(alert.total).toLocaleString('es-PY')}
+                  Entregado por {alert.vendedora} · {new Date(alert.timestamp).toLocaleDateString('es-PY')} · Gs. {Number(alert.total).toLocaleString('es-PY')}
                 </p>
-                <p className="text-xs mt-1 font-light" style={{ color: '#f59e0b' }}>👆 Clic para abrir la venta y verificar</p>
               </button>
               <button onClick={() => dismissAlert(alert.id)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium shrink-0"
@@ -447,7 +440,7 @@ const [selectedDate, setSelectedDate] = useState(() => {
       {/* KPIs */}
       <div className="grid grid-cols-3 gap-4">
         {[
-          { label: 'Ventas realizadas', value: String(totalSales), sub: 'pedidos', icon: <BarChart3 size={16} />, color: '#3b82f6' },
+          { label: 'Ventas realizadas', value: String(totalSales),           sub: 'pedidos',         icon: <BarChart3 size={16} />, color: '#3b82f6' },
           { label: 'Total facturado',   value: `${fmt(totalAmount)} Gs.`,    sub: 'ventas nuevas',   icon: <TrendingUp size={16} />, color: '#C5A059' },
           { label: 'Total cobrado',     value: `${fmt(totalCollected)} Gs.`, sub: 'pagos recibidos', icon: <Award size={16} />,     color: '#22c55e' },
         ].map(k => (
@@ -462,7 +455,7 @@ const [selectedDate, setSelectedDate] = useState(() => {
         ))}
       </div>
 
-      {/* Tablas por vendedora y sucursal */}
+      {/* Por vendedora y sucursal */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
           <div className="flex items-center gap-2 px-5 py-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
@@ -540,11 +533,6 @@ const [selectedDate, setSelectedDate] = useState(() => {
                         <span className="text-xs font-mono" style={{ color: isHighlighted ? '#f59e0b' : '#C5A059' }}>VTA-{v.id}</span>
                         <span className="text-xs text-white font-light">{v.cliente.nombre} {v.cliente.apellido}</span>
                         <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.35)' }}>{v.sucursalVenta}</span>
-                        {isHighlighted && (
-                          <span className="text-xs px-2 py-0.5 rounded-full animate-pulse" style={{ background: 'rgba(245,158,11,0.2)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.4)' }}>
-                            👆 Verificar aquí
-                          </span>
-                        )}
                         {salePays.some(p => reviewed.has(String(p.id))) && (
                           <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)' }}>
                             <Heart size={9} fill="#ef4444" style={{ color: '#ef4444' }} />
@@ -563,9 +551,9 @@ const [selectedDate, setSelectedDate] = useState(() => {
                         : <p className="text-xs font-light" style={{ color: '#10b981' }}>✓ Pagado</p>}
                     </div>
                     {v.estadoTrabajo === 'entregado' && (
-                      <span className="text-xs px-2 py-0.5 rounded-full shrink-0" style={{ background: 'rgba(107,114,128,0.15)', color: '#9ca3af', border: '1px solid rgba(107,114,128,0.3)' }}>📦 Entregado</span>
+                      <span className="text-xs px-2 py-0.5 rounded-full shrink-0" style={{ background: 'rgba(107,114,128,0.15)', color: '#9ca3af' }}>📦 Entregado</span>
                     )}
-                    <span className="text-xs px-2 py-0.5 rounded-full shrink-0 ml-1"
+                    <span className="text-xs px-2 py-0.5 rounded-full shrink-0"
                       style={{ background: v.metodoPago === 'efectivo' ? 'rgba(34,197,94,0.12)' : 'rgba(59,130,246,0.12)', color: v.metodoPago === 'efectivo' ? '#22c55e' : '#3b82f6' }}>
                       {v.metodoPago}
                     </span>
@@ -620,7 +608,7 @@ const [selectedDate, setSelectedDate] = useState(() => {
                                     <span className="text-xs text-white font-light">Gs. {fmt(Number(p.monto))}</span>
                                     <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(197,160,89,0.08)', color: 'rgba(197,160,89,0.6)' }}>{p.tipo === 'sena' ? 'Seña' : 'Abono'}</span>
                                     <span className="text-xs ml-auto" style={{ color: 'rgba(255,255,255,0.3)' }}>
-                                      {new Date(p.fecha).toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' })} {new Date(p.fecha).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
+                                      {new Date(p.fecha).toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' })}
                                     </span>
                                     {isRev
                                       ? <div className="flex items-center gap-1 px-2 py-1 rounded-full" style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)' }}>
@@ -638,7 +626,6 @@ const [selectedDate, setSelectedDate] = useState(() => {
                                     <div className="px-3 pb-3">
                                       <img src={p.receipt_url} alt="comprobante" className="h-32 object-contain rounded-lg border cursor-pointer"
                                         style={{ borderColor: 'rgba(197,160,89,0.2)', background: '#111' }} onClick={() => setLightbox(p.receipt_url)} />
-                                      <p className="text-xs mt-1 font-light" style={{ color: 'rgba(255,255,255,0.25)' }}>Clic para ampliar</p>
                                     </div>
                                   ) : (
                                     <div className="flex items-center gap-2 px-3 pb-2">
