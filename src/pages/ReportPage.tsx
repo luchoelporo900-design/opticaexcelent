@@ -83,7 +83,13 @@ export default function ReportPage() {
   const { profile } = useAuth();
   const isAdmin = profile?.role === 'admin' || profile?.role === 'gerente';
 
-  const today = new Date().toISOString().slice(0, 10);
+const [selectedDate, setSelectedDate] = useState(() => {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+});
   const [selectedDate, setSelectedDate] = useState(today);
   const [scope,        setScope]        = useState<'day' | 'week' | 'month' | 'year'>('day');
   const [sellerFilter, setSellerFilter] = useState('');
