@@ -171,7 +171,7 @@ export default function CashPage() {
     setBySeller(Object.values(sellerMap).sort((a, b) => b.total - a.total));
   }
 
-  const load = useCallback(() => {
+const load = useCallback(async () => {
     setLoading(true);
     const sellerFilter = isVendedora ? profile?.full_name : selectedSeller || null;
 
@@ -218,13 +218,25 @@ export default function CashPage() {
       return true;
     });
 
+// Cargar ingresos manuales desde Supabase
+    let ingQuery = supabase
+      .from('cash_ingresos')
+      .select('*')
+      .eq('fecha', selectedDate);
+    if (selectedBranch) ingQuery = ingQuery.ilike('sucursal', `%${selectedBranch}%`);
+    if (sellerFilter)   ingQuery = ingQuery.eq('vendedora', sellerFilter);
+    const { data: ingData } = await ingQuery;
+
     buildAndCommit(
       [...payRows, ...fallbackRows],
       dayExpenses.map(e => ({
         id: String(e.id), description: e.descripcion, category: e.categoria,
         amount: Number(e.monto), method: e.metodo, expense_date: e.fecha, branch_name: e.sucursal,
       })),
-      [] // ingresos se cargan aparte
+      (ingData || []).map((i: any) => ({
+        id: String(i.id), description: i.descripcion, amount: Number(i.monto),
+        method: i.metodo, date: i.fecha, branch_name: i.sucursal,
+      }))
     );
     setLoading(false);
   }, [selectedBranch, selectedDate, selectedSeller, isVendedora, profile?.full_name, allPayments, allSales, allExpenses]);
