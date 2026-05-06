@@ -177,11 +177,11 @@ export default function CashPage() {
     setBySeller(Object.values(sellerMap).sort((a, b) => b.total - a.total));
   }
 
-  const load = useCallback(() => {
+  // ── FIX: load ahora es async y carga ingresos desde Supabase ──
+  const load = useCallback(async () => {
     setLoading(true);
     const sellerFilter = isVendedora ? profile?.full_name : selectedSeller || null;
 
-    // ── Filtro mejorado: si hay vendedora Y sucursal, filtra por AMBAS ──
     const dayPayments = allPayments.filter(p => {
       if (!(p.fecha || '').startsWith(selectedDate)) return false;
       if (sellerFilter && p.vendedora !== sellerFilter) return false;
@@ -199,7 +199,6 @@ export default function CashPage() {
     const daySales = allSales.filter(v => {
       if (!(v.fecha || '').startsWith(selectedDate)) return false;
       if (sellerFilter && v.vendedora !== sellerFilter) return false;
-      // Filtrar por sucursal de COBRO específicamente
       if (selectedBranch && !branchMatch(v.sucursalCobro || v.sucursalVenta || '', selectedBranch)) return false;
       return true;
     });
@@ -224,14 +223,52 @@ export default function CashPage() {
       return true;
     });
 
-    buildAndCommit(
-      [...payRows, ...fallbackRows],
-      dayExpenses.map(e => ({
-        id: String(e.id), description: e.descripcion, category: e.categoria,
-        amount: Number(e.monto), method: e.metodo, expense_date: e.fecha, branch_name: e.sucursal,
-      })),
-      [] // ingresos se cargan aparte
-    );
+    // ── CARGA DE INGRESOS DESDE SUPABASE (fix) ──
+    try {
+      let ingQuery = supabase
+        .from('cash_ingresos')
+        .select('*')
+        .eq('fecha', selectedDate)
+        .order('created_at', { ascending: true });
+
+      if (selectedBranch) {
+        ingQuery = ingQuery.ilike('sucursal', `%${selectedBranch}%`);
+      }
+      if (isVendedora && profile?.full_name) {
+        ingQuery = ingQuery.eq('vendedora', profile.full_name);
+      }
+
+      const { data: ingData } = await ingQuery;
+
+      const dayIngresos: Ingreso[] = (ingData || []).map((i: any) => ({
+        id: String(i.id),
+        description: i.descripcion,
+        amount: Number(i.monto),
+        method: i.metodo,
+        date: i.fecha,
+        branch_name: i.sucursal,
+      }));
+
+      buildAndCommit(
+        [...payRows, ...fallbackRows],
+        dayExpenses.map(e => ({
+          id: String(e.id), description: e.descripcion, category: e.categoria,
+          amount: Number(e.monto), method: e.metodo, expense_date: e.fecha, branch_name: e.sucursal,
+        })),
+        dayIngresos, // ✅ ahora sí carga los ingresos
+      );
+    } catch {
+      // Si falla Supabase, al menos mostrar cobros y egresos
+      buildAndCommit(
+        [...payRows, ...fallbackRows],
+        dayExpenses.map(e => ({
+          id: String(e.id), description: e.descripcion, category: e.categoria,
+          amount: Number(e.monto), method: e.metodo, expense_date: e.fecha, branch_name: e.sucursal,
+        })),
+        [],
+      );
+    }
+
     setLoading(false);
   }, [selectedBranch, selectedDate, selectedSeller, isVendedora, profile?.full_name, allPayments, allSales, allExpenses]);
 
@@ -270,21 +307,24 @@ export default function CashPage() {
     const branchName = ingBranch || selectedBranch || activeBranch?.name || '';
     if (!amt || !ingDesc.trim() || !branchName) return;
     setSavingIng(true);
-    // Guardar ingreso en Supabase
-    await supabase.from('cash_ingresos').insert([{
-      fecha: selectedDate,
+
+    const { error } = await supabase.from('cash_ingresos').insert([{
+      fecha:       selectedDate,
       descripcion: ingDesc.trim(),
-      monto: Number(amt),
-      metodo: ingMethod,
-      sucursal: branchName,
-      vendedora: profile?.full_name || '',
+      monto:       Number(amt),
+      metodo:      ingMethod,
+      sucursal:    branchName,
+      vendedora:   profile?.full_name || '',
     }]);
-    setIngDesc(''); setIngAmount('');
-    setIngMethod('efectivo'); setShowAddIng(false);
-    setIngSuccess(true);
-    setTimeout(() => setIngSuccess(false), 4000);
+
+    if (!error) {
+      setIngDesc(''); setIngAmount('');
+      setIngMethod('efectivo'); setShowAddIng(false);
+      setIngSuccess(true);
+      setTimeout(() => setIngSuccess(false), 4000);
+    }
     setSavingIng(false);
-    load();
+    await load(); // ✅ recarga ingresos desde Supabase
   }
 
   const visiblePayments = isVendedora
@@ -521,7 +561,7 @@ export default function CashPage() {
         </div>
       )}
 
-      {/* ── Ingresos manuales ──────────────────────────────────────────────── */}
+      {/* Ingresos manuales */}
       <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(34,197,94,0.15)' }}>
         <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           <div className="flex items-center gap-2">
@@ -598,7 +638,7 @@ export default function CashPage() {
         )}
       </div>
 
-      {/* ── Egresos ───────────────────────────────────────────────────────── */}
+      {/* Egresos */}
       <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
         <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           <div className="flex items-center gap-2">
@@ -687,7 +727,7 @@ export default function CashPage() {
         )}
       </div>
 
-      {/* ── Cobros del día ────────────────────────────────────────────────── */}
+      {/* Cobros del día */}
       <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
         <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           <div className="flex items-center gap-2">
@@ -749,22 +789,17 @@ export default function CashPage() {
                   {isExp && (
                     <div className="px-5 pb-5 pt-3 space-y-4" style={{ background: 'rgba(197,160,89,0.02)', borderTop: '1px solid rgba(197,160,89,0.08)' }}>
                       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                        <div className="rounded-lg p-3" style={{ background: `${mc}10`, border: `1px solid ${mc}30` }}>
-                          <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Método</p>
-                          <p className="text-sm font-light" style={{ color: mc }}>{METHODS.find(m => m.id === p.method)?.label}</p>
-                        </div>
-                        <div className="rounded-lg p-3" style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)' }}>
-                          <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Monto</p>
-                          <p className="text-sm font-light" style={{ color: '#22c55e' }}>Gs. {fmt(p.amount)}</p>
-                        </div>
-                        <div className="rounded-lg p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-                          <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Vendedora</p>
-                          <p className="text-sm font-light text-white">{p.seller_name || '—'}</p>
-                        </div>
-                        <div className="rounded-lg p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-                          <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Sucursal</p>
-                          <p className="text-sm font-light text-white">{p.branch_name || '—'}</p>
-                        </div>
+                        {[
+                          { label: 'Método',    value: METHODS.find(m => m.id === p.method)?.label ?? p.method, color: mc },
+                          { label: 'Monto',     value: `Gs. ${fmt(p.amount)}`,  color: '#22c55e' },
+                          { label: 'Vendedora', value: p.seller_name || '—',    color: 'rgba(255,255,255,0.8)' },
+                          { label: 'Sucursal',  value: p.branch_name || '—',    color: 'rgba(255,255,255,0.8)' },
+                        ].map(item => (
+                          <div key={item.label} className="rounded-lg p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                            <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>{item.label}</p>
+                            <p className="text-sm font-light" style={{ color: item.color }}>{item.value}</p>
+                          </div>
+                        ))}
                       </div>
 
                       {(() => {
