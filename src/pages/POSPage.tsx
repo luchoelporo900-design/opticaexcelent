@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Plus, X, Save, ChevronDown, ChevronUp, Glasses, Banknote, CreditCard, Smartphone, QrCode, Send, MapPin, Truck, Store, Package, User, FileText, Check, CheckCircle, AlertCircle, Trash2, ShoppingBag, Hash, Clock, Building2, Camera, Receipt, ZoomIn } from 'lucide-react';
+import { Search, Plus, X, Save, ChevronDown, ChevronUp, Glasses, Banknote, CreditCard, Smartphone, QrCode, Send, MapPin, Truck, Store, Package, User, FileText, Check, CheckCircle, AlertCircle, Trash2, ShoppingBag, Hash, Clock, Building2, Camera, Receipt, ZoomIn, Wrench } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { saveSale as saveToStorage, getSales, getPayments, updateSaleBalance, recordPayment, closeSaleLocal, compressImage } from '../lib/salesStorage';
 import { supabase } from '../lib/supabase';
@@ -8,6 +8,9 @@ type PaymentMethod = 'efectivo' | 'transferencia' | 'tarjeta' | 'qr' | 'giro';
 type SaleStatus = 'pendiente' | 'en_proceso' | 'en_laboratorio' | 'listo' | 'pagado_total' | 'entregado' | 'cancelado';
 type DeliveryType = 'retiro' | 'delivery' | 'encomienda';
 type Channel = 'local' | 'online';
+
+// 'reparacion' = no suma en comisiones de vendedora
+type SaleType = 'completa' | 'media' | 'reparacion';
 
 type Prescription = {
   od_esfera: string; od_cilindro: string; od_eje: string; od_altura: string;
@@ -24,8 +27,8 @@ type EyeglassItem = {
   showReceta: boolean;
   prescription: Prescription;
   price: string;
-  saleType: 'completa' | 'media';
-  stock_frame_id?: string; // ID del armazón del stock si fue seleccionado
+  saleType: SaleType;
+  stock_frame_id?: string;
 };
 
 type PaymentEntry = {
@@ -60,6 +63,31 @@ const STATUS_CFG: Record<SaleStatus, { label: string; color: string }> = {
   cancelado:      { label: 'Cancelado',      color: '#ef4444' },
 };
 
+// Configuración de tipos de venta
+const SALE_TYPES: { id: SaleType; label: string; sublabel: string; color: string; icon: React.ReactNode }[] = [
+  {
+    id: 'completa',
+    label: '1 venta completa',
+    sublabel: 'Suma en comisiones',
+    color: '#10b981',
+    icon: <Check size={11} />,
+  },
+  {
+    id: 'media',
+    label: '½ media venta',
+    sublabel: 'Suma la mitad',
+    color: '#f59e0b',
+    icon: <span style={{ fontSize: 11, fontWeight: 600 }}>½</span>,
+  },
+  {
+    id: 'reparacion',
+    label: 'Reparación / Insumo',
+    sublabel: 'No suma en comisiones',
+    color: '#a78bfa',
+    icon: <Wrench size={11} />,
+  },
+];
+
 function uid() { return crypto.randomUUID(); }
 function fmt(n: number) { return n.toLocaleString('es-PY', { minimumFractionDigits: 0, maximumFractionDigits: 0 }); }
 
@@ -72,7 +100,11 @@ function emptyRx(): Prescription {
 }
 
 function newEyeglass(): EyeglassItem {
-  return { _id: uid(), frame_description: '', photo_url: '', crystals: '', treatments: '', showReceta: false, prescription: emptyRx(), price: '', saleType: 'completa', stock_frame_id: undefined };
+  return {
+    _id: uid(), frame_description: '', photo_url: '', crystals: '', treatments: '',
+    showReceta: false, prescription: emptyRx(), price: '', saleType: 'completa',
+    stock_frame_id: undefined,
+  };
 }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
@@ -227,7 +259,6 @@ export default function POSPage() {
       // ── Descontar stock y registrar movimiento ──
       for (const eg of eyeglasses) {
         if (eg.stock_frame_id) {
-          // Buscar el armazón y descontar según la sede de venta
           const { data: frame } = await supabase
             .from('armazones')
             .select('*')
@@ -235,7 +266,6 @@ export default function POSPage() {
             .single();
 
           if (frame) {
-            // Determinar qué columna de stock descontar según la sede
             const sedeKey = (() => {
               const n = saleBranchName.toLowerCase().replace(/á/g,'a').replace(/é/g,'e').replace(/ú/g,'u');
               if (n.includes('azara'))    return 'stock_azara';
@@ -250,7 +280,6 @@ export default function POSPage() {
               .update({ [sedeKey]: Math.max(0, current - 1), updated_at: new Date().toISOString() })
               .eq('id', eg.stock_frame_id);
 
-            // Registrar movimiento en historial
             await supabase.from('stock_movimientos').insert([{
               armazon_id:     eg.stock_frame_id,
               armazon_nombre: frame.nombre,
@@ -614,11 +643,18 @@ function ReceiptUpload({ value, onChange }: { value: string; onChange: (v: strin
   );
 }
 
-function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: { eg: EyeglassItem; idx: number; onUpdate: (p: Partial<EyeglassItem>) => void; onRemove: () => void }) {
+// ─── Tarjeta de anteojo con los 3 tipos de venta ──────────────────────────────
+function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
+  eg: EyeglassItem; idx: number;
+  onUpdate: (p: Partial<EyeglassItem>) => void;
+  onRemove: () => void;
+}) {
   const photoRef = useRef<HTMLInputElement | null>(null);
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [searching, setSearching]     = useState(false);
   const [stockFrame, setStockFrame]   = useState<any | null>(null);
+
+  const currentType: SaleType = eg.saleType ?? 'completa';
 
   function handlePhoto(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return;
@@ -655,12 +691,20 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: { eg: EyeglassItem;
     ? (stockFrame.stock_azara || 0) + (stockFrame.stock_fernando || 0) + (stockFrame.stock_caacupe || 0) + (stockFrame.stock_la_fina || 0)
     : 0;
 
+  const activeCfg = SALE_TYPES.find(t => t.id === currentType) ?? SALE_TYPES[0];
+
   return (
     <div className="rounded-xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.022)', border: '1px solid rgba(197,160,89,0.16)' }}>
       <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid rgba(197,160,89,0.09)' }}>
         <div className="flex items-center gap-2.5">
           <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-medium text-black shrink-0" style={{ background: '#C5A059' }}>{idx + 1}</span>
           <span className="text-sm font-light text-white truncate max-w-[150px]">{eg.frame_description || `Anteojo ${idx + 1}`}</span>
+          {/* Badge tipo de venta en el header */}
+          <span className="px-2 py-0.5 rounded-full text-xs font-light inline-flex items-center gap-1 shrink-0"
+            style={{ background: `${activeCfg.color}15`, color: activeCfg.color, border: `1px solid ${activeCfg.color}30` }}>
+            {activeCfg.icon}
+            <span className="hidden sm:inline">{activeCfg.label}</span>
+          </span>
         </div>
         <button onClick={onRemove} style={{ color: 'rgba(239,68,68,0.45)' }}
           onMouseEnter={e => (e.currentTarget.style.color = '#ef4444')}
@@ -739,7 +783,6 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: { eg: EyeglassItem;
             </div>
           </div>
 
-          {/* Armazón del stock seleccionado */}
           {eg.stock_frame_id && stockFrame && (
             <div className="mt-2 flex items-center gap-2 px-3 py-2 rounded-lg"
               style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.22)' }}>
@@ -750,7 +793,6 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: { eg: EyeglassItem;
             </div>
           )}
 
-          {/* Armazón propio del cliente */}
           {!eg.stock_frame_id && eg.frame_description.trim() && (
             <div className="mt-2 flex items-center gap-2 px-3 py-2 rounded-lg"
               style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.15)' }}>
@@ -777,19 +819,34 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: { eg: EyeglassItem;
           </div>
         </div>
 
-        {/* Tipo de venta */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <p className="text-xs font-light shrink-0" style={{ color: 'rgba(255,255,255,0.4)' }}>Tipo de venta:</p>
-          <button onClick={() => onUpdate({ saleType: 'completa' })}
-            className="px-3 py-1.5 rounded-lg text-xs font-medium"
-            style={{ background: (eg.saleType ?? 'completa') === 'completa' ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.03)', border: `1px solid ${(eg.saleType ?? 'completa') === 'completa' ? 'rgba(16,185,129,0.5)' : 'rgba(255,255,255,0.08)'}`, color: (eg.saleType ?? 'completa') === 'completa' ? '#10b981' : 'rgba(255,255,255,0.38)' }}>
-            ✓ 1 venta completa
-          </button>
-          <button onClick={() => onUpdate({ saleType: 'media' })}
-            className="px-3 py-1.5 rounded-lg text-xs font-medium"
-            style={{ background: eg.saleType === 'media' ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.03)', border: `1px solid ${eg.saleType === 'media' ? 'rgba(245,158,11,0.5)' : 'rgba(255,255,255,0.08)'}`, color: eg.saleType === 'media' ? '#f59e0b' : 'rgba(255,255,255,0.38)' }}>
-            ½ media venta
-          </button>
+        {/* ── Tipo de venta — 3 opciones ── */}
+        <div>
+          <p className="text-xs font-light mb-2" style={{ color: 'rgba(255,255,255,0.4)' }}>Tipo de venta:</p>
+          <div className="flex gap-2 flex-wrap">
+            {SALE_TYPES.map(t => (
+              <button
+                key={t.id}
+                onClick={() => onUpdate({ saleType: t.id })}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium"
+                style={{
+                  background: currentType === t.id ? `${t.color}18` : 'rgba(255,255,255,0.03)',
+                  border: `1px solid ${currentType === t.id ? t.color + '55' : 'rgba(255,255,255,0.08)'}`,
+                  color: currentType === t.id ? t.color : 'rgba(255,255,255,0.38)',
+                }}>
+                {t.icon}{t.label}
+              </button>
+            ))}
+          </div>
+          {/* Aviso cuando es reparación */}
+          {currentType === 'reparacion' && (
+            <div className="mt-2 flex items-center gap-2 px-3 py-2 rounded-lg"
+              style={{ background: 'rgba(167,139,250,0.06)', border: '1px solid rgba(167,139,250,0.20)' }}>
+              <Wrench size={11} style={{ color: '#a78bfa', flexShrink: 0 }} />
+              <span className="text-xs font-light" style={{ color: 'rgba(167,139,250,0.8)' }}>
+                Reparación / Insumo — no suma en comisiones de la vendedora
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Receta */}
