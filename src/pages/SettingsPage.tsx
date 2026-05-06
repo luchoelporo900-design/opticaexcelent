@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { User, Glasses, Plus, Eye, EyeOff, Check, X, RefreshCw, Shield, Package, ToggleLeft, ToggleRight } from 'lucide-react';
+import { User, Glasses, Plus, Eye, EyeOff, Check, X, RefreshCw, Shield, Package, ToggleLeft, ToggleRight, PencilLine } from 'lucide-react';
 import { useAuth, Profile } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 
@@ -37,6 +37,90 @@ function GoldInput({ value, onChange, placeholder, type = 'text', disabled = fal
   );
 }
 
+// Componente reutilizable para sección de permisos por toggle
+function PermToggleSection({
+  icon,
+  title,
+  badge,
+  description,
+  vendedoras,
+  perms,
+  savingId,
+  onToggle,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  badge: string;
+  description: string;
+  vendedoras: Profile[];
+  perms: Record<string, boolean>;
+  savingId: string | null;
+  onToggle: (id: string) => void;
+}) {
+  return (
+    <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.018)', border: '1px solid rgba(197,160,89,0.14)' }}>
+      <div className="flex items-center gap-3 px-5 py-3.5" style={{ borderBottom: '1px solid rgba(197,160,89,0.09)' }}>
+        {icon}
+        <span className="text-sm font-light tracking-wide text-white">{title}</span>
+        <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(197,160,89,0.12)', color: '#C5A059' }}>
+          {badge}
+        </span>
+      </div>
+      <div className="p-5">
+        <p className="text-xs font-light mb-4" style={{ color: 'rgba(255,255,255,0.45)' }}>{description}</p>
+        {vendedoras.length === 0 ? (
+          <p className="text-xs font-light text-center py-4" style={{ color: 'rgba(255,255,255,0.28)' }}>
+            No hay vendedoras registradas
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {vendedoras.map(m => {
+              const enabled  = perms[m.id] ?? false;
+              const isSaving = savingId === m.id;
+              return (
+                <div key={m.id} className="flex items-center justify-between px-4 py-3 rounded-xl"
+                  style={{ background: enabled ? 'rgba(34,197,94,0.04)' : 'rgba(255,255,255,0.02)', border: `1px solid ${enabled ? 'rgba(34,197,94,0.20)' : 'rgba(255,255,255,0.07)'}` }}>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
+                      style={{ background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.25)' }}>
+                      <User size={14} style={{ color: '#3b82f6' }} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-light text-white truncate">{m.full_name}</p>
+                      <p className="text-xs font-light truncate" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                        {m.branch_id || 'Sin sucursal'} · {m.email}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => onToggle(m.id)}
+                    disabled={isSaving}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-light shrink-0 ml-3"
+                    style={{
+                      background: enabled ? 'rgba(34,197,94,0.12)' : 'rgba(255,255,255,0.04)',
+                      border: `1px solid ${enabled ? 'rgba(34,197,94,0.30)' : 'rgba(255,255,255,0.10)'}`,
+                      color: enabled ? '#22c55e' : 'rgba(255,255,255,0.4)',
+                      opacity: isSaving ? 0.5 : 1,
+                    }}>
+                    {isSaving ? (
+                      <div className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
+                    ) : enabled ? (
+                      <ToggleRight size={16} />
+                    ) : (
+                      <ToggleLeft size={16} />
+                    )}
+                    {isSaving ? 'Guardando...' : enabled ? 'Habilitada' : 'Deshabilitada'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const { profile } = useAuth();
   const isAdmin = profile?.role === 'admin' || profile?.role === 'gerente';
@@ -59,8 +143,12 @@ export default function SettingsPage() {
   const [createOk,   setCreateOk]   = useState('');
 
   // Permisos de stock por usuario
-  const [stockPerms,        setStockPerms]        = useState<Record<string, boolean>>({});
-  const [savingStockPerm,   setSavingStockPerm]   = useState<string | null>(null);
+  const [stockPerms,      setStockPerms]      = useState<Record<string, boolean>>({});
+  const [savingStockPerm, setSavingStockPerm] = useState<string | null>(null);
+
+  // Permisos de edición de ventas por usuario
+  const [editPerms,      setEditPerms]      = useState<Record<string, boolean>>({});
+  const [savingEditPerm, setSavingEditPerm] = useState<string | null>(null);
 
   useEffect(() => { loadTeam(); }, []);
 
@@ -72,12 +160,14 @@ export default function SettingsPage() {
       .order('created_at', { ascending: true });
     if (data) {
       setTeam(data as Profile[]);
-      // Cargar permisos de stock de cada usuario
-      const perms: Record<string, boolean> = {};
+      const stockP: Record<string, boolean> = {};
+      const editP:  Record<string, boolean> = {};
       for (const u of data as any[]) {
-        perms[u.id] = u.puede_cargar_stock ?? false;
+        stockP[u.id] = u.puede_cargar_stock   ?? false;
+        editP[u.id]  = u.puede_editar_ventas  ?? false;
       }
-      setStockPerms(perms);
+      setStockPerms(stockP);
+      setEditPerms(editP);
     }
     setLoadingTeam(false);
   }
@@ -143,15 +233,21 @@ export default function SettingsPage() {
   }
 
   async function toggleStockPerm(userId: string) {
-    const current = stockPerms[userId] ?? false;
-    const newVal  = !current;
+    const newVal = !(stockPerms[userId] ?? false);
     setSavingStockPerm(userId);
     await supabase.from('optica_users').update({ puede_cargar_stock: newVal }).eq('id', userId);
     setStockPerms(prev => ({ ...prev, [userId]: newVal }));
     setSavingStockPerm(null);
   }
 
-  // Vendedoras del equipo (las que tienen rol vendedora)
+  async function toggleEditPerm(userId: string) {
+    const newVal = !(editPerms[userId] ?? false);
+    setSavingEditPerm(userId);
+    await supabase.from('optica_users').update({ puede_editar_ventas: newVal }).eq('id', userId);
+    setEditPerms(prev => ({ ...prev, [userId]: newVal }));
+    setSavingEditPerm(null);
+  }
+
   const vendedoras = team.filter(m => m.role === 'vendedora');
 
   return (
@@ -196,69 +292,30 @@ export default function SettingsPage() {
 
       {/* Permisos de Stock — solo admin */}
       {isAdmin && (
-        <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.018)', border: '1px solid rgba(197,160,89,0.14)' }}>
-          <div className="flex items-center gap-3 px-5 py-3.5" style={{ borderBottom: '1px solid rgba(197,160,89,0.09)' }}>
-            <Package size={14} style={{ color: '#C5A059' }} />
-            <span className="text-sm font-light tracking-wide text-white">Permisos de Stock</span>
-            <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(197,160,89,0.12)', color: '#C5A059' }}>
-              Vendedoras
-            </span>
-          </div>
-          <div className="p-5">
-            <p className="text-xs font-light mb-4" style={{ color: 'rgba(255,255,255,0.45)' }}>
-              Controlá quién puede agregar armazones al stock. Las vendedoras habilitadas podrán cargar nuevos modelos desde su celular.
-            </p>
+        <PermToggleSection
+          icon={<Package size={14} style={{ color: '#C5A059' }} />}
+          title="Permisos de Stock"
+          badge="Vendedoras"
+          description="Controlá quién puede agregar armazones al stock. Las vendedoras habilitadas podrán cargar nuevos modelos desde su celular."
+          vendedoras={vendedoras}
+          perms={stockPerms}
+          savingId={savingStockPerm}
+          onToggle={toggleStockPerm}
+        />
+      )}
 
-            {vendedoras.length === 0 ? (
-              <p className="text-xs font-light text-center py-4" style={{ color: 'rgba(255,255,255,0.28)' }}>
-                No hay vendedoras registradas
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {vendedoras.map(m => {
-                  const enabled  = stockPerms[m.id] ?? false;
-                  const isSaving = savingStockPerm === m.id;
-                  return (
-                    <div key={m.id} className="flex items-center justify-between px-4 py-3 rounded-xl"
-                      style={{ background: enabled ? 'rgba(34,197,94,0.04)' : 'rgba(255,255,255,0.02)', border: `1px solid ${enabled ? 'rgba(34,197,94,0.20)' : 'rgba(255,255,255,0.07)'}` }}>
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
-                          style={{ background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.25)' }}>
-                          <User size={14} style={{ color: '#3b82f6' }} />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-light text-white truncate">{m.full_name}</p>
-                          <p className="text-xs font-light truncate" style={{ color: 'rgba(255,255,255,0.35)' }}>
-                            {m.branch_id || 'Sin sucursal'} · {m.email}
-                          </p>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => toggleStockPerm(m.id)}
-                        disabled={isSaving}
-                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-light shrink-0 ml-3"
-                        style={{
-                          background: enabled ? 'rgba(34,197,94,0.12)' : 'rgba(255,255,255,0.04)',
-                          border: `1px solid ${enabled ? 'rgba(34,197,94,0.30)' : 'rgba(255,255,255,0.10)'}`,
-                          color: enabled ? '#22c55e' : 'rgba(255,255,255,0.4)',
-                          opacity: isSaving ? 0.5 : 1,
-                        }}>
-                        {isSaving ? (
-                          <div className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
-                        ) : enabled ? (
-                          <ToggleRight size={16} />
-                        ) : (
-                          <ToggleLeft size={16} />
-                        )}
-                        {isSaving ? 'Guardando...' : enabled ? 'Habilitada' : 'Deshabilitada'}
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
+      {/* Permisos de Edición de Ventas — solo admin */}
+      {isAdmin && (
+        <PermToggleSection
+          icon={<PencilLine size={14} style={{ color: '#C5A059' }} />}
+          title="Permisos de Edición de Ventas"
+          badge="Vendedoras"
+          description="Controlá quién puede editar ventas existentes. Las vendedoras habilitadas podrán modificar estado, montos, observaciones y más."
+          vendedoras={vendedoras}
+          perms={editPerms}
+          savingId={savingEditPerm}
+          onToggle={toggleEditPerm}
+        />
       )}
 
       {/* Gestión de equipo — solo admin */}
