@@ -204,9 +204,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // Polling cada 2 minutos como respaldo (por si falla el realtime)
+  // Polling cada 5 segundos para sincronización confiable entre dispositivos
   useEffect(() => {
-    const interval = setInterval(() => refresh(), 120000);
+    const interval = setInterval(() => refresh(), 5000);
     return () => clearInterval(interval);
   }, [refresh]);
 
