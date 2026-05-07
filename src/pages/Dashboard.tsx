@@ -25,11 +25,9 @@ export default function Dashboard() {
   const [prizeLevel, setPrizeLevel] = useState<'sin_nivel' | 'bronce' | 'oro'>('sin_nivel');
   const [dismissedLevel, setDismissedLevel] = useState<string | null>(() => sessionStorage.getItem('dismissedPrize'));
 
-  // Filtro de sucursal
   const [selectedBranch, setSelectedBranch] = useState<string>('');
   const [branchDropdown, setBranchDropdown] = useState(false);
 
-  // Quick-entry caja
   const [cashModal, setCashModal]   = useState<'ingreso' | 'gasto' | null>(null);
   const [cashDesc, setCashDesc]     = useState('');
   const [cashAmt, setCashAmt]       = useState('');
@@ -59,14 +57,14 @@ export default function Dashboard() {
     const today      = new Date().toISOString().split('T')[0];
     const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 7);
 
-    const allVentas  = getSales();
-    const isVendedor = profile?.role === 'vendedor';
+    const allVentas = getSales();
+    // CORREGIDO: 'vendedora' no 'vendedor'
+    const isVendedor = profile?.role === 'vendedora';
 
     let ventas = isVendedor
       ? allVentas.filter(v => v.vendedora === profile?.full_name)
       : allVentas;
 
-    // Filtrar por sucursal seleccionada
     if (selectedBranch) {
       ventas = ventas.filter(v => branchMatch(v.sucursalVenta || ''));
     }
@@ -187,11 +185,7 @@ export default function Dashboard() {
     const myPending    = allMySales.filter(v => v.estadoTrabajo === 'pendiente' || v.estadoTrabajo === 'en_laboratorio')
       .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
 
-    function buildWaLink(clientName: string, phone: string, branchName: string) {
-      if (!phone) return null;
-      const msg = `Hola ${clientName}, te saludamos de Óptica Yolanda. Te avisamos que tus lentes ya están listos en la sucursal de ${branchName}. ¡Te esperamos!`;
-      return `https://wa.me/595${phone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`;
-    }
+    // CORREGIDO: buildWaLink eliminado, el link se construye inline donde se necesita
 
     return (
       <div className="p-6 space-y-6">
@@ -372,7 +366,6 @@ export default function Dashboard() {
   // ── Admin view ──────────────────────────────────────────────────────────
   return (
     <div className="p-6 space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl text-white font-light tracking-wider">Dashboard</h1>
@@ -381,7 +374,6 @@ export default function Dashboard() {
           </p>
         </div>
 
-        {/* Selector de sucursal */}
         <div className="relative">
           <button
             onClick={() => setBranchDropdown(!branchDropdown)}
@@ -420,7 +412,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Prize banner */}
       {prizeLevel !== 'sin_nivel' && dismissedLevel !== prizeLevel && (
         <div className="relative rounded-2xl border p-5 overflow-hidden"
           style={{ background: prizeLevel === 'oro' ? 'linear-gradient(135deg, rgba(197,160,89,0.12), rgba(139,105,20,0.08))' : 'linear-gradient(135deg, rgba(205,127,50,0.12), rgba(205,127,50,0.05))', borderColor: prizeLevel === 'oro' ? 'rgba(197,160,89,0.5)' : 'rgba(205,127,50,0.5)' }}>
@@ -439,7 +430,6 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Stat cards */}
       {loading ? (
         <div className="grid grid-cols-4 gap-4">{[...Array(4)].map((_, i) => <div key={i} className="h-28 rounded-xl shimmer" />)}</div>
       ) : (
@@ -461,7 +451,6 @@ export default function Dashboard() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Ventas recientes */}
         <div className="premium-card lg:col-span-2 overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 soft-border-bottom">
             <h2 className="text-white text-sm font-light tracking-wider">Ventas Recientes{selectedBranch ? ` — ${selectedBranch}` : ''}</h2>
@@ -494,7 +483,6 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Columna derecha */}
         <div className="space-y-4">
           <div className="premium-card overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 soft-border-bottom">
@@ -543,7 +531,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Pendientes admin */}
       {(() => {
         const allSales    = getSales();
         const pendingSales = allSales

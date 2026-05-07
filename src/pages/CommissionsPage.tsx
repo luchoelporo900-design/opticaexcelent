@@ -11,6 +11,8 @@ function calcPointsForSale(sale: StoredSale): number {
   if (anteojos.length === 0) return 1;
   let pts = 0;
   for (const eg of anteojos) {
+    // Reparaciones no suman puntos
+    if (eg.saleType === 'reparacion') continue;
     if (eg.saleType === 'completa') { pts += 1; continue; }
     if (eg.saleType === 'media')    { pts += 0.5; continue; }
     const hasFrame   = !!(eg.frame_description || eg.photo_url);
@@ -20,6 +22,13 @@ function calcPointsForSale(sale: StoredSale): number {
     else pts += 1;
   }
   return pts;
+}
+
+// Cuenta cuántos armazones válidos (no reparación) tiene una venta
+function countAnteojos(sale: StoredSale): number {
+  const anteojos = (sale.anteojos as any[]) || [];
+  if (anteojos.length === 0) return 1;
+  return anteojos.filter(eg => eg.saleType !== 'reparacion').length || 1;
 }
 
 function calcLevel(points: number): 'oro' | 'bronce' | 'sin_nivel' {
@@ -48,7 +57,8 @@ function formatMonth(m: string) {
 type DaySummary = {
   date: string;
   sales: StoredSale[];
-  totalSales: number;
+  totalSales: number;      // número de ventas (registros)
+  totalAnteojos: number;   // número de armazones vendidos
   totalPoints: number;
   level: 'oro' | 'bronce' | 'sin_nivel';
 };
@@ -60,6 +70,7 @@ type SellerMonthSummary = {
   days_bronce: number;
   days_oro: number;
   total_sales: number;
+  total_anteojos: number;
   best_day_points: number;
 };
 
@@ -74,8 +85,16 @@ function buildDaySummaries(sellerName: string, month: string): DaySummary[] {
     byDay[day].push(v);
   }
   return Object.entries(byDay).map(([date, daySales]) => {
-    const totalPoints = daySales.reduce((s, v) => s + calcPointsForSale(v), 0);
-    return { date, sales: daySales, totalSales: daySales.length, totalPoints, level: calcLevel(totalPoints) };
+    const totalPoints   = daySales.reduce((s, v) => s + calcPointsForSale(v), 0);
+    const totalAnteojos = daySales.reduce((s, v) => s + countAnteojos(v), 0);
+    return {
+      date,
+      sales: daySales,
+      totalSales: daySales.length,
+      totalAnteojos,
+      totalPoints,
+      level: calcLevel(totalPoints),
+    };
   }).sort((a, b) => b.date.localeCompare(a.date));
 }
 
@@ -90,17 +109,28 @@ function buildAdminSummaries(month: string): SellerMonthSummary[] {
     bySeller[seller][day].push(v);
   }
   return Object.entries(bySeller).map(([seller, days]) => {
-    let totalSales = 0, daysOro = 0, daysBronce = 0, bestDay = 0;
+    let totalSales = 0, totalAnteojos = 0, daysOro = 0, daysBronce = 0, bestDay = 0;
     const branch = Object.values(days).flat()[0]?.sucursalVenta ?? '';
     for (const daySales of Object.values(days)) {
-      const dayPts = daySales.reduce((s, v) => s + calcPointsForSale(v), 0);
-      const lvl    = calcLevel(dayPts);
-      totalSales  += daySales.length;
+      const dayPts    = daySales.reduce((s, v) => s + calcPointsForSale(v), 0);
+      const dayAnts   = daySales.reduce((s, v) => s + countAnteojos(v), 0);
+      const lvl       = calcLevel(dayPts);
+      totalSales     += daySales.length;
+      totalAnteojos  += dayAnts;
       if (dayPts > bestDay) bestDay = dayPts;
       if (lvl === 'oro')    daysOro++;
       if (lvl === 'bronce') daysBronce++;
     }
-    return { seller_name: seller, branch_name: branch, days_worked: Object.keys(days).length, days_bronce: daysBronce, days_oro: daysOro, total_sales: totalSales, best_day_points: bestDay };
+    return {
+      seller_name: seller,
+      branch_name: branch,
+      days_worked: Object.keys(days).length,
+      days_bronce: daysBronce,
+      days_oro: daysOro,
+      total_sales: totalSales,
+      total_anteojos: totalAnteojos,
+      best_day_points: bestDay,
+    };
   }).sort((a, b) => b.days_oro - a.days_oro || b.best_day_points - a.best_day_points);
 }
 
@@ -141,7 +171,7 @@ export default function CommissionsPage() {
         <div>
           <h1 className="text-2xl text-white font-light tracking-wider">Comisiones y Premios</h1>
           <p className="text-sm font-light mt-1" style={{ color: 'rgba(197,160,89,0.7)' }}>
-            Premios <strong style={{ color: '#C5A059' }}>por día</strong> — cada día es independiente
+            Premios <strong style={{ color: '#C5A059' }}>por día</strong> — cada armazón vendido suma puntos
           </p>
         </div>
         <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)}
@@ -155,10 +185,10 @@ export default function CommissionsPage() {
       <div className="rounded-xl border p-4 grid grid-cols-2 lg:grid-cols-4 gap-3"
         style={{ background: 'rgba(255,255,255,0.02)', borderColor: 'rgba(197,160,89,0.15)' }}>
         {[
-          { icon: <Star size={13} />,   label: 'Venta completa', sub: 'Armazón + Cristales',           pts: '+1 pt',       color: '#10b981' },
-          { icon: <Star size={13} />,   label: 'Venta parcial',  sub: 'Solo armazón o solo cristales',  pts: '+0.5 pt',     color: '#f59e0b' },
-          { icon: <Medal size={13} />,  label: 'Nivel Bronce',   sub: '8 o más puntos en el día',       pts: 'Premio día',  color: '#cd7f32' },
-          { icon: <Trophy size={13} />, label: 'Nivel Oro',      sub: '10 o más puntos en el día',      pts: 'Premio día',  color: '#C5A059' },
+          { icon: <Star size={13} />,   label: 'Armazón completo', sub: 'Con armazón + cristales',          pts: '+1 pt',       color: '#10b981' },
+          { icon: <Star size={13} />,   label: 'Armazón parcial',  sub: 'Solo armazón o solo cristales',    pts: '+0.5 pt',     color: '#f59e0b' },
+          { icon: <Medal size={13} />,  label: 'Nivel Bronce',     sub: '8 o más puntos en el día',         pts: 'Premio día',  color: '#cd7f32' },
+          { icon: <Trophy size={13} />, label: 'Nivel Oro',        sub: '10 o más puntos en el día',        pts: 'Premio día',  color: '#C5A059' },
         ].map(r => (
           <div key={r.label} className="flex items-center gap-2.5">
             <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ background: `${r.color}18`, color: r.color }}>{r.icon}</div>
@@ -246,8 +276,9 @@ export default function CommissionsPage() {
                             <div className="h-full rounded-full transition-all"
                               style={{ width: `${pct}%`, background: day.level === 'oro' ? 'linear-gradient(to right,#C5A059,#f0d080)' : day.level === 'bronce' ? '#cd7f32' : 'rgba(197,160,89,0.3)' }} />
                           </div>
+                          {/* CORREGIDO: muestra armazones no ventas */}
                           <p className="text-xs font-light mt-0.5" style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10 }}>
-                            {day.totalSales} venta{day.totalSales !== 1 ? 's' : ''}
+                            {day.totalSales} venta{day.totalSales !== 1 ? 's' : ''} · {day.totalAnteojos} armazón{day.totalAnteojos !== 1 ? 'es' : ''}
                           </p>
                         </div>
                         <p className="text-sm font-medium w-16 text-right shrink-0" style={{ color: cfg.color }}>{day.totalPoints.toFixed(1)} pts</p>
@@ -267,8 +298,53 @@ export default function CommissionsPage() {
                             Ventas del {fmtDay(day.date)}
                           </p>
                           {day.sales.map(v => {
-                            const pts = calcPointsForSale(v);
                             const anteojos = (v.anteojos as any[]) || [];
+                            // CORREGIDO: mostrar cada armazón individualmente con sus puntos
+                            if (anteojos.length > 1) {
+                              return (
+                                <div key={v.id} className="rounded-lg overflow-hidden"
+                                  style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                  <div className="flex items-center justify-between py-2 px-3"
+                                    style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                                    <span className="text-xs font-mono" style={{ color: '#C5A059' }}>VTA-{v.id}</span>
+                                    <span className="text-xs text-white font-light">{v.cliente.nombre} {v.cliente.apellido}</span>
+                                    <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.3)' }}>{anteojos.length} armazones</span>
+                                  </div>
+                                  {anteojos.map((eg: any, i: number) => {
+                                    if (eg.saleType === 'reparacion') {
+                                      return (
+                                        <div key={i} className="flex items-center justify-between py-1.5 px-3">
+                                          <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>
+                                            Armazón {i + 1}: {eg.frame_description || 'Reparación'}
+                                          </span>
+                                          <span className="text-xs px-2 py-0.5 rounded-full"
+                                            style={{ background: 'rgba(167,139,250,0.12)', color: '#a78bfa' }}>
+                                            Reparación
+                                          </span>
+                                        </div>
+                                      );
+                                    }
+                                    const egPts = eg.saleType === 'media' ? 0.5 : 1;
+                                    const ptColor = egPts >= 1 ? '#10b981' : '#f59e0b';
+                                    return (
+                                      <div key={i} className="flex items-center justify-between py-1.5 px-3">
+                                        <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.6)' }}>
+                                          Armazón {i + 1}: {eg.frame_description || (eg.saleType === 'media' ? '½ venta' : '1 venta')}
+                                          {eg.crystals ? ` + ${eg.crystals}` : ''}
+                                        </span>
+                                        <span className="text-xs font-medium px-2 py-0.5 rounded-full shrink-0"
+                                          style={{ background: `${ptColor}18`, color: ptColor }}>
+                                          {egPts >= 1 ? '+1 pt' : '+0.5 pt'}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            }
+                            // Venta con 1 armazón
+                            const pts = calcPointsForSale(v);
+                            const ptColor = pts >= 1 ? '#10b981' : '#f59e0b';
                             const desc = anteojos.length > 0
                               ? anteojos.map((eg: any) => {
                                   const p = [];
@@ -277,7 +353,6 @@ export default function CommissionsPage() {
                                   return p.join(' + ') || (eg.saleType === 'media' ? '½ venta' : '1 venta');
                                 }).join(' | ')
                               : 'Sin detalle';
-                            const ptColor = pts >= 1 ? '#10b981' : '#f59e0b';
                             return (
                               <div key={v.id} className="flex items-center justify-between py-2 px-3 rounded-lg"
                                 style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.05)' }}>
@@ -288,15 +363,24 @@ export default function CommissionsPage() {
                                   </div>
                                   <p className="text-xs font-light mt-0.5 truncate" style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10 }}>{desc}</p>
                                 </div>
-                                <span className="text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ml-2"
-                                  style={{ background: `${ptColor}18`, color: ptColor }}>
-                                  {pts >= 1 ? '+1 pt' : '+0.5 pt'}
-                                </span>
+                                {pts > 0 ? (
+                                  <span className="text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ml-2"
+                                    style={{ background: `${ptColor}18`, color: ptColor }}>
+                                    {pts >= 1 ? '+1 pt' : '+0.5 pt'}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs px-2 py-0.5 rounded-full shrink-0 ml-2"
+                                    style={{ background: 'rgba(167,139,250,0.12)', color: '#a78bfa' }}>
+                                    Reparación
+                                  </span>
+                                )}
                               </div>
                             );
                           })}
                           <div className="flex justify-between pt-2 text-xs font-light border-t" style={{ borderColor: 'rgba(197,160,89,0.1)' }}>
-                            <span style={{ color: 'rgba(255,255,255,0.4)' }}>Total del día</span>
+                            <span style={{ color: 'rgba(255,255,255,0.4)' }}>
+                              {day.totalAnteojos} armazón{day.totalAnteojos !== 1 ? 'es' : ''} vendido{day.totalAnteojos !== 1 ? 's' : ''}
+                            </span>
                             <span style={{ color: cfg.color }}>
                               {day.totalPoints.toFixed(1)} pts → {day.level === 'sin_nivel' ? 'Sin premio' : day.level === 'bronce' ? '🥉 Nivel Bronce' : '🏆 Nivel Oro'}
                             </span>
@@ -336,22 +420,21 @@ export default function CommissionsPage() {
                   const sellerDays  = buildDaySummaries(s.seller_name, selectedMonth);
                   return (
                     <div key={s.seller_name}>
-                      {/* Fila de vendedora */}
                       <div className="flex items-center gap-3 px-5 py-4 cursor-pointer"
                         onMouseEnter={e => { if (!isExpSeller) (e.currentTarget as HTMLElement).style.background = 'rgba(197,160,89,0.02)'; }}
                         onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
                         onClick={() => setExpandedDay(isExpSeller ? null : `seller-${s.seller_name}`)}>
-                        {/* Número */}
                         <span className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium shrink-0"
                           style={{ background: i === 0 ? 'rgba(197,160,89,0.2)' : 'rgba(255,255,255,0.06)', color: i === 0 ? '#C5A059' : 'rgba(255,255,255,0.4)' }}>
                           {i + 1}
                         </span>
-                        {/* Nombre y sucursal */}
                         <div className="flex-1 min-w-0">
                           <p className="text-sm text-white font-light">{s.seller_name}</p>
-                          <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.35)' }}>{s.branch_name || '—'} · {s.days_worked} días · {s.total_sales} ventas</p>
+                          {/* CORREGIDO: muestra armazones además de ventas */}
+                          <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                            {s.branch_name || '—'} · {s.days_worked} días · {s.total_sales} venta{s.total_sales !== 1 ? 's' : ''} · {s.total_anteojos} armazón{s.total_anteojos !== 1 ? 'es' : ''}
+                          </p>
                         </div>
-                        {/* Días con premio */}
                         <div className="flex items-center gap-2 flex-wrap justify-end">
                           {s.days_oro > 0 && (
                             <span className="text-xs font-medium px-2.5 py-1 rounded-full"
@@ -372,7 +455,6 @@ export default function CommissionsPage() {
                         <ChevronDown size={14} style={{ color: 'rgba(255,255,255,0.3)', transform: isExpSeller ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }} />
                       </div>
 
-                      {/* Detalle día a día de esta vendedora */}
                       {isExpSeller && (
                         <div className="px-5 pb-4" style={{ background: 'rgba(197,160,89,0.02)', borderTop: '1px solid rgba(197,160,89,0.08)' }}>
                           <p className="text-xs font-light tracking-widest uppercase pt-3 mb-3" style={{ color: 'rgba(197,160,89,0.5)' }}>
@@ -388,25 +470,21 @@ export default function CommissionsPage() {
                                 return (
                                   <div key={day.date} className="flex items-center gap-3 px-4 py-3 rounded-xl"
                                     style={{ background: 'rgba(255,255,255,0.025)', border: `1px solid ${day.level !== 'sin_nivel' ? cfg.border : 'rgba(255,255,255,0.06)'}` }}>
-                                    {/* Fecha */}
                                     <div className="w-32 shrink-0">
                                       <p className="text-xs text-white font-light">{fmtDay(day.date)}</p>
                                       <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10 }}>
-                                        {day.totalSales} venta{day.totalSales !== 1 ? 's' : ''}
+                                        {day.totalSales} venta{day.totalSales !== 1 ? 's' : ''} · {day.totalAnteojos} arm.
                                       </p>
                                     </div>
-                                    {/* Barra */}
                                     <div className="flex-1">
                                       <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
                                         <div className="h-full rounded-full"
                                           style={{ width: `${pct}%`, background: day.level === 'oro' ? 'linear-gradient(to right,#C5A059,#f0d080)' : day.level === 'bronce' ? '#cd7f32' : 'rgba(197,160,89,0.3)' }} />
                                       </div>
                                     </div>
-                                    {/* Puntos */}
                                     <span className="text-sm font-medium w-16 text-right shrink-0" style={{ color: cfg.color }}>
                                       {day.totalPoints.toFixed(1)} pts
                                     </span>
-                                    {/* Nivel */}
                                     {day.level !== 'sin_nivel' ? (
                                       <div className="flex items-center gap-1 px-2.5 py-1 rounded-full shrink-0"
                                         style={{ background: cfg.bg, border: `1px solid ${cfg.border}`, color: cfg.color }}>

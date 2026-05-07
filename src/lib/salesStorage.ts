@@ -168,16 +168,54 @@ export async function updateSaleBalance(saleId: number, newBalance: number, newD
   window.dispatchEvent(new CustomEvent('optica_ventas_updated'));
 }
 
-export async function closeSaleLocal(saleId: number, deliveryType: 'retiro' | 'delivery' | 'encomienda'): Promise<void> {
+// CORREGIDO: closeSaleLocal ahora siempre pone saldo=0, sena=total y registra
+// el pago final si había saldo pendiente antes de entregar
+export async function closeSaleLocal(
+  saleId: number,
+  deliveryType: 'retiro' | 'delivery' | 'encomienda',
+  finalPayment?: { monto: number; metodo: string; sucursal: string; vendedora: string; cliente: string; receipt_url?: string }
+): Promise<void> {
   const now = new Date().toISOString();
+
+  // Si viene un pago final, registrarlo antes de cerrar
+  if (finalPayment && finalPayment.monto > 0) {
+    await recordPayment({
+      id: Date.now(),
+      saleId,
+      fecha: now,
+      monto: finalPayment.monto,
+      metodo: finalPayment.metodo,
+      sucursal: finalPayment.sucursal,
+      vendedora: finalPayment.vendedora,
+      cliente: finalPayment.cliente,
+      tipo: 'abono',
+      receipt_url: finalPayment.receipt_url,
+    });
+  }
+
+  // Obtener la venta para saber el total
+  const sale = getSales().find(s => s.id === saleId);
+  const total = sale?.total ?? 0;
+
+  // Siempre cerrar con saldo=0 y estado=entregado
   await supabase.from('ventas').update({
-    saldo: 0, estado_trabajo: 'entregado', delivery_type: deliveryType, delivered_at: now,
+    saldo: 0,
+    sena: total,
+    estado_trabajo: 'entregado',
+    delivery_type: deliveryType,
+    delivered_at: now,
   }).eq('id', saleId);
+
   await supabase.from('lab_orders').update({
-    status: 'entregado', updated_at: now,
+    status: 'entregado',
+    updated_at: now,
   }).eq('sale_id', saleId);
+
+  // Actualizar localStorage
   const sales = getSales().map(s =>
-    s.id === saleId ? { ...s, saldo: 0, sena: s.total, estadoTrabajo: 'entregado', delivery_type: deliveryType, delivered_at: now } : s
+    s.id === saleId
+      ? { ...s, saldo: 0, sena: total, estadoTrabajo: 'entregado', delivery_type: deliveryType, delivered_at: now }
+      : s
   );
   trySet(LS_KEY, JSON.stringify(sales));
   window.dispatchEvent(new CustomEvent('optica_ventas_updated'));

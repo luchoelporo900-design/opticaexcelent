@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   DollarSign, Banknote, CreditCard, ArrowRightLeft, RefreshCw,
   CheckCircle, TrendingUp, Calendar, QrCode, Send, Minus, Plus, X,
-  User, Unlock, Tag, MapPin, Clock, ChevronDown, Heart, Eye,
+  User, Unlock, Tag, MapPin, Clock, ChevronDown, Heart,
 } from 'lucide-react';
 import { useBranch } from '../context/BranchContext';
 import { useAuth } from '../context/AuthContext';
@@ -145,14 +145,12 @@ export default function CashPage() {
   const weekRange   = isVendedora ? getWeekRange() : null;
   const allSellers  = [...new Set(allSales.map(v => v.vendedora).filter(Boolean))].sort();
 
-  // Setear sede inicial
   useEffect(() => {
     if (isVendedora && profile?.branch_id && !selectedBranch) setSelectedBranch(profile.branch_id);
     else if (activeBranch && !selectedBranch) setSelectedBranch(activeBranch.name);
     if (isVendedora) setSelectedDate(new Date().toISOString().slice(0,10));
   }, [activeBranch, isVendedora, profile?.branch_id]);
 
-  // Sincronizar sede en formularios cuando cambia el filtro
   useEffect(() => {
     if (selectedBranch) {
       setExpBranch(selectedBranch);
@@ -166,6 +164,8 @@ export default function CashPage() {
     agg.expenses = expList.reduce((s, e) => s + Number(e.amount), 0);
     agg.ingresos = ingList.reduce((s, i) => s + Number(i.amount), 0);
     setPayments(rows); setExpenses(expList); setIngresos(ingList); setSummary(agg);
+
+    // Tabla por vendedora — cada pago va a su método correcto
     const sellerMap: Record<string, SellerRow> = {};
     for (const r of rows) {
       const s = r.seller_name || 'Sin vendedor';
@@ -180,6 +180,7 @@ export default function CashPage() {
     setLoading(true);
     const sellerFilter = isVendedora ? profile?.full_name : selectedSeller || null;
 
+    // ── Pagos reales registrados en allPayments ──────────────────────────────
     const dayPayments = allPayments.filter(p => {
       if (!(p.fecha || '').startsWith(selectedDate)) return false;
       if (sellerFilter && p.vendedora !== sellerFilter) return false;
@@ -188,12 +189,19 @@ export default function CashPage() {
     });
 
     const payRows: PaymentRow[] = dayPayments.map(p => ({
-      id: String(p.id), sale_number: `VTA-${p.saleId}`, customer_name: p.cliente,
-      amount: Number(p.monto), method: p.metodo as PaymentMethod, paid_at: p.fecha,
-      seller_name: p.vendedora, reference: p.tipo === 'abono' ? 'Abono' : '',
-      branch_name: p.sucursal, sale_id: p.saleId,
+      id: String(p.id),
+      sale_number: `VTA-${p.saleId}`,
+      customer_name: p.cliente,
+      amount: Number(p.monto),
+      method: p.metodo as PaymentMethod,
+      paid_at: p.fecha,
+      seller_name: p.vendedora,
+      reference: p.tipo === 'abono' ? 'Abono' : '',
+      branch_name: p.sucursal,
+      sale_id: p.saleId,
     }));
 
+    // ── Ventas del día para fallback ─────────────────────────────────────────
     const daySales = allSales.filter(v => {
       if (!(v.fecha || '').startsWith(selectedDate)) return false;
       if (sellerFilter && v.vendedora !== sellerFilter) return false;
@@ -201,18 +209,47 @@ export default function CashPage() {
       return true;
     });
 
-    const recordedIds = new Set(dayPayments.map(p => p.saleId));
-    const fallbackRows: PaymentRow[] = daySales.filter(v => !recordedIds.has(v.id)).map(v => {
-      const paid = Math.max(0, (Number(v.total)||0) - (Number(v.saldo)||0));
-      return {
-        id: `ls-${v.id}`, sale_number: `VTA-${v.id}`,
-        customer_name: `${v.cliente.nombre} ${v.cliente.apellido}`.trim(),
-        amount: paid > 0 ? paid : (Number(v.sena)||0),
-        method: v.metodoPago as PaymentMethod, paid_at: v.fecha,
-        seller_name: v.vendedora, reference: '', branch_name: v.sucursalCobro, sale_id: v.id,
-      };
-    });
+    // Solo usar fallback para ventas que NO tienen pagos registrados
+    const recordedSaleIds = new Set(dayPayments.map(p => p.saleId));
 
+    // CORREGIDO: para ventas con múltiples métodos de pago,
+    // expandir cada pago como fila separada para la suma por método sea correcta
+    const fallbackRows: PaymentRow[] = daySales
+      .filter(v => !recordedSaleIds.has(v.id))
+      .flatMap(v => {
+        const pagos = (v as any).pagos as any[] | undefined;
+        // Si la venta tiene un array de pagos detallados, usar cada uno
+        if (pagos && pagos.length > 0) {
+          return pagos.map((pago: any, idx: number) => ({
+            id: `ls-${v.id}-${idx}`,
+            sale_number: `VTA-${v.id}`,
+            customer_name: `${v.cliente.nombre} ${v.cliente.apellido}`.trim(),
+            amount: Number(pago.monto) || 0,
+            method: (pago.metodo || v.metodoPago) as PaymentMethod,
+            paid_at: v.fecha,
+            seller_name: v.vendedora,
+            reference: pago.tipo === 'abono' ? 'Abono' : '',
+            branch_name: v.sucursalCobro,
+            sale_id: v.id,
+          }));
+        }
+        // Fallback simple: usar el monto pagado y el método general
+        const paid = Math.max(0, (Number(v.total) || 0) - (Number(v.saldo) || 0));
+        return [{
+          id: `ls-${v.id}`,
+          sale_number: `VTA-${v.id}`,
+          customer_name: `${v.cliente.nombre} ${v.cliente.apellido}`.trim(),
+          amount: paid > 0 ? paid : (Number(v.sena) || 0),
+          method: v.metodoPago as PaymentMethod,
+          paid_at: v.fecha,
+          seller_name: v.vendedora,
+          reference: '',
+          branch_name: v.sucursalCobro,
+          sale_id: v.id,
+        }];
+      });
+
+    // ── Gastos del día ───────────────────────────────────────────────────────
     const dayExpenses = allExpenses.filter(e => {
       if ((e.fecha || '') !== selectedDate) return false;
       if (sellerFilter && e.vendedora !== sellerFilter) return false;
@@ -220,7 +257,7 @@ export default function CashPage() {
       return true;
     });
 
-    // Cargar ingresos desde Supabase
+    // ── Ingresos manuales desde Supabase ─────────────────────────────────────
     try {
       let q = supabase.from('cash_ingresos').select('*').eq('fecha', selectedDate).order('created_at', { ascending: true });
       if (selectedBranch) q = q.ilike('sucursal', `%${selectedBranch}%`);
@@ -297,8 +334,14 @@ export default function CashPage() {
     await refresh();
   }
 
-  const visiblePayments = isVendedora ? payments.filter(p => p.seller_name === profile?.full_name) : payments;
-  const filtered = methodFilter === 'all' ? visiblePayments : visiblePayments.filter(p => p.method === methodFilter);
+  // Vendedoras solo ven sus pagos
+  const visiblePayments = isVendedora
+    ? payments.filter(p => p.seller_name === profile?.full_name)
+    : payments;
+
+  const filtered = methodFilter === 'all'
+    ? visiblePayments
+    : visiblePayments.filter(p => p.method === methodFilter);
 
   const visibleSummary = (() => {
     let agg = emptyAgg();
@@ -310,13 +353,17 @@ export default function CashPage() {
 
   const netTotal = visibleSummary.total + visibleSummary.ingresos - visibleSummary.expenses;
 
+  // CORREGIDO: el total pendiente excluye ventas entregadas y canceladas
   const totalPendiente = allSales.filter(v => {
-    if ((Number(v.saldo)||0) <= 0) return false;
+    if ((Number(v.saldo) || 0) <= 0) return false;
+    // CLAVE: si está entregado o cancelado, ya no aparece como pendiente
     if (v.estadoTrabajo === 'entregado' || v.estadoTrabajo === 'cancelado') return false;
     if (selectedBranch && !branchMatch(v.sucursalCobro || v.sucursalVenta || '', selectedBranch)) return false;
     if (selectedSeller && v.vendedora !== selectedSeller) return false;
+    // Vendedoras solo ven su propio pendiente
+    if (isVendedora && v.vendedora !== profile?.full_name) return false;
     return true;
-  }).reduce((s, v) => s + (Number(v.saldo)||0), 0);
+  }).reduce((s, v) => s + (Number(v.saldo) || 0), 0);
 
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
@@ -442,11 +489,13 @@ export default function CashPage() {
         </div>
       </div>
 
+      {/* CORREGIDO: pendiente excluye entregados */}
       {totalPendiente > 0 && (
         <div className="flex items-center justify-between px-5 py-3.5 rounded-xl"
           style={{ background: 'rgba(245,158,11,0.04)', border: '1px solid rgba(245,158,11,0.20)' }}>
           <p className="text-xs font-light flex items-center gap-1.5" style={{ color: 'rgba(255,255,255,0.55)' }}>
-            <Clock size={12} style={{ color: '#f59e0b' }} />Total Pendiente de cobro
+            <Clock size={12} style={{ color: '#f59e0b' }} />
+            Total pendiente de cobro <span className="ml-1" style={{ color: 'rgba(255,255,255,0.3)' }}>(excluye entregados)</span>
           </p>
           <p className="text-lg font-light" style={{ color: '#f59e0b' }}>Gs. {fmt(totalPendiente)}</p>
         </div>
@@ -565,7 +614,6 @@ export default function CashPage() {
               <input value={ingAmount} onChange={e => setIngAmount(e.target.value)} type="number" placeholder="Monto Gs."
                 className="w-36 px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border"
                 style={{ borderColor: 'rgba(34,197,94,0.25)' }} />
-              {/* Selector de sucursal — SIEMPRE visible para admin */}
               {isAdmin && (
                 <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg border flex-1 min-w-36"
                   style={{ borderColor: ingBranch ? 'rgba(34,197,94,0.40)' : 'rgba(239,68,68,0.35)', background: 'rgba(255,255,255,0.02)' }}>
@@ -657,7 +705,6 @@ export default function CashPage() {
                   {EXPENSE_CATEGORIES.map(c => <option key={c.id} value={c.id} style={{ background: '#111' }}>{c.label}</option>)}
                 </select>
               </div>
-              {/* Selector de sucursal — SIEMPRE visible para admin */}
               {isAdmin && (
                 <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg border flex-1 min-w-36"
                   style={{ borderColor: expBranch ? 'rgba(239,68,68,0.40)' : 'rgba(239,68,68,0.20)', background: 'rgba(255,255,255,0.02)' }}>
@@ -783,8 +830,8 @@ export default function CashPage() {
                         {[
                           { label: 'Método',    value: METHODS.find(m => m.id === p.method)?.label ?? p.method, color: mc },
                           { label: 'Monto',     value: `Gs. ${fmt(p.amount)}`, color: '#22c55e' },
-                          { label: 'Vendedora', value: p.seller_name || '—',   color: 'rgba(255,255,255,0.8)' },
-                          { label: 'Sucursal',  value: p.branch_name || '—',   color: 'rgba(255,255,255,0.8)' },
+                          { label: 'Vendedora', value: p.seller_name || '—', color: 'rgba(255,255,255,0.8)' },
+                          { label: 'Sucursal',  value: p.branch_name || '—', color: 'rgba(255,255,255,0.8)' },
                         ].map(item => (
                           <div key={item.label} className="rounded-lg p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
                             <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>{item.label}</p>
@@ -792,40 +839,6 @@ export default function CashPage() {
                           </div>
                         ))}
                       </div>
-
-                      {(() => {
-                        const salePays = allPayments.filter((pay: any) => pay.saleId === p.sale_id);
-                        return salePays.length > 0 ? (
-                          <div>
-                            <p className="text-xs font-light tracking-widest uppercase mb-2" style={{ color: 'rgba(197,160,89,0.55)' }}>Comprobantes</p>
-                            {salePays.map((pay: any, idx: number) => {
-                              const mc2 = METHODS.find(m => m.id === pay.metodo)?.color ?? '#C5A059';
-                              return (
-                                <div key={pay.id} className="mb-2 rounded-xl overflow-hidden" style={{ border: '1px solid rgba(197,160,89,0.12)', background: 'rgba(255,255,255,0.02)' }}>
-                                  <div className="flex items-center gap-2 px-3 py-2">
-                                    <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: `${mc2}18`, color: mc2 }}>{pay.metodo}</span>
-                                    <span className="text-xs text-white font-light">Gs. {Number(pay.monto).toLocaleString('es-PY')}</span>
-                                    <span className="text-xs px-1.5 py-0.5 rounded-full ml-auto" style={{ background: 'rgba(197,160,89,0.08)', color: 'rgba(197,160,89,0.6)' }}>{pay.tipo === 'sena' ? 'Seña' : 'Abono'}</span>
-                                  </div>
-                                  {pay.receipt_url ? (
-                                    <div className="p-2">
-                                      <img src={pay.receipt_url} alt={`comprobante ${idx+1}`}
-                                        className="h-32 object-contain rounded-lg border cursor-pointer w-full"
-                                        style={{ borderColor: 'rgba(197,160,89,0.2)', background: '#111', maxWidth: 280 }}
-                                        onClick={() => setLightboxUrl(pay.receipt_url)} />
-                                    </div>
-                                  ) : (
-                                    <div className="flex items-center gap-2 px-3 py-2">
-                                      <Eye size={11} style={{ color: 'rgba(255,255,255,0.2)' }} />
-                                      <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.25)' }}>Sin comprobante</p>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ) : null;
-                      })()}
 
                       {allAnteojos.length > 0 && (
                         <div>
