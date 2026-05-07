@@ -60,11 +60,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   async function signIn(email: string, password: string): Promise<{ error: Error | null }> {
-    const { data, error } = await supabase.from('optica_users').select('*')
-      .eq('email', email.toLowerCase().trim()).eq('password', password).single();
-    if (data && !error) { saveStoredSession(data as Profile); setProfile(data as Profile); return { error: null }; }
-    const local = getStoredUsers().find(u => u.email.toLowerCase() === email.toLowerCase().trim() && u.password === password);
-    if (local) { await supabase.from('optica_users').upsert({ id: local.id, full_name: local.full_name, email: local.email.toLowerCase(), password: local.password, role: local.role, branch_id: local.branch_id, avatar_url: local.avatar_url || '', created_at: local.created_at }); saveStoredSession(local); setProfile(local); return { error: null }; }
+    const emailClean = email.toLowerCase().trim();
+    
+    // Buscar por email solamente primero
+    const { data: userData, error: userError } = await supabase
+      .from('optica_users')
+      .select('*')
+      .eq('email', emailClean)
+      .single();
+    
+    if (userData && !userError) {
+      // Comparar password (trim por si tiene espacios)
+      if (userData.password === password.trim() || userData.password === password) {
+        saveStoredSession(userData as Profile);
+        setProfile(userData as Profile);
+        return { error: null };
+      }
+    }
+    
     return { error: new Error('Correo o contraseña incorrectos.') };
   }
 
