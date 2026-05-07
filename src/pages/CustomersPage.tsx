@@ -1,12 +1,13 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Search, UserPlus, MessageCircle, X, Clock, ZoomIn,
   AlertCircle, CheckCircle, ChevronDown, ChevronUp,
   Glasses, FlaskConical, Phone, Eye, Receipt, Camera,
 } from 'lucide-react';
 import { supabase, Customer } from '../lib/supabase';
-import { getSales, getPayments } from '../lib/salesStorage';
+import { useData } from '../context/DataContext';   // ← FIX
 import { useAuth } from '../context/AuthContext';
+import { StoredSale, StoredPayment } from '../lib/salesStorage';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -18,7 +19,6 @@ type SaleEyeglass = {
   prescription_text: string;
   photo_url: string;
   price: number;
-  // campos de receta estructurada (localStorage)
   showReceta?: boolean;
   prescription?: {
     od_esfera?: string; od_cilindro?: string; od_eje?: string; od_altura?: string;
@@ -53,8 +53,23 @@ type SaleEntry = {
   payments: SalePaymentEntry[];
 };
 
+// ── FIX: tipo cliente derivado de ventas ────────────────────────────────────
+type DerivedCustomer = {
+  id: string;
+  full_name: string;
+  ci: string | null;
+  phone: string | null;
+  whatsapp: string | null;
+  email: string | null;
+  address: string | null;
+  branch_id: string | null;
+  notes: string | null;
+  created_at: string;
+  source: 'local';          // siempre 'local' porque viene de ventas
+};
+
 type ClientHistory = {
-  customer: Customer;
+  customer: DerivedCustomer;
   sales: SaleEntry[];
 };
 
@@ -64,6 +79,8 @@ const STATUS_CFG: Record<string, { label: string; color: string }> = {
   listo:          { label: 'Listo',          color: '#10b981' },
   entregado:      { label: 'Entregado',      color: '#6b7280' },
   cancelado:      { label: 'Cancelado',      color: '#ef4444' },
+  pagado_total:   { label: 'Pagado Total',   color: '#22c55e' },
+  en_proceso:     { label: 'En Proceso',     color: '#f59e0b' },
 };
 
 function fmt(n: number) {
@@ -107,7 +124,7 @@ function waLink(phone: string) {
   return `https://wa.me/595${digits}`;
 }
 
-// ── Photo lightbox ─────────────────────────────────────────────────────────
+// ── Photo lightbox ──────────────────────────────────────────────────────────
 
 function PhotoThumb({ url, alt }: { url: string; alt: string }) {
   const [open, setOpen] = useState(false);
@@ -159,7 +176,7 @@ function ReceiptLightbox({ url, onClose }: { url: string; onClose: () => void })
   );
 }
 
-// ── Sale card in timeline ──────────────────────────────────────────────────
+// ── Sale card ────────────────────────────────────────────────────────────────
 
 function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
   const [expanded,    setExpanded]    = useState(false);
@@ -173,16 +190,12 @@ function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
         border: hasPending ? '1px solid rgba(239,68,68,0.35)' : '1px solid rgba(197,160,89,0.14)',
         background: hasPending ? 'rgba(239,68,68,0.04)' : 'rgba(255,255,255,0.018)',
       }}>
-
-      {/* Header row */}
       <button className="w-full flex items-center gap-3 px-4 py-3.5 text-left"
         style={{ borderBottom: expanded ? '1px solid rgba(197,160,89,0.08)' : 'none' }}
         onClick={() => setExpanded(!expanded)}>
-
         <div className="flex flex-col items-center shrink-0">
           <div className="w-2.5 h-2.5 rounded-full" style={{ background: hasPending ? '#ef4444' : sc.color }} />
         </div>
-
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs font-mono" style={{ color: '#C5A059' }}>#{sale.sale_number}</span>
@@ -202,7 +215,6 @@ function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
             {sale.branches?.name ? ` · ${sale.branches.name}` : ''}
           </p>
         </div>
-
         <div className="text-right shrink-0">
           <p className="text-sm font-light text-white">Gs. {fmt(Number(sale.total))}</p>
           {!hasPending && Number(sale.total) > 0 && (
@@ -211,40 +223,24 @@ function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
             </p>
           )}
         </div>
-
-        {sale.eyeglasses.some(eg => eg.photo_url) && !expanded && (
-          <div className="flex gap-1 shrink-0">
-            {sale.eyeglasses.filter(eg => eg.photo_url).slice(0, 2).map(eg => (
-              <img key={eg.id} src={eg.photo_url} alt="armazón"
-                className="w-9 h-9 rounded-lg object-cover"
-                style={{ border: '1px solid rgba(197,160,89,0.22)' }} />
-            ))}
-          </div>
-        )}
-
         <span style={{ color: 'rgba(255,255,255,0.3)' }}>
           {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
         </span>
       </button>
 
-      {/* Expanded detail */}
       {expanded && (
         <div className="px-4 pb-4 pt-3 space-y-4">
-
-          {/* Eyeglasses + Receta */}
           {sale.eyeglasses.length > 0 && (
             <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <Glasses size={11} style={{ color: '#C5A059' }} />
                 <span className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.55)' }}>
-                  Foto del Armazón / Receta
+                  Armazón / Receta
                 </span>
               </div>
               {sale.eyeglasses.map((eg, idx) => (
                 <div key={eg.id} className="rounded-xl p-3 space-y-3"
                   style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.10)' }}>
-
-                  {/* Foto + info básica */}
                   <div className="flex items-start gap-3">
                     {eg.photo_url && <PhotoThumb url={eg.photo_url} alt={`armazón ${idx + 1}`} />}
                     <div className="flex-1 min-w-0 space-y-1">
@@ -270,8 +266,6 @@ function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
                       )}
                     </div>
                   </div>
-
-                  {/* ── RECETA ESTRUCTURADA (localStorage) ── */}
                   {eg.prescription && (
                     <div className="rounded-lg p-3 space-y-2"
                       style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.20)' }}>
@@ -281,17 +275,15 @@ function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
                       </div>
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <p className="text-xs font-light mb-1" style={{ color: '#C5A059' }}>OD (ojo derecho)</p>
+                          <p className="text-xs font-light mb-1" style={{ color: '#C5A059' }}>OD</p>
                           <p className="text-xs font-mono" style={{ color: 'rgba(255,255,255,0.75)' }}>
                             {eg.prescription.od_esfera || '—'} / {eg.prescription.od_cilindro || '—'} x {eg.prescription.od_eje || '—'}
-                            {eg.prescription.od_altura ? ` · Alt: ${eg.prescription.od_altura}` : ''}
                           </p>
                         </div>
                         <div>
-                          <p className="text-xs font-light mb-1" style={{ color: '#C5A059' }}>OI (ojo izquierdo)</p>
+                          <p className="text-xs font-light mb-1" style={{ color: '#C5A059' }}>OI</p>
                           <p className="text-xs font-mono" style={{ color: 'rgba(255,255,255,0.75)' }}>
                             {eg.prescription.oi_esfera || '—'} / {eg.prescription.oi_cilindro || '—'} x {eg.prescription.oi_eje || '—'}
-                            {eg.prescription.oi_altura ? ` · Alt: ${eg.prescription.oi_altura}` : ''}
                           </p>
                         </div>
                       </div>
@@ -302,15 +294,9 @@ function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
                       </div>
                     </div>
                   )}
-
-                  {/* ── RECETA COMO TEXTO PLANO (Supabase) ── */}
                   {!eg.prescription && eg.prescription_text && (
                     <div className="rounded-lg px-3 py-2"
                       style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.18)' }}>
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <FlaskConical size={10} style={{ color: '#3b82f6' }} />
-                        <span className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(59,130,246,0.7)' }}>Receta</span>
-                      </div>
                       <p className="text-xs font-mono font-light" style={{ color: 'rgba(255,255,255,0.65)', lineHeight: 1.8 }}>
                         {eg.prescription_text}
                       </p>
@@ -321,7 +307,6 @@ function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
             </div>
           )}
 
-          {/* Payment summary */}
           <div className="grid grid-cols-3 gap-3">
             {[
               { label: 'Total',   value: `Gs. ${fmt(Number(sale.total))}`,   color: '#C5A059' },
@@ -336,20 +321,15 @@ function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
             ))}
           </div>
 
-          {/* Payment detail timeline */}
           {sale.payments.length > 0 && (
             <>
               {viewReceipt && <ReceiptLightbox url={viewReceipt} onClose={() => setViewReceipt(null)} />}
               <div className="rounded-xl overflow-hidden"
                 style={{ border: '1px solid rgba(197,160,89,0.10)', background: 'rgba(197,160,89,0.02)' }}>
-                <div className="px-3 py-2 border-b flex items-center justify-between gap-2"
-                  style={{ borderColor: 'rgba(197,160,89,0.08)' }}>
-                  <div className="flex items-center gap-1.5">
-                    <Receipt size={10} style={{ color: 'rgba(197,160,89,0.55)' }} />
-                    <span className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.55)' }}>
-                      Detalle de pagos
-                    </span>
-                  </div>
+                <div className="px-3 py-2 border-b" style={{ borderColor: 'rgba(197,160,89,0.08)' }}>
+                  <span className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.55)' }}>
+                    Detalle de pagos
+                  </span>
                 </div>
                 <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
                   {sale.payments.map((p, i) => {
@@ -360,48 +340,22 @@ function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
                     const timeStr = dt.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' });
                     const totalPaidUpToNow = sale.payments.slice(0, i + 1).reduce((s, px) => s + px.amount, 0);
                     const remaining = Math.max(0, sale.total - totalPaidUpToNow);
-                    const receipt = (p as any).receipt_url as string | undefined;
                     return (
-                      <div key={p.id}>
-                        <div className="flex items-center gap-2 px-3 py-2 text-xs font-light flex-wrap">
-                          <span className="shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-black font-medium"
-                            style={{ background: color, fontSize: 9 }}>{i + 1}</span>
-                          <span className="shrink-0 px-1.5 py-0.5 rounded-full"
-                            style={{ background: `${color}18`, color }}>{isSeña ? 'Seña' : 'Abono'}</span>
-                          <span className="text-white font-medium">Gs. {fmt(p.amount)}</span>
-                          <span style={{ color: 'rgba(255,255,255,0.38)' }}>{p.method}</span>
-                          <span className="ml-auto shrink-0 text-right" style={{ color: 'rgba(255,255,255,0.30)' }}>
-                            {dateStr}<span style={{ color: 'rgba(255,255,255,0.18)' }}> {timeStr}</span>
+                      <div key={p.id} className="flex items-center gap-2 px-3 py-2 text-xs font-light flex-wrap">
+                        <span className="shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-black font-medium"
+                          style={{ background: color, fontSize: 9 }}>{i + 1}</span>
+                        <span className="shrink-0 px-1.5 py-0.5 rounded-full"
+                          style={{ background: `${color}18`, color }}>{isSeña ? 'Seña' : 'Abono'}</span>
+                        <span className="text-white font-medium">Gs. {fmt(p.amount)}</span>
+                        <span style={{ color: 'rgba(255,255,255,0.38)' }}>{p.method}</span>
+                        <span className="ml-auto shrink-0 text-right" style={{ color: 'rgba(255,255,255,0.30)' }}>
+                          {dateStr}<span style={{ color: 'rgba(255,255,255,0.18)' }}> {timeStr}</span>
+                        </span>
+                        {remaining > 0 && i === sale.payments.length - 1 && (
+                          <span className="shrink-0 px-1.5 py-0.5 rounded-full text-xs"
+                            style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)' }}>
+                            resta {fmt(remaining)}
                           </span>
-                          {remaining > 0 && i === sale.payments.length - 1 && (
-                            <span className="shrink-0 px-1.5 py-0.5 rounded-full text-xs"
-                              style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)' }}>
-                              resta {fmt(remaining)}
-                            </span>
-                          )}
-                        </div>
-                        {isAdmin && (
-                          <div className="px-3 pb-2.5 flex items-center gap-2"
-                            style={{ borderTop: '1px solid rgba(255,255,255,0.03)' }}>
-                            <Receipt size={9} style={{ color: 'rgba(197,160,89,0.4)', flexShrink: 0 }} />
-                            <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 10 }}>Comprobante:</span>
-                            {receipt ? (
-                              <button onClick={() => setViewReceipt(receipt)}
-                                className="relative group rounded-lg overflow-hidden shrink-0"
-                                style={{ width: 48, height: 48, border: '1px solid rgba(197,160,89,0.35)' }}>
-                                <img src={receipt} alt="comprobante" className="w-full h-full object-cover" />
-                                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                                  style={{ background: 'rgba(0,0,0,0.6)' }}>
-                                  <ZoomIn size={14} style={{ color: '#C5A059' }} />
-                                </div>
-                              </button>
-                            ) : (
-                              <span className="text-xs font-light px-2 py-0.5 rounded-md"
-                                style={{ background: 'rgba(255,255,255,0.03)', color: 'rgba(255,255,255,0.18)', border: '1px solid rgba(255,255,255,0.05)' }}>
-                                {p.method !== 'efectivo' ? 'Sin comprobante' : 'Efectivo — sin foto'}
-                              </span>
-                            )}
-                          </div>
                         )}
                       </div>
                     );
@@ -423,13 +377,20 @@ function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
   );
 }
 
-// ── Client history modal ───────────────────────────────────────────────────
+// ── Client history modal ────────────────────────────────────────────────────
 
 function ClientFicha({ history, onClose, isAdmin }: { history: ClientHistory; onClose: () => void; isAdmin?: boolean }) {
   const { customer, sales } = history;
   const totalSpent   = sales.reduce((s, v) => s + Number(v.total), 0);
-  const totalPending = sales.reduce((s, v) => s + Number(v.balance), 0);
-  const phone        = customer.whatsapp || customer.phone;
+
+  // ── FIX Problema 2: saldo real = suma de balance de cada venta ──────────
+  // No recalculamos desde pagos — usamos el campo saldo que ya está correcto
+  // después de closeSaleLocal (que fuerza saldo=0 al entregar)
+  const totalPending = sales
+    .filter(v => v.status !== 'entregado' && v.status !== 'cancelado')
+    .reduce((s, v) => s + Math.max(0, Number(v.balance)), 0);
+
+  const phone = customer.whatsapp || customer.phone;
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto py-8 px-4"
@@ -438,7 +399,6 @@ function ClientFicha({ history, onClose, isAdmin }: { history: ClientHistory; on
         style={{ background: '#0a0900', border: '1px solid rgba(197,160,89,0.28)', boxShadow: '0 32px 80px rgba(0,0,0,0.8)' }}
         onClick={e => e.stopPropagation()}>
 
-        {/* Header */}
         <div className="px-6 py-5 flex items-start justify-between"
           style={{ borderBottom: '1px solid rgba(197,160,89,0.12)', background: 'rgba(197,160,89,0.04)' }}>
           <div>
@@ -452,9 +412,6 @@ function ClientFicha({ history, onClose, isAdmin }: { history: ClientHistory; on
                 <span className="text-xs" style={{ color: 'rgba(255,255,255,0.44)' }}>
                   <Phone size={9} className="inline mr-1" />{phone}
                 </span>
-              )}
-              {customer.email && (
-                <span className="text-xs" style={{ color: 'rgba(255,255,255,0.34)' }}>{customer.email}</span>
               )}
             </div>
           </div>
@@ -473,7 +430,6 @@ function ClientFicha({ history, onClose, isAdmin }: { history: ClientHistory; on
           </div>
         </div>
 
-        {/* Summary stats */}
         <div className="grid grid-cols-3 gap-3 px-6 py-4" style={{ borderBottom: '1px solid rgba(197,160,89,0.08)' }}>
           <div className="rounded-xl p-3 text-center" style={{ background: 'rgba(197,160,89,0.06)', border: '1px solid rgba(197,160,89,0.15)' }}>
             <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.38)' }}>Compras totales</p>
@@ -487,12 +443,11 @@ function ClientFicha({ history, onClose, isAdmin }: { history: ClientHistory; on
             style={{ background: totalPending > 0 ? 'rgba(239,68,68,0.06)' : 'rgba(34,197,94,0.04)', border: `1px solid ${totalPending > 0 ? 'rgba(239,68,68,0.28)' : 'rgba(34,197,94,0.15)'}` }}>
             <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.38)' }}>Saldo pendiente</p>
             <p className="text-sm font-light" style={{ color: totalPending > 0 ? '#ef4444' : '#22c55e' }}>
-              {totalPending > 0 ? `Gs. ${fmt(totalPending)}` : 'Al día'}
+              {totalPending > 0 ? `Gs. ${fmt(totalPending)}` : '✓ Al día'}
             </p>
           </div>
         </div>
 
-        {/* Sale timeline */}
         <div className="px-6 py-4">
           <div className="flex items-center gap-2 mb-4">
             <Clock size={13} style={{ color: '#C5A059' }} />
@@ -505,9 +460,7 @@ function ClientFicha({ history, onClose, isAdmin }: { history: ClientHistory; on
               <p className="text-xs" style={{ color: 'rgba(255,255,255,0.28)' }}>Sin compras registradas</p>
             </div>
           ) : (
-            <div className="space-y-3 relative">
-              <div className="absolute left-[23px] top-4 bottom-4 w-px"
-                style={{ background: 'linear-gradient(to bottom, rgba(197,160,89,0.3), rgba(197,160,89,0.05))' }} />
+            <div className="space-y-3">
               {sales.map(sale => <SaleCard key={sale.id} sale={sale} isAdmin={isAdmin} />)}
             </div>
           )}
@@ -517,7 +470,7 @@ function ClientFicha({ history, onClose, isAdmin }: { history: ClientHistory; on
   );
 }
 
-// ── Main page ──────────────────────────────────────────────────────────────
+// ── Main page ────────────────────────────────────────────────────────────────
 
 type Props = {
   initialSearch?: string;
@@ -526,172 +479,126 @@ type Props = {
 
 export default function CustomersPage({ initialSearch = '', onSearchConsumed }: Props) {
   const { profile } = useAuth();
-  const [customers,    setCustomers]    = useState<Customer[]>([]);
-  const [loading,      setLoading]      = useState(true);
+  const { sales: allSales, payments: allPayments } = useData();  // ← FIX
   const [search,       setSearch]       = useState('');
   const [history,      setHistory]      = useState<ClientHistory | null>(null);
   const [loadingFicha, setLoadingFicha] = useState(false);
-
-  useEffect(() => { load(); }, []);
 
   useEffect(() => {
     if (initialSearch) { setSearch(initialSearch); onSearchConsumed?.(); }
   }, [initialSearch]);
 
-  async function load(q?: string) {
-    setLoading(true);
-    let query = supabase.from('customers').select('*').order('created_at', { ascending: false });
-    if (q && q.trim().length >= 2) {
-      query = query.or(`full_name.ilike.%${q.trim()}%,ci.ilike.%${q.trim()}%,phone.ilike.%${q.trim()}%`);
-    }
-    const { data: remoteData } = await query.limit(200);
-    const remoteIds = new Set((remoteData ?? []).map((c: any) => c.id));
-
-    const localCustomers: Customer[] = [];
-    const seen = new Set<string>();
-    for (const sale of getSales()) {
-      const key = `${sale.cliente.nombre} ${sale.cliente.apellido}`.trim().toLowerCase();
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
+  // ── FIX Problema 3: derivar clientes únicos desde ventas ─────────────────
+  // No se usa tabla customers (vacía). Cada venta tiene datos del cliente.
+  const customers = useMemo<DerivedCustomer[]>(() => {
+    const seen = new Map<string, DerivedCustomer>();
+    // Ordenamos por fecha desc para que el "primer registro" sea el más reciente
+    const sorted = [...allSales].sort(
+      (a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()
+    );
+    for (const sale of sorted) {
       const fullName = `${sale.cliente.nombre} ${sale.cliente.apellido}`.trim();
-      const alreadyInRemote = (remoteData ?? []).some(
-        (c: any) =>
-          (c.full_name ?? '').toLowerCase() === key ||
-          (sale.cliente.ci && c.ci === sale.cliente.ci) ||
-          (sale.cliente.telefono && c.phone === sale.cliente.telefono)
-      );
-      if (alreadyInRemote) continue;
-      if (q && q.trim().length >= 2) {
-        const qTel = q.replace(/\D/g, '');
-        if (
-          !fuzzyMatch(fullName, q) &&
-          !fuzzyMatch(sale.cliente.ci || '', q) &&
-          !(qTel.length >= 3 && (sale.cliente.telefono || '').replace(/\D/g, '').includes(qTel))
-        ) continue;
+      if (!fullName) continue;
+      // Clave: nombre normalizado + CI si existe
+      const key = sale.cliente.ci
+        ? `ci:${sale.cliente.ci}`
+        : `name:${fullName.toLowerCase().replace(/\s+/g, ' ')}`;
+      if (!seen.has(key)) {
+        seen.set(key, {
+          id:         key,
+          full_name:  fullName,
+          ci:         sale.cliente.ci   || null,
+          phone:      sale.cliente.telefono || null,
+          whatsapp:   sale.cliente.telefono || null,
+          email:      null,
+          address:    null,
+          branch_id:  sale.sucursalVenta || null,
+          notes:      null,
+          created_at: sale.fecha,
+          source:     'local',
+        });
       }
-      localCustomers.push({
-        id: `local-${key.replace(/\s+/g, '-')}`,
-        full_name: fullName,
-        ci: sale.cliente.ci || null,
-        phone: sale.cliente.telefono || null,
-        whatsapp: sale.cliente.telefono || null,
-        email: null,
-        address: null,
-        branch_id: sale.sucursalVenta || null,
-        notes: null,
-        created_at: sale.fecha,
-      } as any);
     }
+    return Array.from(seen.values());
+  }, [allSales]);
 
-    setCustomers([...localCustomers, ...(remoteData ?? []).filter((c: any) => remoteIds.has(c.id))]);
-    setLoading(false);
-  }
-
-  const openFicha = useCallback(async (customer: Customer) => {
+  // ── Abrir ficha: construir historial desde ventas del context ────────────
+  const openFicha = useCallback((customer: DerivedCustomer) => {
     setLoadingFicha(true);
     setHistory({ customer, sales: [] });
 
-    // Supabase sales
-    const { data: salesData } = await supabase
-      .from('sales')
-      .select('id, sale_number, created_at, total, deposit, balance, status, seller_name, payment_method, notes, branches(name)')
-      .eq('customer_id', customer.id)
-      .order('created_at', { ascending: false });
+    const fullNameLower = customer.full_name.toLowerCase();
 
-    const supabaseSales: SaleEntry[] = [];
-    for (const s of (salesData ?? [])) {
-      const [{ data: egs }, { data: pays }] = await Promise.all([
-        supabase.from('sale_eyeglasses')
-          .select('id, frame_description, crystals, treatments, prescription_text, photo_url, price')
-          .eq('sale_id', s.id).order('sort_order'),
-        supabase.from('sale_payments')
-          .select('id, amount, method, paid_at, reference, receipt_url')
-          .eq('sale_id', s.id).order('paid_at'),
-      ]);
-      const payRows: SalePaymentEntry[] = [];
-      if ((pays ?? []).length === 0 && Number(s.deposit) > 0) {
-        payRows.push({ id: `init-${s.id}`, paid_at: s.created_at, amount: Number(s.deposit), method: s.payment_method ?? 'efectivo', tipo: 'sena', reference: 'Seña inicial' });
-      } else {
-        (pays ?? []).forEach((p: any, i: number) => {
-          payRows.push({ id: String(p.id), paid_at: p.paid_at, amount: Number(p.amount), method: p.method ?? '', tipo: i === 0 ? 'sena' : 'abono', reference: p.reference ?? undefined, receipt_url: p.receipt_url ?? undefined });
-        });
-      }
-      supabaseSales.push({
-        id: s.id, sale_number: s.sale_number, created_at: s.created_at,
-        total: Number(s.total), deposit: Number(s.deposit), balance: Number(s.balance),
-        status: s.status, seller_name: s.seller_name ?? '', payment_method: s.payment_method ?? '',
-        notes: s.notes ?? '', branches: (s as any).branches,
-        eyeglasses: (egs ?? []).map((eg: any) => ({
-          id: eg.id, frame_description: eg.frame_description ?? '', crystals: eg.crystals ?? '',
-          treatments: eg.treatments ?? '', prescription_text: eg.prescription_text ?? '',
-          photo_url: eg.photo_url ?? '', price: Number(eg.price),
-        })),
-        payments: payRows,
-      });
-    }
-
-    // localStorage sales — con receta estructurada
-    const fullNameLower   = customer.full_name.toLowerCase();
-    const allLocalPayments = getPayments();
-    const localSales: SaleEntry[] = getSales()
+    const customerSales: SaleEntry[] = allSales
       .filter(v => {
         const vName = `${v.cliente.nombre} ${v.cliente.apellido}`.trim().toLowerCase();
         return vName === fullNameLower || (customer.ci && v.cliente.ci === customer.ci);
       })
+      .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime())
       .map(v => {
-        const salePayments: SalePaymentEntry[] = allLocalPayments
+        // Pagos de esta venta
+        const salePayments: SalePaymentEntry[] = allPayments
           .filter(p => p.saleId === v.id)
           .sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime())
-          .map(p => ({
-            id: String(p.id), paid_at: p.fecha, amount: p.monto, method: p.metodo, tipo: p.tipo,
-            reference: p.tipo === 'abono' ? 'Abono' : 'Seña inicial', receipt_url: p.receipt_url ?? undefined,
+          .map((p, i) => ({
+            id:          String(p.id),
+            paid_at:     p.fecha,
+            amount:      p.monto,
+            method:      p.metodo,
+            tipo:        p.tipo,
+            reference:   p.tipo === 'abono' ? 'Abono' : 'Seña inicial',
+            receipt_url: p.receipt_url ?? undefined,
           }));
+
         if (salePayments.length === 0 && Number(v.sena) > 0) {
-          salePayments.push({ id: `init-${v.id}`, paid_at: v.fecha, amount: Number(v.sena), method: v.metodoPago, tipo: 'sena', reference: 'Seña inicial' });
+          salePayments.push({
+            id: `init-${v.id}`, paid_at: v.fecha, amount: Number(v.sena),
+            method: v.metodoPago, tipo: 'sena', reference: 'Seña inicial',
+          });
         }
+
         return {
-          id: String(v.id), sale_number: `VTA-${v.id}`, created_at: v.fecha,
-          total: Number(v.total), deposit: Number(v.sena), balance: Number(v.saldo),
-          status: v.estadoTrabajo, seller_name: v.vendedora, payment_method: v.metodoPago,
-          notes: v.observaciones, branches: v.sucursalVenta ? { name: v.sucursalVenta } : null,
-          // ── Mapear receta estructurada desde anteojos ──
-          eyeglasses: (v.anteojos as any[]).map((eg: any, i) => ({
-            id: String(i),
+          id:             String(v.id),
+          sale_number:    `VTA-${v.id}`,
+          created_at:     v.fecha,
+          total:          Number(v.total),
+          deposit:        Number(v.sena),
+          // ── FIX Problema 2: usar saldo directo de la venta ──────────────
+          balance:        Number(v.saldo),
+          status:         v.estadoTrabajo,
+          seller_name:    v.vendedora,
+          payment_method: v.metodoPago,
+          notes:          v.observaciones,
+          branches:       v.sucursalVenta ? { name: v.sucursalVenta } : null,
+          eyeglasses:     (v.anteojos as any[]).map((eg: any, i: number) => ({
+            id:                String(i),
             frame_description: eg.frame_description ?? '',
-            crystals: eg.crystals ?? '',
-            treatments: eg.treatments ?? '',
+            crystals:          eg.crystals          ?? '',
+            treatments:        eg.treatments        ?? '',
             prescription_text: eg.prescription_text ?? '',
-            photo_url: eg.photo_url ?? '',
-            price: Number(eg.price) || 0,
-            // pasar receta estructurada tal cual
-            prescription: eg.prescription ?? null,
-            showReceta: eg.showReceta ?? false,
+            photo_url:         eg.photo_url         ?? '',
+            price:             Number(eg.price) || 0,
+            prescription:      eg.prescription ?? null,
+            showReceta:        eg.showReceta    ?? false,
           })),
           payments: salePayments,
         };
       });
 
-    const allSales = [...supabaseSales, ...localSales].sort(
-      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    );
-    setHistory({ customer, sales: allSales });
+    setHistory({ customer, sales: customerSales });
     setLoadingFicha(false);
-  }, []);
+  }, [allSales, allPayments]);
 
-  useEffect(() => {
-    const t = setTimeout(() => load(search), 280);
-    return () => clearTimeout(t);
-  }, [search]);
-
-  const filtered = customers.filter(c => {
-    if (!search) return true;
+  // Filtro de búsqueda
+  const filtered = useMemo(() => {
+    if (!search) return customers;
     const qTel = search.replace(/\D/g, '');
-    return (
+    return customers.filter(c =>
       fuzzyMatch(c.full_name || '', search) ||
       fuzzyMatch(c.ci || '', search) ||
       (qTel.length >= 3 && (c.phone || '').replace(/\D/g, '').includes(qTel))
     );
-  });
+  }, [customers, search]);
 
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
@@ -699,7 +606,9 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-light tracking-wider text-white">Clientes</h1>
-          <p className="text-xs text-gold-muted mt-0.5 tracking-wide">{customers.length} clientes registrados</p>
+          <p className="text-xs mt-0.5 tracking-wide" style={{ color: 'rgba(197,160,89,0.6)' }}>
+            {customers.length} clientes derivados de {allSales.length} ventas
+          </p>
         </div>
       </div>
 
@@ -715,20 +624,18 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
       </div>
 
       <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid rgba(197,160,89,0.12)' }}>
-        {loading ? (
-          <div className="p-6 space-y-2">{[...Array(6)].map((_, i) => <div key={i} className="h-12 rounded shimmer" />)}</div>
-        ) : filtered.length === 0 ? (
+        {filtered.length === 0 ? (
           <div className="text-center py-16">
             <UserPlus size={32} style={{ color: 'rgba(197,160,89,0.2)', margin: '0 auto 12px' }} />
             <p className="text-sm font-light" style={{ color: 'rgba(255,255,255,0.3)' }}>
-              {search ? 'No se encontraron clientes' : 'Sin clientes registrados'}
+              {search ? 'No se encontraron clientes' : 'Sin ventas registradas aún'}
             </p>
           </div>
         ) : (
           <table className="w-full">
             <thead>
               <tr style={{ borderBottom: '1px solid rgba(197,160,89,0.10)' }}>
-                {['Nombre', 'C.I.', 'Teléfono', 'Email', 'Sede', 'Registro', ''].map(h => (
+                {['Nombre', 'C.I.', 'Teléfono', 'Sede', 'Primera compra', ''].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-light tracking-wider uppercase"
                     style={{ color: 'rgba(197,160,89,0.55)' }}>{h}</th>
                 ))}
@@ -737,17 +644,44 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
             <tbody>
               {filtered.map((customer, i) => {
                 const phone = customer.whatsapp || customer.phone;
+                // Contar ventas de este cliente
+                const salesCount = allSales.filter(v => {
+                  const vName = `${v.cliente.nombre} ${v.cliente.apellido}`.trim().toLowerCase();
+                  return vName === customer.full_name.toLowerCase() ||
+                    (customer.ci && v.cliente.ci === customer.ci);
+                }).length;
+                // Calcular saldo pendiente
+                const pendingBalance = allSales
+                  .filter(v => {
+                    const vName = `${v.cliente.nombre} ${v.cliente.apellido}`.trim().toLowerCase();
+                    return (vName === customer.full_name.toLowerCase() ||
+                      (customer.ci && v.cliente.ci === customer.ci)) &&
+                      v.estadoTrabajo !== 'entregado' && v.estadoTrabajo !== 'cancelado';
+                  })
+                  .reduce((s, v) => s + Math.max(0, Number(v.saldo)), 0);
+
                 return (
                   <tr key={customer.id} className="transition-colors cursor-pointer"
                     style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.008)' }}
                     onMouseEnter={e => { (e.currentTarget as HTMLTableRowElement).style.background = 'rgba(197,160,89,0.04)'; }}
                     onMouseLeave={e => { (e.currentTarget as HTMLTableRowElement).style.background = i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.008)'; }}
                     onClick={() => openFicha(customer)}>
-                    <td className="px-4 py-3 text-sm text-white font-light">{customer.full_name}</td>
+                    <td className="px-4 py-3">
+                      <p className="text-sm text-white font-light">{customer.full_name}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-xs font-light" style={{ color: 'rgba(197,160,89,0.6)' }}>
+                          {salesCount} compra{salesCount !== 1 ? 's' : ''}
+                        </span>
+                        {pendingBalance > 0 && (
+                          <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)' }}>
+                            Debe Gs. {fmt(pendingBalance)}
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-4 py-3 text-xs font-mono" style={{ color: '#C5A059' }}>{customer.ci || '—'}</td>
                     <td className="px-4 py-3 text-xs font-light" style={{ color: 'rgba(255,255,255,0.5)' }}>{customer.phone || '—'}</td>
-                    <td className="px-4 py-3 text-xs font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>{customer.email || '—'}</td>
-                    <td className="px-4 py-3 text-xs font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>—</td>
+                    <td className="px-4 py-3 text-xs font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>{customer.branch_id || '—'}</td>
                     <td className="px-4 py-3 text-xs font-light" style={{ color: 'rgba(255,255,255,0.35)' }}>
                       {new Date(customer.created_at).toLocaleDateString('es-PY')}
                     </td>

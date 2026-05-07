@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Trophy, Medal, Star, Users, ChevronDown } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { getSales, StoredSale } from '../lib/salesStorage';
+import { useData } from '../context/DataContext';   // ← FIX: era getSales()
+import { StoredSale } from '../lib/salesStorage';
 
 const CURRENT_MONTH = new Date().toISOString().slice(0, 7);
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -11,7 +12,6 @@ function calcPointsForSale(sale: StoredSale): number {
   if (anteojos.length === 0) return 1;
   let pts = 0;
   for (const eg of anteojos) {
-    // Reparaciones no suman puntos
     if (eg.saleType === 'reparacion') continue;
     if (eg.saleType === 'completa') { pts += 1; continue; }
     if (eg.saleType === 'media')    { pts += 0.5; continue; }
@@ -24,7 +24,6 @@ function calcPointsForSale(sale: StoredSale): number {
   return pts;
 }
 
-// Cuenta cuántos armazones válidos (no reparación) tiene una venta
 function countAnteojos(sale: StoredSale): number {
   const anteojos = (sale.anteojos as any[]) || [];
   if (anteojos.length === 0) return 1;
@@ -57,8 +56,8 @@ function formatMonth(m: string) {
 type DaySummary = {
   date: string;
   sales: StoredSale[];
-  totalSales: number;      // número de ventas (registros)
-  totalAnteojos: number;   // número de armazones vendidos
+  totalSales: number;
+  totalAnteojos: number;
   totalPoints: number;
   level: 'oro' | 'bronce' | 'sin_nivel';
 };
@@ -74,8 +73,9 @@ type SellerMonthSummary = {
   best_day_points: number;
 };
 
-function buildDaySummaries(sellerName: string, month: string): DaySummary[] {
-  const sales = getSales().filter(v =>
+// ── FIX: recibe sales como parámetro en vez de llamar getSales() ──────────────
+function buildDaySummaries(sellerName: string, month: string, allSales: StoredSale[]): DaySummary[] {
+  const sales = allSales.filter(v =>
     v.vendedora === sellerName && (v.fecha || '').startsWith(month)
   );
   const byDay: Record<string, StoredSale[]> = {};
@@ -98,8 +98,8 @@ function buildDaySummaries(sellerName: string, month: string): DaySummary[] {
   }).sort((a, b) => b.date.localeCompare(a.date));
 }
 
-function buildAdminSummaries(month: string): SellerMonthSummary[] {
-  const all = getSales().filter(v => (v.fecha || '').startsWith(month));
+function buildAdminSummaries(month: string, allSales: StoredSale[]): SellerMonthSummary[] {
+  const all = allSales.filter(v => (v.fecha || '').startsWith(month));
   const bySeller: Record<string, Record<string, StoredSale[]>> = {};
   for (const v of all) {
     const seller = v.vendedora || 'Sin vendedora';
@@ -134,15 +134,15 @@ function buildAdminSummaries(month: string): SellerMonthSummary[] {
   }).sort((a, b) => b.days_oro - a.days_oro || b.best_day_points - a.best_day_points);
 }
 
-function getAvailableMonths(): string[] {
-  const all = getSales();
-  const months = new Set(all.map(v => (v.fecha || '').slice(0, 7)).filter(Boolean));
+function getAvailableMonths(allSales: StoredSale[]): string[] {
+  const months = new Set(allSales.map(v => (v.fecha || '').slice(0, 7)).filter(Boolean));
   if (!months.has(CURRENT_MONTH)) months.add(CURRENT_MONTH);
   return [...months].sort((a, b) => b.localeCompare(a));
 }
 
 export default function CommissionsPage() {
   const { profile } = useAuth();
+  const { sales: allSales } = useData();   // ← FIX: datos de Supabase via context
   const isAdmin = profile?.role === 'admin' || profile?.role === 'gerente';
 
   const [selectedMonth, setSelectedMonth] = useState(CURRENT_MONTH);
@@ -151,11 +151,15 @@ export default function CommissionsPage() {
   const [adminData,     setAdminData]     = useState<SellerMonthSummary[]>([]);
   const [expandedDay,   setExpandedDay]   = useState<string | null>(TODAY);
 
+  // ── FIX: recalcular cada vez que cambian las ventas o el mes ──────────────
   useEffect(() => {
-    setMonths(getAvailableMonths());
-    if (isAdmin) setAdminData(buildAdminSummaries(selectedMonth));
-    else if (profile?.full_name) setMyDays(buildDaySummaries(profile.full_name, selectedMonth));
-  }, [selectedMonth, profile, isAdmin]);
+    setMonths(getAvailableMonths(allSales));
+    if (isAdmin) {
+      setAdminData(buildAdminSummaries(selectedMonth, allSales));
+    } else if (profile?.full_name) {
+      setMyDays(buildDaySummaries(profile.full_name, selectedMonth, allSales));
+    }
+  }, [selectedMonth, profile, isAdmin, allSales]);   // ← allSales en deps
 
   const todayData  = myDays.find(d => d.date === TODAY);
   const todayPts   = todayData?.totalPoints ?? 0;
@@ -205,7 +209,6 @@ export default function CommissionsPage() {
       {/* VENDEDORA */}
       {!isAdmin && (
         <div className="space-y-4">
-          {/* Tarjetas resumen */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="rounded-xl p-4 col-span-2 lg:col-span-1"
               style={{ background: todayPrize.bg, border: `1px solid ${todayPrize.border}` }}>
@@ -243,7 +246,6 @@ export default function CommissionsPage() {
             </div>
           </div>
 
-          {/* Historial por día */}
           <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(197,160,89,0.15)' }}>
             <div className="px-5 py-3.5" style={{ borderBottom: '1px solid rgba(197,160,89,0.1)', background: 'rgba(197,160,89,0.04)' }}>
               <p className="text-sm font-light text-white">Mis días · {formatMonth(selectedMonth)}</p>
@@ -276,7 +278,6 @@ export default function CommissionsPage() {
                             <div className="h-full rounded-full transition-all"
                               style={{ width: `${pct}%`, background: day.level === 'oro' ? 'linear-gradient(to right,#C5A059,#f0d080)' : day.level === 'bronce' ? '#cd7f32' : 'rgba(197,160,89,0.3)' }} />
                           </div>
-                          {/* CORREGIDO: muestra armazones no ventas */}
                           <p className="text-xs font-light mt-0.5" style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10 }}>
                             {day.totalSales} venta{day.totalSales !== 1 ? 's' : ''} · {day.totalAnteojos} armazón{day.totalAnteojos !== 1 ? 'es' : ''}
                           </p>
@@ -299,7 +300,6 @@ export default function CommissionsPage() {
                           </p>
                           {day.sales.map(v => {
                             const anteojos = (v.anteojos as any[]) || [];
-                            // CORREGIDO: mostrar cada armazón individualmente con sus puntos
                             if (anteojos.length > 1) {
                               return (
                                 <div key={v.id} className="rounded-lg overflow-hidden"
@@ -342,7 +342,6 @@ export default function CommissionsPage() {
                                 </div>
                               );
                             }
-                            // Venta con 1 armazón
                             const pts = calcPointsForSale(v);
                             const ptColor = pts >= 1 ? '#10b981' : '#f59e0b';
                             const desc = anteojos.length > 0
@@ -417,7 +416,7 @@ export default function CommissionsPage() {
               <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
                 {adminData.map((s, i) => {
                   const isExpSeller = expandedDay === `seller-${s.seller_name}`;
-                  const sellerDays  = buildDaySummaries(s.seller_name, selectedMonth);
+                  const sellerDays  = buildDaySummaries(s.seller_name, selectedMonth, allSales);
                   return (
                     <div key={s.seller_name}>
                       <div className="flex items-center gap-3 px-5 py-4 cursor-pointer"
@@ -430,7 +429,6 @@ export default function CommissionsPage() {
                         </span>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm text-white font-light">{s.seller_name}</p>
-                          {/* CORREGIDO: muestra armazones además de ventas */}
                           <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.35)' }}>
                             {s.branch_name || '—'} · {s.days_worked} días · {s.total_sales} venta{s.total_sales !== 1 ? 's' : ''} · {s.total_anteojos} armazón{s.total_anteojos !== 1 ? 'es' : ''}
                           </p>

@@ -3,7 +3,7 @@ import {
   Plus, X, Save, ChevronUp, Glasses, Banknote, CreditCard,
   Smartphone, QrCode, Send, MapPin, Truck, Store, Package, User, FileText,
   Check, AlertCircle, Trash2, ShoppingBag, Hash, Clock,
-  Building2, Camera, Image, Wrench,
+  Building2, Camera, Image, Wrench, AlertTriangle,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { saveSale as saveToStorage, compressImage } from '../lib/salesStorage';
@@ -29,18 +29,18 @@ type EyeglassItem = {
   treatments: string;
   showReceta: boolean;
   prescription: Prescription;
-  price: string;        // ← precio individual por armazón
+  price: string;
   saleType: SaleType;
   stock_frame_id?: string;
+  receta_a_confirmar?: boolean;   // ← NUEVO
 };
 
-// Pago mixto: cada entrada tiene método + monto + referencia + hasta 3 comprobantes
 type PaymentEntry = {
   _id: string;
   method: PaymentMethod;
   amount: string;
   reference: string;
-  receipts: string[];   // ← hasta 3 fotos por pago
+  receipts: string[];
 };
 
 const FIXED_BRANCHES = [
@@ -80,7 +80,11 @@ function emptyRx(): Prescription {
   return { od_esfera:'', od_cilindro:'', od_eje:'', od_altura:'', oi_esfera:'', oi_cilindro:'', oi_eje:'', oi_altura:'', add:'', dp:'', obs:'' };
 }
 function newEyeglass(): EyeglassItem {
-  return { _id: uid(), frame_description:'', photo_url:'', crystals:'', treatments:'', showReceta:false, prescription:emptyRx(), price:'', saleType:'completa' };
+  return {
+    _id: uid(), frame_description:'', photo_url:'', crystals:'', treatments:'',
+    showReceta: false, prescription: emptyRx(), price:'', saleType:'completa',
+    receta_a_confirmar: false,   // ← NUEVO
+  };
 }
 function newPayment(): PaymentEntry {
   return { _id: uid(), method: 'efectivo', amount: '', reference: '', receipts: [] };
@@ -118,7 +122,6 @@ function Section({ title, icon, children, accent }: { title: string; icon: React
   );
 }
 
-// ─── Foto con Cámara + Galería (fix Android) ──────────────────────────────────
 function PhotoBtn({ onFile }: { onFile: (url: string) => void }) {
   const camRef = useRef<HTMLInputElement>(null);
   const galRef = useRef<HTMLInputElement>(null);
@@ -147,16 +150,12 @@ function PhotoBtn({ onFile }: { onFile: (url: string) => void }) {
   );
 }
 
-// ─── Comprobantes múltiples (hasta 3) ────────────────────────────────────────
 function ReceiptMulti({ receipts, onChange }: { receipts: string[]; onChange: (r: string[]) => void }) {
   function addReceipt(url: string) {
     if (receipts.length >= 3) return;
     onChange([...receipts, url]);
   }
-  function removeReceipt(i: number) {
-    onChange(receipts.filter((_, idx) => idx !== i));
-  }
-
+  function removeReceipt(i: number) { onChange(receipts.filter((_, idx) => idx !== i)); }
   return (
     <div>
       <p className="text-xs font-light mb-2" style={{ color: 'rgba(255,255,255,0.42)' }}>
@@ -172,9 +171,7 @@ function ReceiptMulti({ receipts, onChange }: { receipts: string[]; onChange: (r
             </button>
           </div>
         ))}
-        {receipts.length < 3 && (
-          <PhotoBtn onFile={addReceipt} />
-        )}
+        {receipts.length < 3 && <PhotoBtn onFile={addReceipt} />}
       </div>
     </div>
   );
@@ -251,9 +248,14 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
             style={{ background: `${activeCfg.color}15`, color: activeCfg.color, border: `1px solid ${activeCfg.color}30` }}>
             {activeCfg.icon}<span className="hidden sm:inline">{activeCfg.label}</span>
           </span>
-          {/* Precio visible en el header si está cargado */}
           {eg.price && (
             <span className="text-xs font-light shrink-0" style={{ color: '#C5A059' }}>Gs. {fmt(Number(eg.price))}</span>
+          )}
+          {eg.receta_a_confirmar && (
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs shrink-0"
+              style={{ background: 'rgba(249,115,22,0.12)', color: '#f97316', border: '1px solid rgba(249,115,22,0.30)' }}>
+              <AlertTriangle size={9} />A confirmar
+            </span>
           )}
         </div>
         <button onClick={onRemove} style={{ color: 'rgba(239,68,68,0.45)' }}
@@ -302,7 +304,6 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
                 </div>
               )}
             </div>
-            {/* Foto — cámara + galería */}
             <div className="shrink-0">
               {eg.photo_url ? (
                 <div className="relative">
@@ -340,7 +341,7 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
           )}
         </div>
 
-        {/* PRECIO INDIVIDUAL ← NUEVO */}
+        {/* Precio individual */}
         <div>
           <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>
             Precio de este anteojo (Gs.) <span style={{ color: 'rgba(255,255,255,0.25)' }}>— armazón + cristales + receta</span>
@@ -386,13 +387,32 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
           )}
         </div>
 
-        {/* Receta */}
-        <button onClick={() => onUpdate({ showReceta: !eg.showReceta })}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light"
-          style={{ color: 'rgba(197,160,89,0.7)', border: '1px solid rgba(197,160,89,0.20)' }}>
-          {eg.showReceta ? <ChevronUp size={11} /> : <Plus size={11} />}
-          {eg.showReceta ? 'Ocultar receta' : '+ Completar receta'}
-        </button>
+        {/* ── RECETA — dos botones ── */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Completar receta */}
+          <button
+            onClick={() => onUpdate({ showReceta: !eg.showReceta, receta_a_confirmar: false })}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light"
+            style={{ color: 'rgba(197,160,89,0.7)', border: '1px solid rgba(197,160,89,0.20)' }}>
+            {eg.showReceta ? <ChevronUp size={11} /> : <Plus size={11} />}
+            {eg.showReceta ? 'Ocultar receta' : '+ Completar receta'}
+          </button>
+
+          {/* Receta a confirmar — solo visible cuando la receta está oculta */}
+          {!eg.showReceta && (
+            <button
+              onClick={() => onUpdate({ receta_a_confirmar: !eg.receta_a_confirmar, showReceta: false })}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light"
+              style={{
+                color:      eg.receta_a_confirmar ? '#f97316' : 'rgba(249,115,22,0.55)',
+                border:     `1px solid ${eg.receta_a_confirmar ? 'rgba(249,115,22,0.50)' : 'rgba(249,115,22,0.22)'}`,
+                background: eg.receta_a_confirmar ? 'rgba(249,115,22,0.10)' : 'transparent',
+              }}>
+              <AlertTriangle size={11} />
+              {eg.receta_a_confirmar ? '⚠ Receta a confirmar' : 'Receta a confirmar'}
+            </button>
+          )}
+        </div>
 
         {eg.showReceta && (
           <div className="rounded-xl p-3 space-y-3" style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.14)' }}>
@@ -455,7 +475,6 @@ function PaymentCard({ pay, idx, total, onUpdate, onRemove, canRemove }: {
         )}
       </div>
       <div className="p-3 space-y-3">
-        {/* Método */}
         <div className="flex gap-1.5 flex-wrap">
           {PAY_METHODS.map(m => (
             <button key={m.id} onClick={() => onUpdate({ method: m.id })}
@@ -465,7 +484,6 @@ function PaymentCard({ pay, idx, total, onUpdate, onRemove, canRemove }: {
             </button>
           ))}
         </div>
-        {/* Monto */}
         <div>
           <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>
             Monto <span style={{ color: 'rgba(255,255,255,0.25)' }}>(dejar vacío = todo el total)</span>
@@ -475,14 +493,12 @@ function PaymentCard({ pay, idx, total, onUpdate, onRemove, canRemove }: {
             className="w-full px-3 py-2 rounded-xl bg-transparent text-sm font-light outline-none border text-right"
             style={{ borderColor: `${mc}44`, color: mc }} />
         </div>
-        {/* Referencia para transfer/giro */}
         {(pay.method === 'transferencia' || pay.method === 'giro') && (
           <input type="text" value={pay.reference} onChange={e => onUpdate({ reference: e.target.value })}
             placeholder="Banco / referencia / número de transferencia"
             className="w-full px-3 py-2 rounded-xl bg-transparent text-white text-xs font-light outline-none border"
             style={{ borderColor: 'rgba(255,255,255,0.12)' }} />
         )}
-        {/* Comprobantes múltiples */}
         <ReceiptMulti receipts={pay.receipts} onChange={r => onUpdate({ receipts: r })} />
       </div>
     </div>
@@ -531,7 +547,6 @@ export default function POSPage() {
   const depositNum = parseFloat(saleDeposit) || 0;
   const balanceNum = Math.max(0, totalNum - depositNum);
 
-  // Suma de precios por armazón para comparar con el total
   const sumPrices = eyeglasses.reduce((s, eg) => s + (parseFloat(eg.price) || 0), 0);
 
   useEffect(() => {
@@ -541,7 +556,7 @@ export default function POSPage() {
     }
   }, [profile?.branch_id]);
 
-  function addEyeglass()           { setEyeglasses(prev => [...prev, newEyeglass()]); }
+  function addEyeglass()              { setEyeglasses(prev => [...prev, newEyeglass()]); }
   function removeEyeglass(id: string) { setEyeglasses(prev => prev.filter(eg => eg._id !== id)); }
   function updateEg(id: string, patch: Partial<EyeglassItem>) {
     setEyeglasses(prev => prev.map(eg => eg._id === id ? { ...eg, ...patch } : eg));
@@ -549,8 +564,8 @@ export default function POSPage() {
   function updatePay(id: string, patch: Partial<PaymentEntry>) {
     setPayments(prev => prev.map(p => p._id === id ? { ...p, ...patch } : p));
   }
-  function addPayment()            { setPayments(prev => [...prev, newPayment()]); }
-  function removePayment(id: string) { setPayments(prev => prev.filter(p => p._id !== id)); }
+  function addPayment()               { setPayments(prev => [...prev, newPayment()]); }
+  function removePayment(id: string)  { setPayments(prev => prev.filter(p => p._id !== id)); }
 
   async function handleSaveSale() {
     setSaveErr('');
@@ -570,9 +585,7 @@ export default function POSPage() {
       const saleBranchName = FIXED_BRANCHES.find(b => b.id === saleBranch)?.name ?? saleBranch;
       const delBranchName  = FIXED_BRANCHES.find(b => b.id === delBranch)?.name  ?? delBranch;
       const payBranchName  = FIXED_BRANCHES.find(b => b.id === payBranch)?.name  ?? payBranch;
-
-      // Todos los comprobantes de todos los pagos juntos (para receipt_url legacy)
-      const allReceipts = payments.flatMap(p => p.receipts);
+      const allReceipts    = payments.flatMap(p => p.receipts);
 
       await saveToStorage({
         id: saleId,
@@ -590,7 +603,6 @@ export default function POSPage() {
         anteojos:        eyeglasses,
         observaciones:   notes,
         receipt_url:     allReceipts[0] || undefined,
-        // Campos nuevos guardados en anteojos y pagos
         channel,
         deliveryType: delType,
         deliveryAddress: delAddress || undefined,
@@ -771,7 +783,6 @@ export default function POSPage() {
             {eyeglasses.map((eg, idx) => (
               <SimpleEyeglassCard key={eg._id} eg={eg} idx={idx} onUpdate={patch => updateEg(eg._id, patch)} onRemove={() => removeEyeglass(eg._id)} />
             ))}
-            {/* Resumen de precios si hay más de 1 armazón */}
             {eyeglasses.length > 1 && eyeglasses.some(eg => eg.price) && (
               <div className="rounded-xl px-4 py-3 space-y-1.5" style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.15)' }}>
                 <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.6)' }}>Resumen de precios</p>

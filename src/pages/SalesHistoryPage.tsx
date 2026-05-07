@@ -31,16 +31,18 @@ type EyeglassItem = {
   price: string;
   saleType: SaleType;
   stock_frame_id?: string;
+  receta_a_confirmar?: boolean;
 };
 
 const STATUS_CFG: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
-  pendiente:      { label: 'Pendiente',      color: '#f59e0b', icon: <Clock        size={11} /> },
-  en_proceso:     { label: 'En Proceso',     color: '#f59e0b', icon: <Clock        size={11} /> },
-  en_laboratorio: { label: 'Laboratorio',    color: '#3b82f6', icon: <FlaskConical size={11} /> },
-  listo:          { label: 'Listo',          color: '#10b981', icon: <CheckCircle  size={11} /> },
-  pagado_total:   { label: 'Pagado Total',   color: '#22c55e', icon: <CheckCircle  size={11} /> },
-  entregado:      { label: 'Entregado',      color: '#6b7280', icon: <Package      size={11} /> },
-  cancelado:      { label: 'Cancelado',      color: '#ef4444', icon: <XCircle      size={11} /> },
+  pendiente:      { label: 'Pendiente',      color: '#f59e0b', icon: <Clock         size={11} /> },
+  en_proceso:     { label: 'En Proceso',     color: '#f59e0b', icon: <Clock         size={11} /> },
+  en_laboratorio: { label: 'Laboratorio',    color: '#3b82f6', icon: <FlaskConical  size={11} /> },
+  listo:          { label: 'Listo',          color: '#10b981', icon: <CheckCircle   size={11} /> },
+  pagado_total:   { label: 'Pagado Total',   color: '#22c55e', icon: <CheckCircle   size={11} /> },
+  entregado:      { label: 'Entregado',      color: '#6b7280', icon: <Package       size={11} /> },
+  cancelado:      { label: 'Cancelado',      color: '#ef4444', icon: <XCircle       size={11} /> },
+  a_confirmar:    { label: 'A confirmar',    color: '#f97316', icon: <AlertTriangle size={11} /> },
 };
 
 const PAY_METHODS: { id: PaymentMethod; label: string; icon: React.ReactNode; color: string }[] = [
@@ -52,22 +54,22 @@ const PAY_METHODS: { id: PaymentMethod; label: string; icon: React.ReactNode; co
 ];
 
 const DELIVERY_OPTIONS: { id: DeliveryMode; label: string; icon: React.ReactNode }[] = [
-  { id: 'retiro',     label: 'Retiro en local', icon: <Store size={13} /> },
-  { id: 'delivery',   label: 'Delivery',        icon: <Truck size={13} /> },
+  { id: 'retiro',     label: 'Retiro en local', icon: <Store   size={13} /> },
+  { id: 'delivery',   label: 'Delivery',        icon: <Truck   size={13} /> },
   { id: 'encomienda', label: 'Encomienda',      icon: <Package size={13} /> },
 ];
 
 const SALE_TYPES: { id: SaleType; label: string; color: string; icon: React.ReactNode }[] = [
-  { id: 'completa',   label: '1 venta completa',   color: '#10b981', icon: <Check size={11} /> },
+  { id: 'completa',   label: '1 venta completa',   color: '#10b981', icon: <Check  size={11} /> },
   { id: 'media',      label: '½ media venta',       color: '#f59e0b', icon: <span style={{ fontSize: 11, fontWeight: 600 }}>½</span> },
   { id: 'reparacion', label: 'Reparación / Insumo', color: '#a78bfa', icon: <Wrench size={11} /> },
 ];
 
 const SUCURSALES     = ['Azara', 'Fernando', 'Caacupé', 'La Fina'];
 const FIXED_BRANCHES = [
-  { id: 'azara',    name: 'Azara' },
-  { id: 'la_fina',  name: 'La Fina' },
-  { id: 'caacupe',  name: 'Caacupé' },
+  { id: 'azara',    name: 'Azara'    },
+  { id: 'la_fina',  name: 'La Fina'  },
+  { id: 'caacupe',  name: 'Caacupé'  },
   { id: 'fernando', name: 'Fernando' },
 ];
 
@@ -83,14 +85,13 @@ function emptyRx(): Prescription {
   return { od_esfera:'', od_cilindro:'', od_eje:'', od_altura:'', oi_esfera:'', oi_cilindro:'', oi_eje:'', oi_altura:'', add:'', dp:'', obs:'' };
 }
 function newEyeglass(): EyeglassItem {
-  return { _id: uid(), frame_description:'', photo_url:'', crystals:'', treatments:'', showReceta:false, prescription:emptyRx(), price:'', saleType:'completa' };
+  return { _id: uid(), frame_description:'', photo_url:'', crystals:'', treatments:'', showReceta:false, prescription:emptyRx(), price:'', saleType:'completa', receta_a_confirmar: false };
 }
 
-// ─── PhotoInput: dos botones — Cámara y Galería (fix Android) ────────────────
+// ─── PhotoInput ───────────────────────────────────────────────────────────────
 function PhotoInput({ value, onChange, label = 'Foto' }: { value: string; onChange: (v: string) => void; label?: string }) {
   const cameraRef  = useRef<HTMLInputElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
-
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return;
     const reader = new FileReader();
@@ -98,7 +99,6 @@ function PhotoInput({ value, onChange, label = 'Foto' }: { value: string; onChan
     reader.readAsDataURL(file);
     e.target.value = '';
   }
-
   if (value) {
     return (
       <div className="relative inline-block">
@@ -109,7 +109,6 @@ function PhotoInput({ value, onChange, label = 'Foto' }: { value: string; onChan
       </div>
     );
   }
-
   return (
     <div className="flex gap-2 flex-wrap">
       <button onClick={() => cameraRef.current?.click()}
@@ -128,7 +127,6 @@ function PhotoInput({ value, onChange, label = 'Foto' }: { value: string; onChan
   );
 }
 
-// Versión compacta para dentro de la tarjeta de armazón
 function PhotoInputCompact({ onChange }: { onChange: (v: string) => void }) {
   const cameraRef  = useRef<HTMLInputElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
@@ -168,7 +166,7 @@ function RxInput({ label, value, onChange, placeholder }: { label: string; value
   );
 }
 
-// ─── Tarjeta de armazón editable ──────────────────────────────────────────────
+// ─── EyeglassEditCard con receta_a_confirmar ──────────────────────────────────
 function EyeglassEditCard({ eg, idx, onUpdate, onRemove }: {
   eg: EyeglassItem; idx: number;
   onUpdate: (p: Partial<EyeglassItem>) => void;
@@ -184,13 +182,19 @@ function EyeglassEditCard({ eg, idx, onUpdate, onRemove }: {
   return (
     <div className="rounded-xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.022)', border: '1px solid rgba(197,160,89,0.18)' }}>
       <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid rgba(197,160,89,0.09)' }}>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold text-black shrink-0" style={{ background: '#C5A059' }}>{idx + 1}</span>
           <span className="text-sm font-light text-white truncate max-w-[130px]">{eg.frame_description || `Armazón ${idx + 1}`}</span>
           <span className="px-2 py-0.5 rounded-full text-xs font-light inline-flex items-center gap-1 shrink-0"
             style={{ background: `${activeCfg.color}15`, color: activeCfg.color, border: `1px solid ${activeCfg.color}30` }}>
             {activeCfg.icon}<span className="hidden sm:inline">{activeCfg.label}</span>
           </span>
+          {eg.receta_a_confirmar && (
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs shrink-0"
+              style={{ background: 'rgba(249,115,22,0.12)', color: '#f97316', border: '1px solid rgba(249,115,22,0.30)' }}>
+              <AlertTriangle size={9} />A confirmar
+            </span>
+          )}
         </div>
         <button onClick={onRemove} style={{ color: 'rgba(239,68,68,0.5)' }}
           onMouseEnter={e => (e.currentTarget.style.color = '#ef4444')}
@@ -198,8 +202,8 @@ function EyeglassEditCard({ eg, idx, onUpdate, onRemove }: {
           <Trash2 size={14} />
         </button>
       </div>
+
       <div className="p-4 space-y-3">
-        {/* Armazón + foto */}
         <div className="flex gap-3 items-start">
           <div className="flex-1">
             <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Armazón</p>
@@ -221,7 +225,7 @@ function EyeglassEditCard({ eg, idx, onUpdate, onRemove }: {
             )}
           </div>
         </div>
-        {/* Cristales y tratamiento */}
+
         <div className="grid grid-cols-2 gap-3">
           <div>
             <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Cristales</p>
@@ -236,7 +240,7 @@ function EyeglassEditCard({ eg, idx, onUpdate, onRemove }: {
               style={{ borderColor: 'rgba(197,160,89,0.22)' }} />
           </div>
         </div>
-        {/* Tipo de venta */}
+
         <div>
           <p className="text-xs font-light mb-2" style={{ color: 'rgba(255,255,255,0.4)' }}>Tipo de venta</p>
           <div className="flex gap-2 flex-wrap">
@@ -249,13 +253,31 @@ function EyeglassEditCard({ eg, idx, onUpdate, onRemove }: {
             ))}
           </div>
         </div>
-        {/* Receta */}
-        <button onClick={() => onUpdate({ showReceta: !eg.showReceta })}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light"
-          style={{ color: 'rgba(197,160,89,0.7)', border: '1px solid rgba(197,160,89,0.20)' }}>
-          {eg.showReceta ? <ChevronUp size={11} /> : <Plus size={11} />}
-          {eg.showReceta ? 'Ocultar receta' : '+ Completar receta'}
-        </button>
+
+        {/* ── RECETA — dos botones ── */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => onUpdate({ showReceta: !eg.showReceta, receta_a_confirmar: false })}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light"
+            style={{ color: 'rgba(197,160,89,0.7)', border: '1px solid rgba(197,160,89,0.20)' }}>
+            {eg.showReceta ? <ChevronUp size={11} /> : <Plus size={11} />}
+            {eg.showReceta ? 'Ocultar receta' : '+ Cargar receta'}
+          </button>
+          {!eg.showReceta && (
+            <button
+              onClick={() => onUpdate({ receta_a_confirmar: !eg.receta_a_confirmar, showReceta: false })}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light"
+              style={{
+                color:      eg.receta_a_confirmar ? '#f97316' : 'rgba(249,115,22,0.55)',
+                border:     `1px solid ${eg.receta_a_confirmar ? 'rgba(249,115,22,0.50)' : 'rgba(249,115,22,0.22)'}`,
+                background: eg.receta_a_confirmar ? 'rgba(249,115,22,0.10)' : 'transparent',
+              }}>
+              <AlertTriangle size={11} />
+              {eg.receta_a_confirmar ? '⚠ Receta a confirmar' : 'Receta a confirmar'}
+            </button>
+          )}
+        </div>
+
         {eg.showReceta && (
           <div className="rounded-xl p-3 space-y-3" style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.14)' }}>
             <div>
@@ -331,10 +353,18 @@ function DeliverModal({ sale, onClose, onDelivered }: { sale: any; onClose: () =
             <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.55)' }}>Marcar como entregado</p>
             <p className="text-sm font-light text-white mt-0.5">VTA-{sale.id} · {`${sale.cliente?.nombre ?? ''} ${sale.cliente?.apellido ?? ''}`.trim()}</p>
           </div>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full" style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)' }}><X size={14} /></button>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full"
+            style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)' }}>
+            <X size={14} />
+          </button>
         </div>
         <div className="p-5 space-y-5">
-          {error && <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl text-xs" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#f87171' }}><AlertTriangle size={13} className="shrink-0 mt-0.5" />{error}</div>}
+          {error && (
+            <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl text-xs"
+              style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#f87171' }}>
+              <AlertTriangle size={13} className="shrink-0 mt-0.5" />{error}
+            </div>
+          )}
           <div className="rounded-xl p-4 space-y-2" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(197,160,89,0.15)' }}>
             <div className="flex justify-between text-xs font-light"><span style={{ color: 'rgba(255,255,255,0.4)' }}>Total</span><span className="text-white">Gs. {fmt(Number(sale.total))}</span></div>
             <div className="flex justify-between text-xs font-light"><span style={{ color: 'rgba(255,255,255,0.4)' }}>Cobrado</span><span style={{ color: '#10b981' }}>Gs. {fmt(Number(sale.sena))}</span></div>
@@ -395,29 +425,35 @@ function DeliverModal({ sale, onClose, onDelivered }: { sale: any; onClose: () =
   );
 }
 
-// ─── Modal de edición COMPLETO ────────────────────────────────────────────────
+// ─── Modal de edición ─────────────────────────────────────────────────────────
 function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void; onSaved: () => void }) {
-  const [nombre,    setNombre]    = useState(sale.cliente?.nombre    ?? '');
-  const [apellido,  setApellido]  = useState(sale.cliente?.apellido  ?? '');
-  const [telefono,  setTelefono]  = useState(sale.cliente?.telefono  ?? '');
-  const [ci,        setCi]        = useState(sale.cliente?.ci        ?? '');
-  const [estado,    setEstado]    = useState<string>(sale.estadoTrabajo ?? 'pendiente');
-  const [total,     setTotal]     = useState(String(sale.total ?? ''));
-  const [sena,      setSena]      = useState(String(sale.sena  ?? ''));
-  const [saldo,     setSaldo]     = useState(String(sale.saldo ?? ''));
-  const [obs,       setObs]       = useState(sale.observaciones ?? '');
-  const [vendedora, setVendedora] = useState(sale.vendedora     ?? '');
-  const [sucursal,  setSucursal]  = useState(sale.sucursalVenta ?? '');
-  const [receiptUrl, setReceiptUrl] = useState(sale.receipt_url ?? '');
-  const [eyeglasses, setEyeglasses] = useState<EyeglassItem[]>(() => {
-    const ants = (sale.anteojos as any[]) || [];
-    return ants.map((eg: any) => ({
-      _id: uid(), frame_description: eg.frame_description ?? '', photo_url: eg.photo_url ?? '',
-      crystals: eg.crystals ?? '', treatments: eg.treatments ?? '', showReceta: false,
-      prescription: eg.prescription ?? emptyRx(), price: eg.price ?? '',
-      saleType: eg.saleType ?? 'completa', stock_frame_id: eg.stock_frame_id,
-    }));
-  });
+  const [nombre,     setNombre]     = useState(sale.cliente?.nombre    ?? '');
+  const [apellido,   setApellido]   = useState(sale.cliente?.apellido  ?? '');
+  const [telefono,   setTelefono]   = useState(sale.cliente?.telefono  ?? '');
+  const [ci,         setCi]         = useState(sale.cliente?.ci        ?? '');
+  const [estado,     setEstado]     = useState<string>(sale.estadoTrabajo ?? 'pendiente');
+  const [total,      setTotal]      = useState(String(sale.total ?? ''));
+  const [sena,       setSena]       = useState(String(sale.sena  ?? ''));
+  const [saldo,      setSaldo]      = useState(String(sale.saldo ?? ''));
+  const [obs,        setObs]        = useState(sale.observaciones ?? '');
+  const [vendedora,  setVendedora]  = useState(sale.vendedora     ?? '');
+  const [sucursal,   setSucursal]   = useState(sale.sucursalVenta ?? '');
+  const [receiptUrl, setReceiptUrl] = useState(sale.receipt_url   ?? '');
+  const [eyeglasses, setEyeglasses] = useState<EyeglassItem[]>(() =>
+    ((sale.anteojos as any[]) || []).map((eg: any) => ({
+      _id:                uid(),
+      frame_description:  eg.frame_description  ?? '',
+      photo_url:          eg.photo_url          ?? '',
+      crystals:           eg.crystals           ?? '',
+      treatments:         eg.treatments         ?? '',
+      showReceta:         false,
+      prescription:       eg.prescription       ?? emptyRx(),
+      price:              eg.price              ?? '',
+      saleType:           eg.saleType           ?? 'completa',
+      stock_frame_id:     eg.stock_frame_id,
+      receta_a_confirmar: eg.receta_a_confirmar ?? false,
+    }))
+  );
   const [saving, setSaving] = useState(false);
   const [error,  setError]  = useState('');
 
@@ -439,19 +475,24 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
     const { error: err } = await supabase.from('ventas').update({
       estado_trabajo:   estado,
       total: t, sena: s, saldo: b,
-      observaciones:    obs.trim() || null,
-      vendedora:        vendedora.trim() || null,
-      sucursal_venta:   sucursal || null,
-      receipt_url:      receiptUrl || null,
+      observaciones:    obs.trim()      || null,
+      vendedora:        vendedora.trim()|| null,
+      sucursal_venta:   sucursal        || null,
+      receipt_url:      receiptUrl      || null,
       cliente_nombre:   nombre.trim(),
       cliente_apellido: apellido.trim(),
       cliente_telefono: telefono.trim(),
       cliente_ci:       ci.trim(),
       anteojos: eyeglasses.map(eg => ({
-        frame_description: eg.frame_description, photo_url: eg.photo_url,
-        crystals: eg.crystals, treatments: eg.treatments,
-        prescription: eg.prescription, price: eg.price,
-        saleType: eg.saleType, stock_frame_id: eg.stock_frame_id,
+        frame_description:  eg.frame_description,
+        photo_url:          eg.photo_url,
+        crystals:           eg.crystals,
+        treatments:         eg.treatments,
+        prescription:       eg.prescription,
+        price:              eg.price,
+        saleType:           eg.saleType,
+        stock_frame_id:     eg.stock_frame_id,
+        receta_a_confirmar: eg.receta_a_confirmar ?? false,
       })),
     }).eq('id', sale.id);
     if (err) { setError('Error al guardar. Intentá de nuevo.'); setSaving(false); return; }
@@ -469,20 +510,23 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
         <div className="flex items-center justify-between px-5 py-4 sticky top-0 z-10"
           style={{ background: '#0e0e0e', borderBottom: '1px solid rgba(197,160,89,0.1)' }}>
           <div>
-            <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.55)' }}>Editando venta completa</p>
+            <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.55)' }}>Editando venta</p>
             <p className="text-sm font-light text-white mt-0.5">VTA-{sale.id} · {`${sale.cliente?.nombre ?? ''} ${sale.cliente?.apellido ?? ''}`.trim()}</p>
           </div>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full"
-            style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)' }}><X size={14} /></button>
+            style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)' }}>
+            <X size={14} />
+          </button>
         </div>
+
         <div className="p-5 space-y-6">
           {error && <div className="px-3 py-2.5 rounded-xl text-xs" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#f87171' }}>{error}</div>}
 
-          {/* CLIENTE */}
+          {/* Cliente */}
           <div>
             <p className="text-xs font-light tracking-widest uppercase mb-3" style={{ color: 'rgba(197,160,89,0.6)' }}>Cliente</p>
             <div className="grid grid-cols-2 gap-3">
-              {[{ label:'Nombre', value:nombre, onChange:setNombre }, { label:'Apellido', value:apellido, onChange:setApellido }, { label:'Teléfono', value:telefono, onChange:setTelefono }, { label:'C.I.', value:ci, onChange:setCi }].map(f => (
+              {[{label:'Nombre',value:nombre,onChange:setNombre},{label:'Apellido',value:apellido,onChange:setApellido},{label:'Teléfono',value:telefono,onChange:setTelefono},{label:'C.I.',value:ci,onChange:setCi}].map(f => (
                 <div key={f.label}>
                   <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.35)' }}>{f.label}</p>
                   <input type="text" value={f.value} onChange={e => f.onChange(e.target.value)}
@@ -493,7 +537,7 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
             </div>
           </div>
 
-          {/* ESTADO */}
+          {/* Estado */}
           <div>
             <p className="text-xs font-light tracking-widest uppercase mb-3" style={{ color: 'rgba(197,160,89,0.6)' }}>Estado del trabajo</p>
             <div className="grid grid-cols-2 gap-2">
@@ -511,11 +555,11 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
             </div>
           </div>
 
-          {/* MONTOS */}
+          {/* Montos */}
           <div>
             <p className="text-xs font-light tracking-widest uppercase mb-3" style={{ color: 'rgba(197,160,89,0.6)' }}>Montos (Gs.)</p>
             <div className="grid grid-cols-3 gap-3">
-              {[{ label:'Total', value:total, onChange:setTotal, color:'#C5A059' }, { label:'Seña', value:sena, onChange:setSena, color:'#10b981' }, { label:'Saldo', value:saldo, onChange:setSaldo, color:Number(saldo)>0?'#f59e0b':'#10b981' }].map(f => (
+              {[{label:'Total',value:total,onChange:setTotal,color:'#C5A059'},{label:'Seña',value:sena,onChange:setSena,color:'#10b981'},{label:'Saldo',value:saldo,onChange:setSaldo,color:Number(saldo)>0?'#f59e0b':'#10b981'}].map(f => (
                 <div key={f.label}>
                   <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.35)' }}>{f.label}</p>
                   <input type="number" value={f.value} onChange={e => f.onChange(e.target.value)}
@@ -527,13 +571,13 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
             <p className="text-xs font-light mt-2" style={{ color: 'rgba(255,255,255,0.3)' }}>El saldo se recalcula automáticamente.</p>
           </div>
 
-          {/* COMPROBANTE */}
+          {/* Comprobante */}
           <div>
             <p className="text-xs font-light tracking-widest uppercase mb-3" style={{ color: 'rgba(197,160,89,0.6)' }}>Comprobante de pago</p>
             <PhotoInput value={receiptUrl} onChange={setReceiptUrl} label="Comprobante" />
           </div>
 
-          {/* ARMAZONES */}
+          {/* Armazones */}
           <div>
             <div className="flex items-center justify-between mb-3">
               <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.6)' }}>Armazones</p>
@@ -553,7 +597,7 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
             }
           </div>
 
-          {/* VENDEDORA Y SUCURSAL */}
+          {/* Vendedora y sucursal */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(197,160,89,0.6)' }}>Vendedora</p>
@@ -572,7 +616,7 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
             </div>
           </div>
 
-          {/* OBSERVACIONES */}
+          {/* Observaciones */}
           <div>
             <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(197,160,89,0.6)' }}>Observaciones</p>
             <textarea value={obs} onChange={e => setObs(e.target.value)} rows={3}
@@ -580,7 +624,7 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
               style={{ borderColor: 'rgba(197,160,89,0.22)' }} />
           </div>
 
-          {/* BOTONES */}
+          {/* Botones */}
           <div className="flex items-center gap-3 pt-1">
             <button onClick={handleSave} disabled={saving}
               className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium"
@@ -631,7 +675,7 @@ export default function SalesHistoryPage() {
   const filtered = sales.filter(v => {
     if (statusFilter !== 'todos' && v.estadoTrabajo !== statusFilter) return false;
     if (search) {
-      const q = normalize(search);
+      const q    = normalize(search);
       const name = normalize(`${v.cliente.nombre} ${v.cliente.apellido}`);
       const ci   = normalize(v.cliente.ci || '');
       const tel  = (v.cliente.telefono || '').replace(/\D/g, '');
@@ -659,7 +703,7 @@ export default function SalesHistoryPage() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-light tracking-wider text-white">{isVendedora ? 'Mis Ventas' : 'Historial de Ventas'}</h1>
-          <p className="text-xs text-gold-muted mt-0.5 tracking-wide">
+          <p className="text-xs mt-0.5 tracking-wide" style={{ color: 'rgba(197,160,89,0.6)' }}>
             {isVendedora ? `${profile?.full_name} · solo tus ventas` : branchFilter ? `Sucursal ${branchFilter} · ${sales.length} ventas` : 'Registro completo de ventas'}
           </p>
         </div>
@@ -684,6 +728,7 @@ export default function SalesHistoryPage() {
         </div>
       </div>
 
+      {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(197,160,89,0.2)' }}>
           <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>{isVendedora ? 'Mis ventas' : branchFilter ? `Ventas ${branchFilter}` : 'Total ventas'}</p>
@@ -707,6 +752,7 @@ export default function SalesHistoryPage() {
         )}
       </div>
 
+      {/* Filtros de estado */}
       <div className="flex flex-wrap gap-1.5">
         <button onClick={() => setStatusFilter('todos')}
           className="px-3 py-1.5 rounded-lg text-xs font-light"
@@ -725,6 +771,7 @@ export default function SalesHistoryPage() {
         })}
       </div>
 
+      {/* Lista */}
       <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
         {filtered.length === 0 ? (
           <div className="text-center py-16">
@@ -743,6 +790,7 @@ export default function SalesHistoryPage() {
               const fechaStr     = new Date(v.fecha).toLocaleDateString('es-PY', { day:'2-digit', month:'2-digit', year:'2-digit' });
               const saldoVisible = getSaldoDisplay(v);
               const isEntregado  = v.estadoTrabajo === 'entregado';
+              const hasConfirmar = anteojos.some((eg: any) => eg.receta_a_confirmar);
 
               return (
                 <div key={key}>
@@ -772,6 +820,12 @@ export default function SalesHistoryPage() {
                       {v.sucursalVenta && <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.35)' }}>· {v.sucursalVenta}</span>}
                       {isAdmin && v.vendedora && <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.35)' }}>· {v.vendedora}</span>}
                       <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>· {fechaStr}</span>
+                      {hasConfirmar && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs"
+                          style={{ background: 'rgba(249,115,22,0.12)', color: '#f97316', border: '1px solid rgba(249,115,22,0.28)' }}>
+                          <AlertTriangle size={9} />Receta pendiente
+                        </span>
+                      )}
                     </div>
                     {(v.cliente.ci || v.cliente.telefono) && (
                       <div className="flex items-center gap-3 pl-8 mb-1.5">
@@ -826,13 +880,23 @@ export default function SalesHistoryPage() {
                         <div className="space-y-3">
                           <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.55)' }}>Lentes vendidos</p>
                           {anteojos.map((eg: any, i: number) => (
-                            <div key={i} className="rounded-xl p-4 space-y-3" style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(197,160,89,0.12)' }}>
+                            <div key={i} className="rounded-xl p-4 space-y-3"
+                              style={{ background: 'rgba(255,255,255,0.025)', border: `1px solid ${eg.receta_a_confirmar ? 'rgba(249,115,22,0.28)' : 'rgba(197,160,89,0.12)'}` }}>
                               <div className="flex items-start gap-3">
                                 {eg.photo_url
                                   ? <img src={eg.photo_url} alt="armazón" className="w-20 h-16 object-cover rounded-lg border shrink-0 cursor-pointer" style={{ borderColor: 'rgba(197,160,89,0.3)' }} onClick={() => window.open(eg.photo_url, '_blank')} />
-                                  : <div className="w-20 h-16 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(197,160,89,0.1)' }}><span className="text-xs" style={{ color: 'rgba(255,255,255,0.2)' }}>Sin foto</span></div>}
+                                  : <div className="w-20 h-16 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(197,160,89,0.1)' }}><span className="text-xs" style={{ color: 'rgba(255,255,255,0.2)' }}>Sin foto</span></div>
+                                }
                                 <div className="flex-1 space-y-1">
-                                  <p className="text-xs font-light" style={{ color: 'rgba(197,160,89,0.7)' }}>Armazón {i + 1}</p>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <p className="text-xs font-light" style={{ color: 'rgba(197,160,89,0.7)' }}>Armazón {i + 1}</p>
+                                    {eg.receta_a_confirmar && (
+                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs"
+                                        style={{ background: 'rgba(249,115,22,0.12)', color: '#f97316', border: '1px solid rgba(249,115,22,0.28)' }}>
+                                        <AlertTriangle size={9} />Receta pendiente
+                                      </span>
+                                    )}
+                                  </div>
                                   {eg.frame_description && <p className="text-sm text-white font-light">{eg.frame_description}</p>}
                                   <div className="flex gap-2 flex-wrap">
                                     {eg.crystals   && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(59,130,246,0.12)', color: '#3b82f6' }}>{eg.crystals}</span>}
@@ -840,7 +904,7 @@ export default function SalesHistoryPage() {
                                   </div>
                                 </div>
                               </div>
-                              {eg.prescription && (
+                              {eg.prescription && !eg.receta_a_confirmar && (
                                 <div className="rounded-lg p-3 space-y-2" style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.18)' }}>
                                   <p className="text-xs font-light tracking-widest uppercase flex items-center gap-1.5" style={{ color: 'rgba(197,160,89,0.7)' }}>
                                     <FlaskConical size={11} style={{ color: '#3b82f6' }} />Receta óptica
@@ -848,15 +912,11 @@ export default function SalesHistoryPage() {
                                   <div className="grid grid-cols-2 gap-3">
                                     <div>
                                       <p className="text-xs font-light mb-1" style={{ color: '#C5A059' }}>OD</p>
-                                      <p className="text-xs font-mono" style={{ color: 'rgba(255,255,255,0.75)' }}>
-                                        {eg.prescription.od_esfera||'—'} / {eg.prescription.od_cilindro||'—'} x {eg.prescription.od_eje||'—'}
-                                      </p>
+                                      <p className="text-xs font-mono" style={{ color: 'rgba(255,255,255,0.75)' }}>{eg.prescription.od_esfera||'—'} / {eg.prescription.od_cilindro||'—'} x {eg.prescription.od_eje||'—'}</p>
                                     </div>
                                     <div>
                                       <p className="text-xs font-light mb-1" style={{ color: '#C5A059' }}>OI</p>
-                                      <p className="text-xs font-mono" style={{ color: 'rgba(255,255,255,0.75)' }}>
-                                        {eg.prescription.oi_esfera||'—'} / {eg.prescription.oi_cilindro||'—'} x {eg.prescription.oi_eje||'—'}
-                                      </p>
+                                      <p className="text-xs font-mono" style={{ color: 'rgba(255,255,255,0.75)' }}>{eg.prescription.oi_esfera||'—'} / {eg.prescription.oi_cilindro||'—'} x {eg.prescription.oi_eje||'—'}</p>
                                     </div>
                                   </div>
                                 </div>
@@ -865,6 +925,7 @@ export default function SalesHistoryPage() {
                           ))}
                         </div>
                       )}
+
                       {v.observaciones && (
                         <div className="px-3 py-2.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
                           <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.5)' }}>📝 {v.observaciones}</p>
