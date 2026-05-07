@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import { supabase } from '../lib/supabase';
-import { StoredSale, StoredPayment, StoredExpense } from './salesStorage';
+import { StoredSale, StoredPayment, StoredExpense } from '../lib/salesStorage';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 type DataContextType = {
@@ -103,7 +103,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         localStorage.setItem('optica_yolanda_gastos',  JSON.stringify(newExpenses));
       } catch { /* ignore quota errors */ }
 
-    } catch (err) {
+    } catch {
       // Fallback a localStorage si no hay conexión
       try {
         const s = localStorage.getItem('optica_yolanda_ventas');
@@ -120,16 +120,93 @@ export function DataProvider({ children }: { children: ReactNode }) {
   // Cargar al inicio
   useEffect(() => { refresh(); }, [refresh]);
 
-  // Escuchar actualizaciones locales
+  // Escuchar actualizaciones locales (mismo dispositivo)
   useEffect(() => {
     const handler = () => refresh();
     window.addEventListener('optica_ventas_updated', handler);
     return () => window.removeEventListener('optica_ventas_updated', handler);
   }, [refresh]);
 
-  // Polling cada 30 segundos para sincronizar entre dispositivos
+  // ── REALTIME: sincronización instantánea entre dispositivos ──────────────
   useEffect(() => {
-    const interval = setInterval(() => refresh(), 30000);
+    // Canal de ventas — cuando cualquier vendedora guarda/edita una venta
+    const ventasChannel = supabase
+      .channel('ventas-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ventas' },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const newSale = rowToSale(payload.new);
+            setSales(prev => {
+              // Si ya existe (fue guardada en este dispositivo), actualizar
+              const exists = prev.some(s => s.id === newSale.id);
+              if (exists) return prev.map(s => s.id === newSale.id ? newSale : s);
+              return [newSale, ...prev];
+            });
+          } else if (payload.eventType === 'UPDATE') {
+            const updated = rowToSale(payload.new);
+            setSales(prev => prev.map(s => s.id === updated.id ? updated : s));
+          } else if (payload.eventType === 'DELETE') {
+            setSales(prev => prev.filter(s => s.id !== Number(payload.old.id)));
+          }
+        }
+      )
+      .subscribe();
+
+    // Canal de pagos — cuando se registra un abono
+    const pagosChannel = supabase
+      .channel('pagos-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pagos' },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const newPay = rowToPayment(payload.new);
+            setPayments(prev => {
+              const exists = prev.some(p => p.id === newPay.id);
+              if (exists) return prev;
+              return [newPay, ...prev];
+            });
+          } else if (payload.eventType === 'UPDATE') {
+            const updated = rowToPayment(payload.new);
+            setPayments(prev => prev.map(p => p.id === updated.id ? updated : p));
+          } else if (payload.eventType === 'DELETE') {
+            setPayments(prev => prev.filter(p => p.id !== Number(payload.old.id)));
+          }
+        }
+      )
+      .subscribe();
+
+    // Canal de gastos
+    const gastosChannel = supabase
+      .channel('gastos-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'gastos' },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const newExp = rowToExpense(payload.new);
+            setExpenses(prev => {
+              const exists = prev.some(e => e.id === newExp.id);
+              if (exists) return prev;
+              return [newExp, ...prev];
+            });
+          } else if (payload.eventType === 'UPDATE') {
+            const updated = rowToExpense(payload.new);
+            setExpenses(prev => prev.map(e => e.id === updated.id ? updated : e));
+          } else if (payload.eventType === 'DELETE') {
+            setExpenses(prev => prev.filter(e => e.id !== Number(payload.old.id)));
+          }
+        }
+      )
+      .subscribe();
+
+    // Limpiar canales al desmontar
+    return () => {
+      supabase.removeChannel(ventasChannel);
+      supabase.removeChannel(pagosChannel);
+      supabase.removeChannel(gastosChannel);
+    };
+  }, []);
+
+  // Polling cada 2 minutos como respaldo (por si falla el realtime)
+  useEffect(() => {
+    const interval = setInterval(() => refresh(), 120000);
     return () => clearInterval(interval);
   }, [refresh]);
 
