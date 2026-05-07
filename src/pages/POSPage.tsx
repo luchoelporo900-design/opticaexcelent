@@ -1,16 +1,19 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Plus, X, Save, ChevronDown, ChevronUp, Glasses, Banknote, CreditCard, Smartphone, QrCode, Send, MapPin, Truck, Store, Package, User, FileText, Check, CheckCircle, AlertCircle, Trash2, ShoppingBag, Hash, Clock, Building2, Camera, Receipt, ZoomIn, Wrench } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Plus, X, Save, ChevronUp, Glasses, Banknote, CreditCard,
+  Smartphone, QrCode, Send, MapPin, Truck, Store, Package, User, FileText,
+  Check, AlertCircle, Trash2, ShoppingBag, Hash, Clock,
+  Building2, Camera, Image, Wrench,
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { saveSale as saveToStorage, getSales, getPayments, updateSaleBalance, recordPayment, closeSaleLocal, compressImage } from '../lib/salesStorage';
+import { saveSale as saveToStorage, compressImage } from '../lib/salesStorage';
 import { supabase } from '../lib/supabase';
 
 type PaymentMethod = 'efectivo' | 'transferencia' | 'tarjeta' | 'qr' | 'giro';
-type SaleStatus = 'pendiente' | 'en_proceso' | 'en_laboratorio' | 'listo' | 'pagado_total' | 'entregado' | 'cancelado';
-type DeliveryType = 'retiro' | 'delivery' | 'encomienda';
-type Channel = 'local' | 'online';
-
-// 'reparacion' = no suma en comisiones de vendedora
-type SaleType = 'completa' | 'media' | 'reparacion';
+type SaleStatus    = 'pendiente' | 'en_proceso' | 'en_laboratorio' | 'listo' | 'pagado_total' | 'entregado' | 'cancelado';
+type DeliveryType  = 'retiro' | 'delivery' | 'encomienda';
+type Channel       = 'local' | 'online';
+type SaleType      = 'completa' | 'media' | 'reparacion';
 
 type Prescription = {
   od_esfera: string; od_cilindro: string; od_eje: string; od_altura: string;
@@ -26,16 +29,18 @@ type EyeglassItem = {
   treatments: string;
   showReceta: boolean;
   prescription: Prescription;
-  price: string;
+  price: string;        // ← precio individual por armazón
   saleType: SaleType;
   stock_frame_id?: string;
 };
 
+// Pago mixto: cada entrada tiene método + monto + referencia + hasta 3 comprobantes
 type PaymentEntry = {
   _id: string;
   method: PaymentMethod;
   amount: string;
   reference: string;
+  receipts: string[];   // ← hasta 3 fotos por pago
 };
 
 const FIXED_BRANCHES = [
@@ -63,54 +68,27 @@ const STATUS_CFG: Record<SaleStatus, { label: string; color: string }> = {
   cancelado:      { label: 'Cancelado',      color: '#ef4444' },
 };
 
-// Configuración de tipos de venta
 const SALE_TYPES: { id: SaleType; label: string; sublabel: string; color: string; icon: React.ReactNode }[] = [
-  {
-    id: 'completa',
-    label: '1 venta completa',
-    sublabel: 'Suma en comisiones',
-    color: '#10b981',
-    icon: <Check size={11} />,
-  },
-  {
-    id: 'media',
-    label: '½ media venta',
-    sublabel: 'Suma la mitad',
-    color: '#f59e0b',
-    icon: <span style={{ fontSize: 11, fontWeight: 600 }}>½</span>,
-  },
-  {
-    id: 'reparacion',
-    label: 'Reparación / Insumo',
-    sublabel: 'No suma en comisiones',
-    color: '#a78bfa',
-    icon: <Wrench size={11} />,
-  },
+  { id: 'completa',   label: '1 venta completa',   sublabel: 'Suma en comisiones',    color: '#10b981', icon: <Check size={11} /> },
+  { id: 'media',      label: '½ media venta',       sublabel: 'Suma la mitad',         color: '#f59e0b', icon: <span style={{ fontSize: 11, fontWeight: 600 }}>½</span> },
+  { id: 'reparacion', label: 'Reparación / Insumo', sublabel: 'No suma en comisiones', color: '#a78bfa', icon: <Wrench size={11} /> },
 ];
 
-function uid() { return crypto.randomUUID(); }
+function uid() { return Math.random().toString(36).slice(2) + Date.now().toString(36); }
 function fmt(n: number) { return n.toLocaleString('es-PY', { minimumFractionDigits: 0, maximumFractionDigits: 0 }); }
-
 function emptyRx(): Prescription {
-  return {
-    od_esfera: '', od_cilindro: '', od_eje: '', od_altura: '',
-    oi_esfera: '', oi_cilindro: '', oi_eje: '', oi_altura: '',
-    add: '', dp: '', obs: '',
-  };
+  return { od_esfera:'', od_cilindro:'', od_eje:'', od_altura:'', oi_esfera:'', oi_cilindro:'', oi_eje:'', oi_altura:'', add:'', dp:'', obs:'' };
 }
-
 function newEyeglass(): EyeglassItem {
-  return {
-    _id: uid(), frame_description: '', photo_url: '', crystals: '', treatments: '',
-    showReceta: false, prescription: emptyRx(), price: '', saleType: 'completa',
-    stock_frame_id: undefined,
-  };
+  return { _id: uid(), frame_description:'', photo_url:'', crystals:'', treatments:'', showReceta:false, prescription:emptyRx(), price:'', saleType:'completa' };
+}
+function newPayment(): PaymentEntry {
+  return { _id: uid(), method: 'efectivo', amount: '', reference: '', receipts: [] };
 }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return <p className="text-xs font-light mb-1.5 tracking-wide" style={{ color: 'rgba(255,255,255,0.42)' }}>{children}</p>;
 }
-
 function GoldInput({ value, onChange, placeholder, type = 'text' }: { value: string; onChange: (v: string) => void; placeholder?: string; type?: string }) {
   return (
     <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
@@ -118,7 +96,6 @@ function GoldInput({ value, onChange, placeholder, type = 'text' }: { value: str
       style={{ borderColor: 'rgba(197,160,89,0.22)' }} />
   );
 }
-
 function GoldSelect({ value, onChange, children }: { value: string; onChange: (v: string) => void; children: React.ReactNode }) {
   return (
     <select value={value} onChange={e => onChange(e.target.value)}
@@ -128,7 +105,6 @@ function GoldSelect({ value, onChange, children }: { value: string; onChange: (v
     </select>
   );
 }
-
 function Section({ title, icon, children, accent }: { title: string; icon: React.ReactNode; children: React.ReactNode; accent?: boolean }) {
   return (
     <div className="rounded-2xl overflow-hidden"
@@ -142,457 +118,63 @@ function Section({ title, icon, children, accent }: { title: string; icon: React
   );
 }
 
-export default function POSPage() {
-  const { profile } = useAuth();
-  const [saleNumber] = useState(`VTA-${Date.now().toString().slice(-8)}`);
-  const today = new Date().toLocaleDateString('es-PY', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-
-  const [nFirst,  setNFirst]  = useState('');
-  const [nLast,   setNLast]   = useState('');
-  const [nCi,     setNCi]     = useState('');
-  const [nPhone,  setNPhone]  = useState('');
-
-  const [saleBranch, setSaleBranch] = useState('');
-  const [delBranch,  setDelBranch]  = useState('');
-  const [payBranch,  setPayBranch]  = useState('');
-
-  const [channel,    setChannel]    = useState<Channel>('local');
-  const [delType,    setDelType]    = useState<DeliveryType>('retiro');
-  const [delAddress, setDelAddress] = useState('');
-  const [delRef,     setDelRef]     = useState('');
-  const [delPhone,   setDelPhone]   = useState('');
-  const [shipCo,     setShipCo]     = useState('');
-  const [shipCity,   setShipCity]   = useState('');
-  const [shipRec,    setShipRec]    = useState('');
-  const [shipPhone,  setShipPhone]  = useState('');
-  const [shipTrack,  setShipTrack]  = useState('');
-
-  const [eyeglasses, setEyeglasses] = useState<EyeglassItem[]>([]);
-  const [payments,   setPayments]   = useState<PaymentEntry[]>([{ _id: uid(), method: 'efectivo', amount: '', reference: '' }]);
-  const [paymentReceipt, setPaymentReceipt] = useState('');
-
-  const [status, setStatus] = useState<SaleStatus>('pendiente');
-  const [notes,  setNotes]  = useState('');
-
-  const [saving,    setSaving]    = useState(false);
-  const [paidToast, setPaidToast] = useState('');
-  const [saved,     setSaved]     = useState('');
-  const [saveErr,   setSaveErr]   = useState('');
-
-  const [addPayFor,   setAddPayFor]   = useState<string | null>(null);
-  const [xPayAmt,     setXPayAmt]     = useState('');
-  const [xPayMethod,  setXPayMethod]  = useState<PaymentMethod>('efectivo');
-  const [xPayBranch,  setXPayBranch]  = useState('');
-  const [xPayRef,     setXPayRef]     = useState('');
-  const [xPayReceipt, setXPayReceipt] = useState('');
-  const [xPayWarn,    setXPayWarn]    = useState(false);
-
-  type DeliveryMode = 'retiro' | 'delivery' | 'encomienda';
-  const [closeFor,         setCloseFor]         = useState<string | null>(null);
-  const [closeMethod,      setCloseMethod]      = useState<PaymentMethod>('efectivo');
-  const [closeAmt,         setCloseAmt]         = useState('');
-  const [closeRef,         setCloseRef]         = useState('');
-  const [closeReceipt,     setCloseReceipt]     = useState('');
-  const [closeReceiptWarn, setCloseReceiptWarn] = useState(false);
-  const [closeDelivery,    setCloseDelivery]    = useState<DeliveryMode>('retiro');
-  const [closingSale,      setClosingSale]      = useState(false);
-
-  const [saleTotal,   setSaleTotal]   = useState('');
-  const [saleDeposit, setSaleDeposit] = useState('');
-  const totalNum   = parseFloat(saleTotal)   || 0;
-  const depositNum = parseFloat(saleDeposit) || 0;
-  const balanceNum = Math.max(0, totalNum - depositNum);
-
-  useEffect(() => {
-    if (profile?.branch_id) {
-      const bid = profile.branch_id.toLowerCase().replace(/ /g, '_').replace(/é/g, 'e').replace(/á/g, 'a');
-      setSaleBranch(bid); setDelBranch(bid); setPayBranch(bid);
-    }
-  }, [profile?.branch_id]);
-
-  function addEyeglass() { setEyeglasses(prev => [...prev, newEyeglass()]); }
-  function removeEyeglass(id: string) { setEyeglasses(prev => prev.filter(eg => eg._id !== id)); }
-  function updateEg(id: string, patch: Partial<EyeglassItem>) {
-    setEyeglasses(prev => prev.map(eg => eg._id === id ? { ...eg, ...patch } : eg));
+// ─── Foto con Cámara + Galería (fix Android) ──────────────────────────────────
+function PhotoBtn({ onFile }: { onFile: (url: string) => void }) {
+  const camRef = useRef<HTMLInputElement>(null);
+  const galRef = useRef<HTMLInputElement>(null);
+  async function handle(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async ev => { const c = await compressImage(ev.target?.result as string); onFile(c); };
+    reader.readAsDataURL(file);
+    e.target.value = '';
   }
-  function updatePay(id: string, k: keyof PaymentEntry, v: string) {
-    setPayments(prev => prev.map(p => p._id === id ? { ...p, [k]: v } : p));
+  return (
+    <div className="flex gap-1.5">
+      <button onClick={() => camRef.current?.click()}
+        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs border"
+        style={{ borderColor: 'rgba(197,160,89,0.25)', color: 'rgba(197,160,89,0.8)', background: 'rgba(197,160,89,0.05)' }}>
+        <Camera size={12} />Cám.
+      </button>
+      <button onClick={() => galRef.current?.click()}
+        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs border"
+        style={{ borderColor: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.45)', background: 'rgba(255,255,255,0.03)' }}>
+        <Image size={12} />Gal.
+      </button>
+      <input ref={camRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handle} />
+      <input ref={galRef} type="file" accept="image/*" className="hidden" onChange={handle} />
+    </div>
+  );
+}
+
+// ─── Comprobantes múltiples (hasta 3) ────────────────────────────────────────
+function ReceiptMulti({ receipts, onChange }: { receipts: string[]; onChange: (r: string[]) => void }) {
+  function addReceipt(url: string) {
+    if (receipts.length >= 3) return;
+    onChange([...receipts, url]);
   }
-
-  async function handleSaveSale() {
-    setSaveErr('');
-    if (!nFirst.trim()) { setSaveErr('El campo Nombre es obligatorio.'); return; }
-    if (!nLast.trim())  { setSaveErr('El campo Apellido es obligatorio.'); return; }
-    if (!totalNum)      { setSaveErr('El campo Total venta es obligatorio.'); return; }
-    if (!saleBranch)    { setSaveErr('Seleccioná la Sucursal de venta.'); return; }
-    if (!delBranch)     { setSaveErr('Seleccioná la Sucursal de entrega.'); return; }
-    if (!payBranch)     { setSaveErr('Seleccioná la Sucursal de cobro.'); return; }
-
-    setSaving(true);
-    try {
-      const sellerName     = profile?.full_name ?? 'Sin nombre';
-      const saleId         = Date.now();
-      const saleNum        = `VTA-${saleId}`;
-      const primaryMethod  = payments[0].method;
-      const saleBranchName = FIXED_BRANCHES.find(b => b.id === saleBranch)?.name ?? saleBranch;
-      const delBranchName  = FIXED_BRANCHES.find(b => b.id === delBranch)?.name  ?? delBranch;
-      const payBranchName  = FIXED_BRANCHES.find(b => b.id === payBranch)?.name  ?? payBranch;
-
-      await saveToStorage({
-        id: saleId,
-        fecha: new Date().toISOString(),
-        cliente: { nombre: nFirst.trim(), apellido: nLast.trim(), telefono: nPhone.trim(), ci: nCi.trim() },
-        sucursalVenta:   saleBranchName,
-        sucursalEntrega: delBranchName,
-        sucursalCobro:   payBranchName,
-        vendedora: sellerName,
-        total:   totalNum,
-        sena:    depositNum,
-        saldo:   balanceNum,
-        metodoPago:    primaryMethod,
-        estadoTrabajo: status,
-        anteojos:      eyeglasses,
-        observaciones: notes,
-        receipt_url:   paymentReceipt || undefined,
-      } as any);
-
-      // ── Descontar stock y registrar movimiento ──
-      for (const eg of eyeglasses) {
-        if (eg.stock_frame_id) {
-          const { data: frame } = await supabase
-            .from('armazones')
-            .select('*')
-            .eq('id', eg.stock_frame_id)
-            .single();
-
-          if (frame) {
-            const sedeKey = (() => {
-              const n = saleBranchName.toLowerCase().replace(/á/g,'a').replace(/é/g,'e').replace(/ú/g,'u');
-              if (n.includes('azara'))    return 'stock_azara';
-              if (n.includes('fernando')) return 'stock_fernando';
-              if (n.includes('caacupe') || n.includes('caacupé')) return 'stock_caacupe';
-              if (n.includes('fina'))     return 'stock_la_fina';
-              return 'stock_azara';
-            })();
-            const current = frame[sedeKey] || 0;
-            await supabase
-              .from('armazones')
-              .update({ [sedeKey]: Math.max(0, current - 1), updated_at: new Date().toISOString() })
-              .eq('id', eg.stock_frame_id);
-
-            await supabase.from('stock_movimientos').insert([{
-              armazon_id:     eg.stock_frame_id,
-              armazon_nombre: frame.nombre,
-              armazon_codigo: frame.codigo,
-              cantidad:       1,
-              tipo:           'venta',
-              sucursal:       saleBranchName,
-              vendedora:      sellerName,
-              venta_id:       String(saleId),
-            }]);
-          }
-        }
-      }
-
-      setSaved(`Venta ${saleNum} guardada con éxito.`);
-      resetForm();
-      window.dispatchEvent(new Event('optica_ventas_updated'));
-      setTimeout(() => setSaved(''), 6000);
-    } catch (err: any) {
-      setSaveErr(`Error al guardar: ${err?.message ?? 'Error desconocido'}.`);
-    } finally {
-      setSaving(false);
-    }
+  function removeReceipt(i: number) {
+    onChange(receipts.filter((_, idx) => idx !== i));
   }
-
-  function resetForm() {
-    setNFirst(''); setNLast(''); setNCi(''); setNPhone('');
-    setEyeglasses([]);
-    setSaleTotal(''); setSaleDeposit('');
-    setPayments([{ _id: uid(), method: 'efectivo', amount: '', reference: '' }]);
-    setPaymentReceipt('');
-    setNotes(''); setStatus('pendiente');
-    setChannel('local'); setDelType('retiro');
-    setDelAddress(''); setDelRef(''); setDelPhone('');
-    setShipCo(''); setShipCity(''); setShipRec(''); setShipPhone(''); setShipTrack('');
-    setSaveErr('');
-    if (profile?.branch_id) {
-      const bid = profile.branch_id.toLowerCase().replace(/ /g, '_').replace(/é/g, 'e').replace(/á/g, 'a');
-      setSaleBranch(bid); setDelBranch(bid); setPayBranch(bid);
-    }
-  }
-
-  async function registerXPay(saleId: string) {
-    const amt = parseFloat(xPayAmt);
-    if (!amt || amt <= 0) return;
-    if (saleId.startsWith('local-')) {
-      const numId = Number(saleId.replace('local-', ''));
-      const localSale = getSales().find(s => s.id === numId);
-      if (localSale) {
-        const newDeposit = localSale.sena + amt;
-        const newBalance = Math.max(0, localSale.total - newDeposit);
-        await updateSaleBalance(numId, newBalance, newDeposit);
-        await recordPayment({
-          id: Date.now(), saleId: numId, fecha: new Date().toISOString(),
-          monto: amt, metodo: xPayMethod,
-          sucursal: (FIXED_BRANCHES.find(b => b.id === xPayBranch)?.name ?? xPayBranch) || FIXED_BRANCHES[0].name,
-          vendedora: profile?.full_name ?? '',
-          cliente: `${localSale.cliente.nombre} ${localSale.cliente.apellido}`.trim(),
-          tipo: 'abono', receipt_url: xPayReceipt || undefined,
-        });
-        if (newBalance <= 0) {
-          setPaidToast(`Venta saldada · ${localSale.cliente.nombre} ${localSale.cliente.apellido} — Saldo en 0`);
-          setTimeout(() => setPaidToast(''), 6000);
-        }
-      }
-    }
-    setAddPayFor(null); setXPayAmt(''); setXPayRef(''); setXPayReceipt(''); setXPayWarn(false);
-  }
-
-  async function closeSale(saleId: string, balance: number) {
-    const finalAmt = balance > 0 ? parseFloat(closeAmt) || 0 : 0;
-    setClosingSale(true);
-    if (saleId.startsWith('local-')) {
-      const numId = Number(saleId.replace('local-', ''));
-      const localSale = getSales().find(s => s.id === numId);
-      if (localSale) {
-        if (finalAmt > 0) {
-          await recordPayment({
-            id: Date.now(), saleId: numId, fecha: new Date().toISOString(),
-            monto: finalAmt, metodo: closeMethod,
-            sucursal: FIXED_BRANCHES[0].name,
-            vendedora: profile?.full_name ?? '',
-            cliente: `${localSale.cliente.nombre} ${localSale.cliente.apellido}`.trim(),
-            tipo: 'abono', receipt_url: closeReceipt || undefined,
-          });
-        }
-        await closeSaleLocal(numId, closeDelivery);
-      }
-    }
-    setCloseFor(null); setCloseAmt(''); setCloseRef('');
-    setCloseReceipt(''); setCloseReceiptWarn(false); setCloseDelivery('retiro');
-    setClosingSale(false);
-  }
-
-  const branchOpts = [
-    <option key="" value="" style={{ background: '#0a0908' }}>— Seleccionar —</option>,
-    ...FIXED_BRANCHES.map(b => <option key={b.id} value={b.id} style={{ background: '#0a0908' }}>{b.name}</option>),
-  ];
 
   return (
-    <div className="min-h-screen">
-      <div className="flex-1 min-w-0 overflow-y-auto p-6 space-y-4" style={{ maxWidth: 680 }}>
-
-        <div className="flex items-start justify-between">
-          <div>
-            <h1 className="text-2xl font-light tracking-wider text-white">Nueva Venta</h1>
-            <p className="text-xs font-light mt-1 capitalize tracking-wide" style={{ color: 'rgba(197,160,89,0.65)' }}>{today}</p>
-          </div>
-          <div className="flex items-center gap-3 mt-1">
-            <div className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-light"
-              style={{ background: 'rgba(197,160,89,0.08)', border: '1px solid rgba(197,160,89,0.2)', color: '#C5A059' }}>
-              <Hash size={11} />{saleNumber}
-            </div>
-            <button onClick={resetForm}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-light"
-              style={{ color: 'rgba(239,68,68,0.65)', border: '1px solid rgba(239,68,68,0.2)' }}>
-              <X size={13} /> Cancelar
+    <div>
+      <p className="text-xs font-light mb-2" style={{ color: 'rgba(255,255,255,0.42)' }}>
+        Comprobantes <span style={{ color: 'rgba(255,255,255,0.25)' }}>(hasta 3 fotos)</span>
+      </p>
+      <div className="flex items-start gap-2 flex-wrap">
+        {receipts.map((url, i) => (
+          <div key={i} className="relative">
+            <img src={url} alt={`comprobante ${i+1}`} className="h-20 w-24 object-cover rounded-xl border" style={{ borderColor: 'rgba(197,160,89,0.25)' }} />
+            <button onClick={() => removeReceipt(i)}
+              className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: '#ef4444' }}>
+              <X size={9} color="#fff" />
             </button>
           </div>
-        </div>
-
-        {saveErr && (
-          <div className="flex items-center gap-3 p-3.5 rounded-xl border text-sm font-light"
-            style={{ background: 'rgba(239,68,68,0.07)', borderColor: 'rgba(239,68,68,0.28)', color: '#ef4444' }}>
-            <AlertCircle size={15} /> {saveErr}
-          </div>
+        ))}
+        {receipts.length < 3 && (
+          <PhotoBtn onFile={addReceipt} />
         )}
-        {saved && (
-          <div className="flex items-center gap-3 p-3.5 rounded-xl border text-sm font-light"
-            style={{ background: 'rgba(16,185,129,0.07)', borderColor: 'rgba(16,185,129,0.28)', color: '#10b981' }}>
-            <Check size={15} /> {saved}
-          </div>
-        )}
-        {paidToast && (
-          <div className="flex items-center gap-3 p-3.5 rounded-xl border text-sm font-light"
-            style={{ background: 'rgba(34,197,94,0.10)', borderColor: 'rgba(34,197,94,0.40)', color: '#22c55e' }}>
-            <CheckCircle size={15} /> {paidToast}
-          </div>
-        )}
-
-        {/* Cliente */}
-        <Section title="Cliente" icon={<User size={15} />}>
-          <div className="grid grid-cols-2 gap-3">
-            <div><FieldLabel>Nombre <span style={{ color: '#C5A059' }}>*</span></FieldLabel><GoldInput value={nFirst} onChange={setNFirst} placeholder="Nombre" /></div>
-            <div><FieldLabel>Apellido <span style={{ color: '#C5A059' }}>*</span></FieldLabel><GoldInput value={nLast} onChange={setNLast} placeholder="Apellido" /></div>
-            <div><FieldLabel>Teléfono / WhatsApp</FieldLabel><GoldInput value={nPhone} onChange={setNPhone} placeholder="0981-000000" /></div>
-            <div><FieldLabel>C.I.</FieldLabel><GoldInput value={nCi} onChange={setNCi} placeholder="Número de cédula" /></div>
-          </div>
-        </Section>
-
-        {/* Sucursales */}
-        <Section title="Sucursales" icon={<Building2 size={15} />}>
-          <div className="space-y-3">
-            <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl"
-              style={{ background: 'rgba(197,160,89,0.06)', border: '1px solid rgba(197,160,89,0.20)' }}>
-              <User size={13} style={{ color: '#C5A059', flexShrink: 0 }} />
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>Vendedora</p>
-                <p className="text-sm text-white font-light truncate">{profile?.full_name ?? '—'}</p>
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div><FieldLabel>Sucursal de venta *</FieldLabel><GoldSelect value={saleBranch} onChange={setSaleBranch}>{branchOpts}</GoldSelect></div>
-              <div><FieldLabel>Sucursal de entrega *</FieldLabel><GoldSelect value={delBranch} onChange={setDelBranch}>{branchOpts}</GoldSelect></div>
-              <div><FieldLabel>Sucursal de cobro *</FieldLabel><GoldSelect value={payBranch} onChange={setPayBranch}>{branchOpts}</GoldSelect></div>
-            </div>
-          </div>
-        </Section>
-
-        {/* Canal y Entrega */}
-        <Section title="Canal de Venta y Entrega" icon={<Truck size={15} />}>
-          <div className="space-y-4">
-            <div className="flex gap-2">
-              {([{ v: 'local', l: 'Local', ic: <Store size={13} /> }, { v: 'online', l: 'Online', ic: <ShoppingBag size={13} /> }] as const).map(opt => (
-                <button key={opt.v} onClick={() => setChannel(opt.v)}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-light flex-1 justify-center"
-                  style={{ background: channel === opt.v ? 'rgba(197,160,89,0.14)' : 'rgba(255,255,255,0.03)', border: `1px solid ${channel === opt.v ? 'rgba(197,160,89,0.44)' : 'rgba(255,255,255,0.08)'}`, color: channel === opt.v ? '#C5A059' : 'rgba(255,255,255,0.44)' }}>
-                  {opt.ic}{opt.l}
-                </button>
-              ))}
-            </div>
-            <div>
-              <FieldLabel>Tipo de entrega</FieldLabel>
-              <div className="flex gap-2 flex-wrap">
-                {([
-                  { v: 'retiro' as const,     l: 'Retiro en sucursal', ic: <Store size={12} /> },
-                  { v: 'delivery' as const,   l: 'Delivery',           ic: <MapPin size={12} /> },
-                  { v: 'encomienda' as const, l: 'Encomienda',         ic: <Package size={12} /> },
-                ]).map(opt => (
-                  <button key={opt.v} onClick={() => setDelType(opt.v)}
-                    className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-light"
-                    style={{ background: delType === opt.v ? 'rgba(197,160,89,0.14)' : 'rgba(255,255,255,0.03)', border: `1px solid ${delType === opt.v ? 'rgba(197,160,89,0.44)' : 'rgba(255,255,255,0.08)'}`, color: delType === opt.v ? '#C5A059' : 'rgba(255,255,255,0.44)' }}>
-                    {opt.ic}{opt.l}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {delType === 'retiro' && (<div><FieldLabel>Sucursal de retiro</FieldLabel><GoldSelect value={delBranch} onChange={setDelBranch}>{branchOpts}</GoldSelect></div>)}
-            {delType === 'delivery' && (
-              <div className="grid grid-cols-2 gap-3">
-                <div className="col-span-2"><FieldLabel>Dirección</FieldLabel><GoldInput value={delAddress} onChange={setDelAddress} placeholder="Calle y número" /></div>
-                <div><FieldLabel>Referencia</FieldLabel><GoldInput value={delRef} onChange={setDelRef} placeholder="Entre calles..." /></div>
-                <div><FieldLabel>Teléfono</FieldLabel><GoldInput value={delPhone} onChange={setDelPhone} placeholder="0981-000000" /></div>
-              </div>
-            )}
-            {delType === 'encomienda' && (
-              <div className="grid grid-cols-2 gap-3">
-                <div><FieldLabel>Empresa de transporte</FieldLabel><GoldInput value={shipCo} onChange={setShipCo} placeholder="Rysa, Cometa..." /></div>
-                <div><FieldLabel>Ciudad destino</FieldLabel><GoldInput value={shipCity} onChange={setShipCity} placeholder="Ciudad" /></div>
-                <div><FieldLabel>Nombre de quien recibe</FieldLabel><GoldInput value={shipRec} onChange={setShipRec} placeholder="Nombre completo" /></div>
-                <div><FieldLabel>Teléfono</FieldLabel><GoldInput value={shipPhone} onChange={setShipPhone} placeholder="0981-000000" /></div>
-                <div className="col-span-2"><FieldLabel>Número de guía (opcional)</FieldLabel><GoldInput value={shipTrack} onChange={setShipTrack} placeholder="Número de seguimiento" /></div>
-              </div>
-            )}
-          </div>
-        </Section>
-
-        {/* Anteojos */}
-        <Section title="Anteojos" icon={<Glasses size={15} />}>
-          <div className="space-y-3">
-            {eyeglasses.map((eg, idx) => (
-              <SimpleEyeglassCard key={eg._id} eg={eg} idx={idx} onUpdate={patch => updateEg(eg._id, patch)} onRemove={() => removeEyeglass(eg._id)} />
-            ))}
-            <button onClick={addEyeglass}
-              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-sm font-light border-dashed border"
-              style={{ borderColor: 'rgba(197,160,89,0.30)', color: '#C5A059', background: 'rgba(197,160,89,0.03)' }}
-              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(197,160,89,0.09)')}
-              onMouseLeave={e => (e.currentTarget.style.background = 'rgba(197,160,89,0.03)')}>
-              <Plus size={15} /> Agregar anteojo
-            </button>
-          </div>
-        </Section>
-
-        {/* Pago y Totales */}
-        <Section title="Pago y Totales" icon={<Banknote size={15} />}>
-          <div className="space-y-5">
-            <div>
-              <FieldLabel>Método de pago</FieldLabel>
-              <div className="flex gap-1.5 flex-wrap">
-                {PAY_METHODS.map(m => (
-                  <button key={m.id} onClick={() => updatePay(payments[0]._id, 'method', m.id)}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-light"
-                    style={{ background: payments[0].method === m.id ? `${m.color}18` : 'rgba(255,255,255,0.03)', border: `1px solid ${payments[0].method === m.id ? m.color + '44' : 'rgba(255,255,255,0.08)'}`, color: payments[0].method === m.id ? m.color : 'rgba(255,255,255,0.42)' }}>
-                    {m.icon}{m.label}
-                  </button>
-                ))}
-              </div>
-              {(payments[0].method === 'transferencia' || payments[0].method === 'giro') && (
-                <div className="mt-2"><GoldInput value={payments[0].reference} onChange={v => updatePay(payments[0]._id, 'reference', v)} placeholder="Banco / referencia" /></div>
-              )}
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <FieldLabel>Total venta *</FieldLabel>
-                <input type="number" value={saleTotal} onChange={e => setSaleTotal(e.target.value)} placeholder="500000"
-                  className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border text-right"
-                  style={{ borderColor: 'rgba(197,160,89,0.30)' }} />
-              </div>
-              <div>
-                <FieldLabel>Seña / Monto entregado</FieldLabel>
-                <input type="number" value={saleDeposit} onChange={e => setSaleDeposit(e.target.value)} placeholder="0"
-                  className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border text-right"
-                  style={{ borderColor: 'rgba(197,160,89,0.22)' }} />
-              </div>
-            </div>
-            <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.20)' }}>
-              <div className="grid grid-cols-3 divide-x" style={{ borderColor: 'rgba(197,160,89,0.14)' }}>
-                {[
-                  { label: 'TOTAL',       value: fmt(totalNum),   color: '#C5A059' },
-                  { label: 'ENTREGADO',   value: fmt(depositNum), color: '#10b981' },
-                  { label: 'SALDO PEND.', value: fmt(balanceNum), color: balanceNum > 0 ? '#f59e0b' : '#6b7280' },
-                ].map(item => (
-                  <div key={item.label} className="flex flex-col items-center py-4 px-3">
-                    <p className="text-xs font-light tracking-widest mb-1.5" style={{ color: 'rgba(255,255,255,0.35)' }}>{item.label}</p>
-                    <p className="text-xl font-light" style={{ color: item.color }}>{item.value}</p>
-                    <p className="text-xs mt-0.5 font-light" style={{ color: 'rgba(255,255,255,0.22)' }}>Gs.</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <ReceiptUpload value={paymentReceipt} onChange={setPaymentReceipt} />
-          </div>
-        </Section>
-
-        {/* Estado */}
-        <Section title="Estado del Trabajo" icon={<Clock size={15} />}>
-          <div className="flex gap-2 flex-wrap">
-            {(Object.entries(STATUS_CFG) as [SaleStatus, { label: string; color: string }][])
-              .filter(([k]) => k !== 'cancelado')
-              .map(([k, v]) => (
-                <button key={k} onClick={() => setStatus(k)}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-light"
-                  style={{ background: status === k ? `${v.color}18` : 'rgba(255,255,255,0.03)', border: `1px solid ${status === k ? v.color + '55' : 'rgba(255,255,255,0.08)'}`, color: status === k ? v.color : 'rgba(255,255,255,0.44)' }}>
-                  {status === k && <Check size={12} />}{v.label}
-                </button>
-              ))}
-          </div>
-        </Section>
-
-        {/* Observaciones */}
-        <Section title="Observaciones" icon={<FileText size={15} />}>
-          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3}
-            placeholder="Notas internas, instrucciones especiales..."
-            className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm outline-none border resize-none font-light"
-            style={{ borderColor: 'rgba(197,160,89,0.22)' }} />
-        </Section>
-
-        <button onClick={handleSaveSale} disabled={saving}
-          className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl text-base font-medium disabled:opacity-40"
-          style={{ background: '#C5A059', color: '#000' }}>
-          {saving ? <><div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />Guardando...</> : <><Save size={18} />Guardar Venta</>}
-        </button>
-        <div className="h-6" />
       </div>
     </div>
   );
@@ -609,58 +191,25 @@ function RxInput({ label, value, onChange, placeholder }: { label: string; value
   );
 }
 
-function ReceiptUpload({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const ref = useRef<HTMLInputElement | null>(null);
-  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async ev => { const c = await compressImage(ev.target?.result as string); onChange(c); };
-    reader.readAsDataURL(file);
-  }
-  return (
-    <div>
-      <p className="text-xs font-light mb-2 tracking-wide" style={{ color: 'rgba(255,255,255,0.42)' }}>
-        Foto / comprobante de pago <span style={{ color: 'rgba(255,255,255,0.25)' }}>(opcional)</span>
-      </p>
-      {value ? (
-        <div className="relative inline-block">
-          <img src={value} alt="comprobante" className="h-28 rounded-xl object-cover border" style={{ borderColor: 'rgba(197,160,89,0.25)' }} />
-          <button onClick={() => onChange('')} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: '#ef4444' }}>
-            <X size={10} color="#fff" />
-          </button>
-        </div>
-      ) : (
-        <button onClick={() => ref.current?.click()}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-light border"
-          style={{ borderColor: 'rgba(197,160,89,0.22)', color: 'rgba(197,160,89,0.7)', background: 'rgba(197,160,89,0.04)' }}
-          onMouseEnter={e => (e.currentTarget.style.background = 'rgba(197,160,89,0.09)')}
-          onMouseLeave={e => (e.currentTarget.style.background = 'rgba(197,160,89,0.04)')}>
-          <Camera size={14} />Subir comprobante
-        </button>
-      )}
-      <input ref={ref} type="file" accept="image/*" className="hidden" onChange={handleFile} />
-    </div>
-  );
-}
-
-// ─── Tarjeta de anteojo con los 3 tipos de venta ──────────────────────────────
+// ─── Tarjeta de anteojo ───────────────────────────────────────────────────────
 function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
   eg: EyeglassItem; idx: number;
   onUpdate: (p: Partial<EyeglassItem>) => void;
   onRemove: () => void;
 }) {
-  const photoRef = useRef<HTMLInputElement | null>(null);
+  const camRef = useRef<HTMLInputElement>(null);
+  const galRef = useRef<HTMLInputElement>(null);
   const [suggestions, setSuggestions] = useState<any[]>([]);
-  const [searching, setSearching]     = useState(false);
-  const [stockFrame, setStockFrame]   = useState<any | null>(null);
+  const [searching,   setSearching]   = useState(false);
+  const [stockFrame,  setStockFrame]  = useState<any | null>(null);
+  const currentType = eg.saleType ?? 'completa';
 
-  const currentType: SaleType = eg.saleType ?? 'completa';
-
-  function handlePhoto(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handlePhoto(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return;
     const reader = new FileReader();
     reader.onload = async ev => { const c = await compressImage(ev.target?.result as string); onUpdate({ photo_url: c }); };
     reader.readAsDataURL(file);
+    e.target.value = '';
   }
 
   async function handleFrameInput(val: string) {
@@ -678,7 +227,7 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
   }
 
   function selectFrame(frame: any) {
-    onUpdate({ frame_description: frame.codigo, photo_url: frame.foto_url || '', stock_frame_id: frame.id });
+    onUpdate({ frame_description: frame.codigo, photo_url: frame.foto_url || '', stock_frame_id: frame.id, price: frame.precio ? String(frame.precio) : eg.price });
     setStockFrame(frame);
     setSuggestions([]);
   }
@@ -688,9 +237,8 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
   }
 
   const totalStockFrame = stockFrame
-    ? (stockFrame.stock_azara || 0) + (stockFrame.stock_fernando || 0) + (stockFrame.stock_caacupe || 0) + (stockFrame.stock_la_fina || 0)
+    ? (stockFrame.stock_azara||0)+(stockFrame.stock_fernando||0)+(stockFrame.stock_caacupe||0)+(stockFrame.stock_la_fina||0)
     : 0;
-
   const activeCfg = SALE_TYPES.find(t => t.id === currentType) ?? SALE_TYPES[0];
 
   return (
@@ -698,13 +246,15 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
       <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid rgba(197,160,89,0.09)' }}>
         <div className="flex items-center gap-2.5">
           <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-medium text-black shrink-0" style={{ background: '#C5A059' }}>{idx + 1}</span>
-          <span className="text-sm font-light text-white truncate max-w-[150px]">{eg.frame_description || `Anteojo ${idx + 1}`}</span>
-          {/* Badge tipo de venta en el header */}
+          <span className="text-sm font-light text-white truncate max-w-[130px]">{eg.frame_description || `Anteojo ${idx + 1}`}</span>
           <span className="px-2 py-0.5 rounded-full text-xs font-light inline-flex items-center gap-1 shrink-0"
             style={{ background: `${activeCfg.color}15`, color: activeCfg.color, border: `1px solid ${activeCfg.color}30` }}>
-            {activeCfg.icon}
-            <span className="hidden sm:inline">{activeCfg.label}</span>
+            {activeCfg.icon}<span className="hidden sm:inline">{activeCfg.label}</span>
           </span>
+          {/* Precio visible en el header si está cargado */}
+          {eg.price && (
+            <span className="text-xs font-light shrink-0" style={{ color: '#C5A059' }}>Gs. {fmt(Number(eg.price))}</span>
+          )}
         </div>
         <button onClick={onRemove} style={{ color: 'rgba(239,68,68,0.45)' }}
           onMouseEnter={e => (e.currentTarget.style.color = '#ef4444')}
@@ -714,23 +264,16 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
       </div>
 
       <div className="p-4 space-y-3">
-
-        {/* Campo armazón con buscador */}
+        {/* Armazón con buscador */}
         <div>
           <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Armazón</p>
           <div className="flex gap-3 items-start">
             <div className="flex-1 relative">
-              <input
-                type="text"
-                value={eg.frame_description}
-                onChange={e => handleFrameInput(e.target.value)}
+              <input type="text" value={eg.frame_description} onChange={e => handleFrameInput(e.target.value)}
                 placeholder="Código del stock o descripción libre"
                 className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border"
-                style={{ borderColor: eg.stock_frame_id ? 'rgba(34,197,94,0.4)' : 'rgba(197,160,89,0.22)' }}
-              />
-              {searching && (
-                <p className="text-xs mt-1 px-1" style={{ color: 'rgba(255,255,255,0.35)' }}>Buscando...</p>
-              )}
+                style={{ borderColor: eg.stock_frame_id ? 'rgba(34,197,94,0.4)' : 'rgba(197,160,89,0.22)' }} />
+              {searching && <p className="text-xs mt-1 px-1" style={{ color: 'rgba(255,255,255,0.35)' }}>Buscando...</p>}
               {suggestions.length > 0 && (
                 <div className="absolute top-full left-0 right-0 mt-1 rounded-xl overflow-hidden z-50"
                   style={{ background: '#0d0d0d', border: '1px solid rgba(197,160,89,0.25)', boxShadow: '0 8px 24px rgba(0,0,0,0.6)' }}>
@@ -742,17 +285,15 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
                         style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
                         onMouseEnter={e => (e.currentTarget.style.background = 'rgba(197,160,89,0.08)')}
                         onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                        {s.foto_url ? (
-                          <img src={s.foto_url} alt={s.nombre} className="w-10 h-8 rounded object-cover shrink-0" style={{ border: '1px solid rgba(197,160,89,0.2)' }} />
-                        ) : (
-                          <div className="w-10 h-8 rounded shrink-0 flex items-center justify-center" style={{ background: 'rgba(197,160,89,0.06)', border: '1px solid rgba(197,160,89,0.12)' }}>
-                            <Glasses size={12} style={{ color: 'rgba(197,160,89,0.4)' }} />
-                          </div>
-                        )}
+                        {s.foto_url
+                          ? <img src={s.foto_url} alt={s.nombre} className="w-10 h-8 rounded object-cover shrink-0" style={{ border: '1px solid rgba(197,160,89,0.2)' }} />
+                          : <div className="w-10 h-8 rounded shrink-0 flex items-center justify-center" style={{ background: 'rgba(197,160,89,0.06)', border: '1px solid rgba(197,160,89,0.12)' }}>
+                              <Glasses size={12} style={{ color: 'rgba(197,160,89,0.4)' }} />
+                            </div>}
                         <div className="flex-1 min-w-0">
                           <p className="text-xs text-white font-light truncate">{s.nombre}</p>
                           <p className="text-xs font-light" style={{ color: 'rgba(197,160,89,0.6)' }}>
-                            #{s.codigo} · Stock total: {tot} uds.
+                            #{s.codigo} · Stock: {tot} uds.{s.precio ? ` · Gs. ${fmt(s.precio)}` : ''}
                           </p>
                         </div>
                       </button>
@@ -761,8 +302,7 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
                 </div>
               )}
             </div>
-
-            {/* Foto */}
+            {/* Foto — cámara + galería */}
             <div className="shrink-0">
               {eg.photo_url ? (
                 <div className="relative">
@@ -773,34 +313,41 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
                   </button>
                 </div>
               ) : (
-                <button onClick={() => photoRef.current?.click()}
-                  className="w-16 h-12 rounded-lg flex flex-col items-center justify-center gap-0.5 border"
-                  style={{ borderColor: 'rgba(197,160,89,0.22)', background: 'rgba(197,160,89,0.04)', color: 'rgba(197,160,89,0.55)' }}>
-                  <Camera size={14} /><span style={{ fontSize: 9 }}>Foto</span>
-                </button>
+                <div className="flex flex-col gap-1">
+                  <button onClick={() => camRef.current?.click()}
+                    className="w-16 h-6 rounded flex items-center justify-center gap-1 border text-xs"
+                    style={{ borderColor: 'rgba(197,160,89,0.22)', background: 'rgba(197,160,89,0.06)', color: 'rgba(197,160,89,0.7)' }}>
+                    <Camera size={10} /><span style={{ fontSize: 9 }}>Cám.</span>
+                  </button>
+                  <button onClick={() => galRef.current?.click()}
+                    className="w-16 h-6 rounded flex items-center justify-center gap-1 border text-xs"
+                    style={{ borderColor: 'rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.03)', color: 'rgba(255,255,255,0.4)' }}>
+                    <Image size={10} /><span style={{ fontSize: 9 }}>Gal.</span>
+                  </button>
+                  <input ref={camRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhoto} />
+                  <input ref={galRef} type="file" accept="image/*" className="hidden" onChange={handlePhoto} />
+                </div>
               )}
-              <input ref={photoRef} type="file" accept="image/*" className="hidden" onChange={handlePhoto} />
             </div>
           </div>
-
           {eg.stock_frame_id && stockFrame && (
-            <div className="mt-2 flex items-center gap-2 px-3 py-2 rounded-lg"
-              style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.22)' }}>
+            <div className="mt-2 flex items-center gap-2 px-3 py-2 rounded-lg" style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.22)' }}>
               <Check size={12} style={{ color: '#22c55e', flexShrink: 0 }} />
               <span className="text-xs font-light" style={{ color: '#22c55e' }}>
-                {stockFrame.nombre} · Stock disponible: {totalStockFrame} uds. · Se descontará 1 al guardar
+                {stockFrame.nombre} · Stock: {totalStockFrame} uds. · Se descontará 1 al guardar
               </span>
             </div>
           )}
+        </div>
 
-          {!eg.stock_frame_id && eg.frame_description.trim() && (
-            <div className="mt-2 flex items-center gap-2 px-3 py-2 rounded-lg"
-              style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.15)' }}>
-              <span className="text-xs font-light" style={{ color: 'rgba(197,160,89,0.6)' }}>
-                Armazón propio del cliente — no descuenta stock
-              </span>
-            </div>
-          )}
+        {/* PRECIO INDIVIDUAL ← NUEVO */}
+        <div>
+          <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>
+            Precio de este anteojo (Gs.) <span style={{ color: 'rgba(255,255,255,0.25)' }}>— armazón + cristales + receta</span>
+          </p>
+          <input type="number" value={eg.price} onChange={e => onUpdate({ price: e.target.value })} placeholder="Ej: 350000"
+            className="w-full px-3 py-2.5 rounded-xl bg-transparent text-sm font-light outline-none border text-right"
+            style={{ borderColor: 'rgba(197,160,89,0.30)', color: '#C5A059' }} />
         </div>
 
         {/* Cristales y Tratamiento */}
@@ -819,32 +366,22 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
           </div>
         </div>
 
-        {/* ── Tipo de venta — 3 opciones ── */}
+        {/* Tipo de venta */}
         <div>
           <p className="text-xs font-light mb-2" style={{ color: 'rgba(255,255,255,0.4)' }}>Tipo de venta:</p>
           <div className="flex gap-2 flex-wrap">
             {SALE_TYPES.map(t => (
-              <button
-                key={t.id}
-                onClick={() => onUpdate({ saleType: t.id })}
+              <button key={t.id} onClick={() => onUpdate({ saleType: t.id })}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium"
-                style={{
-                  background: currentType === t.id ? `${t.color}18` : 'rgba(255,255,255,0.03)',
-                  border: `1px solid ${currentType === t.id ? t.color + '55' : 'rgba(255,255,255,0.08)'}`,
-                  color: currentType === t.id ? t.color : 'rgba(255,255,255,0.38)',
-                }}>
+                style={{ background: currentType===t.id ? `${t.color}18` : 'rgba(255,255,255,0.03)', border: `1px solid ${currentType===t.id ? t.color+'55' : 'rgba(255,255,255,0.08)'}`, color: currentType===t.id ? t.color : 'rgba(255,255,255,0.38)' }}>
                 {t.icon}{t.label}
               </button>
             ))}
           </div>
-          {/* Aviso cuando es reparación */}
           {currentType === 'reparacion' && (
-            <div className="mt-2 flex items-center gap-2 px-3 py-2 rounded-lg"
-              style={{ background: 'rgba(167,139,250,0.06)', border: '1px solid rgba(167,139,250,0.20)' }}>
+            <div className="mt-2 flex items-center gap-2 px-3 py-2 rounded-lg" style={{ background: 'rgba(167,139,250,0.06)', border: '1px solid rgba(167,139,250,0.20)' }}>
               <Wrench size={11} style={{ color: '#a78bfa', flexShrink: 0 }} />
-              <span className="text-xs font-light" style={{ color: 'rgba(167,139,250,0.8)' }}>
-                Reparación / Insumo — no suma en comisiones de la vendedora
-              </span>
+              <span className="text-xs font-light" style={{ color: 'rgba(167,139,250,0.8)' }}>Reparación / Insumo — no suma en comisiones</span>
             </div>
           )}
         </div>
@@ -881,7 +418,7 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
               <RxInput label="Altura" value={eg.prescription.od_altura} onChange={v => updateRx('od_altura', v)} placeholder="20" />
               <div>
                 <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.35)' }}>Obs</p>
-                <input type="text" value={eg.prescription.obs} onChange={e => updateRx('obs', e.target.value)} placeholder="Notas..."
+                <input type="text" value={eg.prescription.obs} onChange={e => updateRx('obs', e.target.value)}
                   className="w-full px-2.5 py-2 rounded-lg bg-transparent text-white text-xs font-light outline-none border"
                   style={{ borderColor: 'rgba(197,160,89,0.20)' }} />
               </div>
@@ -893,100 +430,462 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
   );
 }
 
-const DELIVERY_OPTIONS: { id: 'retiro' | 'delivery' | 'encomienda'; label: string; icon: React.ReactNode }[] = [
-  { id: 'retiro',     label: 'Retirado en local', icon: <Store size={13} /> },
-  { id: 'delivery',   label: 'Delivery',          icon: <Truck size={13} /> },
-  { id: 'encomienda', label: 'Encomienda',        icon: <Package size={13} /> },
-];
-
-function ReceiptLightbox({ url, onClose }: { url: string; onClose: () => void }) {
+// ─── Tarjeta de pago mixto ────────────────────────────────────────────────────
+function PaymentCard({ pay, idx, total, onUpdate, onRemove, canRemove }: {
+  pay: PaymentEntry; idx: number; total: number;
+  onUpdate: (p: Partial<PaymentEntry>) => void;
+  onRemove: () => void;
+  canRemove: boolean;
+}) {
+  const mc = PAY_METHODS.find(m => m.id === pay.method)?.color ?? '#C5A059';
   return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center p-6"
-      style={{ background: 'rgba(0,0,0,0.94)' }} onClick={onClose}>
-      <div className="relative max-w-lg w-full" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center gap-2 mb-3">
-          <Receipt size={14} style={{ color: '#C5A059' }} />
-          <span className="text-sm font-light tracking-wider" style={{ color: '#C5A059' }}>Comprobante de Pago</span>
+    <div className="rounded-xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.02)', border: `1px solid ${mc}28` }}>
+      <div className="flex items-center justify-between px-4 py-2.5" style={{ borderBottom: `1px solid ${mc}18` }}>
+        <div className="flex items-center gap-2">
+          <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold text-black shrink-0" style={{ background: mc }}>{idx + 1}</span>
+          <span className="text-xs font-light text-white">Pago {idx + 1}</span>
+          {pay.amount && <span className="text-xs font-light" style={{ color: mc }}>Gs. {fmt(Number(pay.amount))}</span>}
         </div>
-        <img src={url} alt="comprobante" className="w-full rounded-2xl"
-          style={{ border: '1px solid rgba(197,160,89,0.3)', maxHeight: '75vh', objectFit: 'contain' }} />
-        <button onClick={onClose} className="absolute top-8 right-3 p-2 rounded-full"
-          style={{ background: 'rgba(0,0,0,0.7)', color: 'rgba(255,255,255,0.7)' }}>
-          <X size={16} />
-        </button>
+        {canRemove && (
+          <button onClick={onRemove} style={{ color: 'rgba(239,68,68,0.5)' }}
+            onMouseEnter={e => (e.currentTarget.style.color = '#ef4444')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'rgba(239,68,68,0.5)')}>
+            <Trash2 size={13} />
+          </button>
+        )}
+      </div>
+      <div className="p-3 space-y-3">
+        {/* Método */}
+        <div className="flex gap-1.5 flex-wrap">
+          {PAY_METHODS.map(m => (
+            <button key={m.id} onClick={() => onUpdate({ method: m.id })}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-light"
+              style={{ background: pay.method===m.id ? `${m.color}18` : 'rgba(255,255,255,0.03)', border: `1px solid ${pay.method===m.id ? m.color+'44' : 'rgba(255,255,255,0.08)'}`, color: pay.method===m.id ? m.color : 'rgba(255,255,255,0.42)' }}>
+              {m.icon}{m.label}
+            </button>
+          ))}
+        </div>
+        {/* Monto */}
+        <div>
+          <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>
+            Monto <span style={{ color: 'rgba(255,255,255,0.25)' }}>(dejar vacío = todo el total)</span>
+          </p>
+          <input type="number" value={pay.amount} onChange={e => onUpdate({ amount: e.target.value })}
+            placeholder={fmt(total)}
+            className="w-full px-3 py-2 rounded-xl bg-transparent text-sm font-light outline-none border text-right"
+            style={{ borderColor: `${mc}44`, color: mc }} />
+        </div>
+        {/* Referencia para transfer/giro */}
+        {(pay.method === 'transferencia' || pay.method === 'giro') && (
+          <input type="text" value={pay.reference} onChange={e => onUpdate({ reference: e.target.value })}
+            placeholder="Banco / referencia / número de transferencia"
+            className="w-full px-3 py-2 rounded-xl bg-transparent text-white text-xs font-light outline-none border"
+            style={{ borderColor: 'rgba(255,255,255,0.12)' }} />
+        )}
+        {/* Comprobantes múltiples */}
+        <ReceiptMulti receipts={pay.receipts} onChange={r => onUpdate({ receipts: r })} />
       </div>
     </div>
   );
 }
 
-function PaymentHistory({ saleId, isLocal, isAdmin }: { saleId: string; isLocal?: boolean; isAdmin?: boolean }) {
-  type PayRow = { id: string; amount: number; method: string; paid_at: string; reference: string; receipt_url?: string; branches: { name: string } | null };
-  const [payments, setPayments] = useState<PayRow[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [viewReceipt, setViewReceipt] = useState<string | null>(null);
+// ─── Página principal ─────────────────────────────────────────────────────────
+export default function POSPage() {
+  const { profile } = useAuth();
+  const [saleNumber] = useState(`VTA-${Date.now().toString().slice(-8)}`);
+  const today = new Date().toLocaleDateString('es-PY', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+  const [nFirst,  setNFirst]  = useState('');
+  const [nLast,   setNLast]   = useState('');
+  const [nCi,     setNCi]     = useState('');
+  const [nPhone,  setNPhone]  = useState('');
+
+  const [saleBranch, setSaleBranch] = useState('');
+  const [delBranch,  setDelBranch]  = useState('');
+  const [payBranch,  setPayBranch]  = useState('');
+
+  const [channel,    setChannel]    = useState<Channel>('local');
+  const [delType,    setDelType]    = useState<DeliveryType>('retiro');
+  const [delAddress, setDelAddress] = useState('');
+  const [delRef,     setDelRef]     = useState('');
+  const [delPhone,   setDelPhone]   = useState('');
+  const [shipCo,     setShipCo]     = useState('');
+  const [shipCity,   setShipCity]   = useState('');
+  const [shipRec,    setShipRec]    = useState('');
+  const [shipPhone,  setShipPhone]  = useState('');
+  const [shipTrack,  setShipTrack]  = useState('');
+
+  const [eyeglasses, setEyeglasses] = useState<EyeglassItem[]>([]);
+  const [payments,   setPayments]   = useState<PaymentEntry[]>([newPayment()]);
+
+  const [status, setStatus] = useState<SaleStatus>('pendiente');
+  const [notes,  setNotes]  = useState('');
+
+  const [saving,  setSaving]  = useState(false);
+  const [saved,   setSaved]   = useState('');
+  const [saveErr, setSaveErr] = useState('');
+
+  const [saleTotal,   setSaleTotal]   = useState('');
+  const [saleDeposit, setSaleDeposit] = useState('');
+  const totalNum   = parseFloat(saleTotal)   || 0;
+  const depositNum = parseFloat(saleDeposit) || 0;
+  const balanceNum = Math.max(0, totalNum - depositNum);
+
+  // Suma de precios por armazón para comparar con el total
+  const sumPrices = eyeglasses.reduce((s, eg) => s + (parseFloat(eg.price) || 0), 0);
 
   useEffect(() => {
-    if (isLocal) {
-      const numId = Number(saleId.replace('local-', ''));
-      const rows: PayRow[] = getPayments()
-        .filter((p: any) => p.saleId === numId)
-        .sort((a: any, b: any) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime())
-        .map((p: any) => ({
-          id: String(p.id), amount: p.monto, method: p.metodo, paid_at: p.fecha,
-          reference: p.tipo === 'abono' ? 'Abono' : 'Seña inicial',
-          receipt_url: p.receipt_url ?? undefined,
-          branches: p.sucursal ? { name: p.sucursal } : null,
-        }));
-      setPayments(rows); setLoading(false);
-    } else {
-      setPayments([]); setLoading(false);
+    if (profile?.branch_id) {
+      const bid = profile.branch_id.toLowerCase().replace(/ /g,'_').replace(/é/g,'e').replace(/á/g,'a');
+      setSaleBranch(bid); setDelBranch(bid); setPayBranch(bid);
     }
-  }, [saleId, isLocal]);
+  }, [profile?.branch_id]);
 
-  if (loading) return <div className="h-4 w-20 rounded" />;
-  if (payments.length === 0) return <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.28)' }}>Sin pagos registrados</p>;
+  function addEyeglass()           { setEyeglasses(prev => [...prev, newEyeglass()]); }
+  function removeEyeglass(id: string) { setEyeglasses(prev => prev.filter(eg => eg._id !== id)); }
+  function updateEg(id: string, patch: Partial<EyeglassItem>) {
+    setEyeglasses(prev => prev.map(eg => eg._id === id ? { ...eg, ...patch } : eg));
+  }
+  function updatePay(id: string, patch: Partial<PaymentEntry>) {
+    setPayments(prev => prev.map(p => p._id === id ? { ...p, ...patch } : p));
+  }
+  function addPayment()            { setPayments(prev => [...prev, newPayment()]); }
+  function removePayment(id: string) { setPayments(prev => prev.filter(p => p._id !== id)); }
 
-  const total = payments.reduce((s, p) => s + Number(p.amount), 0);
+  async function handleSaveSale() {
+    setSaveErr('');
+    if (!nFirst.trim()) { setSaveErr('El campo Nombre es obligatorio.'); return; }
+    if (!nLast.trim())  { setSaveErr('El campo Apellido es obligatorio.'); return; }
+    if (!totalNum)      { setSaveErr('El campo Total venta es obligatorio.'); return; }
+    if (!saleBranch)    { setSaveErr('Seleccioná la Sucursal de venta.'); return; }
+    if (!delBranch)     { setSaveErr('Seleccioná la Sucursal de entrega.'); return; }
+    if (!payBranch)     { setSaveErr('Seleccioná la Sucursal de cobro.'); return; }
+
+    setSaving(true);
+    try {
+      const sellerName     = profile?.full_name ?? 'Sin nombre';
+      const saleId         = Date.now();
+      const saleNum        = `VTA-${saleId}`;
+      const primaryMethod  = payments[0].method;
+      const saleBranchName = FIXED_BRANCHES.find(b => b.id === saleBranch)?.name ?? saleBranch;
+      const delBranchName  = FIXED_BRANCHES.find(b => b.id === delBranch)?.name  ?? delBranch;
+      const payBranchName  = FIXED_BRANCHES.find(b => b.id === payBranch)?.name  ?? payBranch;
+
+      // Todos los comprobantes de todos los pagos juntos (para receipt_url legacy)
+      const allReceipts = payments.flatMap(p => p.receipts);
+
+      await saveToStorage({
+        id: saleId,
+        fecha: new Date().toISOString(),
+        cliente: { nombre: nFirst.trim(), apellido: nLast.trim(), telefono: nPhone.trim(), ci: nCi.trim() },
+        sucursalVenta:   saleBranchName,
+        sucursalEntrega: delBranchName,
+        sucursalCobro:   payBranchName,
+        vendedora:       sellerName,
+        total:           totalNum,
+        sena:            depositNum,
+        saldo:           balanceNum,
+        metodoPago:      primaryMethod,
+        estadoTrabajo:   status,
+        anteojos:        eyeglasses,
+        observaciones:   notes,
+        receipt_url:     allReceipts[0] || undefined,
+        // Campos nuevos guardados en anteojos y pagos
+        channel,
+        deliveryType: delType,
+        deliveryAddress: delAddress || undefined,
+        pagos: payments.map(p => ({
+          metodo:    p.method,
+          monto:     parseFloat(p.amount) || totalNum,
+          referencia: p.reference || undefined,
+          receipts:  p.receipts,
+        })),
+      } as any);
+
+      // Descontar stock
+      for (const eg of eyeglasses) {
+        if (eg.stock_frame_id) {
+          const { data: frame } = await supabase.from('armazones').select('*').eq('id', eg.stock_frame_id).single();
+          if (frame) {
+            const sedeKey = (() => {
+              const n = saleBranchName.toLowerCase().replace(/á/g,'a').replace(/é/g,'e').replace(/ú/g,'u');
+              if (n.includes('azara'))    return 'stock_azara';
+              if (n.includes('fernando')) return 'stock_fernando';
+              if (n.includes('caacupe') || n.includes('caacupé')) return 'stock_caacupe';
+              if (n.includes('fina'))     return 'stock_la_fina';
+              return 'stock_azara';
+            })();
+            await supabase.from('armazones').update({ [sedeKey]: Math.max(0, (frame[sedeKey]||0) - 1), updated_at: new Date().toISOString() }).eq('id', eg.stock_frame_id);
+            await supabase.from('stock_movimientos').insert([{ armazon_id: eg.stock_frame_id, armazon_nombre: frame.nombre, armazon_codigo: frame.codigo, cantidad: 1, tipo: 'venta', sucursal: saleBranchName, vendedora: sellerName, venta_id: String(saleId) }]);
+          }
+        }
+      }
+
+      setSaved(`Venta ${saleNum} guardada con éxito.`);
+      resetForm();
+      window.dispatchEvent(new Event('optica_ventas_updated'));
+      setTimeout(() => setSaved(''), 6000);
+    } catch (err: any) {
+      setSaveErr(`Error al guardar: ${err?.message ?? 'Error desconocido'}.`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function resetForm() {
+    setNFirst(''); setNLast(''); setNCi(''); setNPhone('');
+    setEyeglasses([]);
+    setSaleTotal(''); setSaleDeposit('');
+    setPayments([newPayment()]);
+    setNotes(''); setStatus('pendiente');
+    setChannel('local'); setDelType('retiro');
+    setDelAddress(''); setDelRef(''); setDelPhone('');
+    setShipCo(''); setShipCity(''); setShipRec(''); setShipPhone(''); setShipTrack('');
+    setSaveErr('');
+    if (profile?.branch_id) {
+      const bid = profile.branch_id.toLowerCase().replace(/ /g,'_').replace(/é/g,'e').replace(/á/g,'a');
+      setSaleBranch(bid); setDelBranch(bid); setPayBranch(bid);
+    }
+  }
+
+  const branchOpts = [
+    <option key="" value="" style={{ background: '#0a0908' }}>— Seleccionar —</option>,
+    ...FIXED_BRANCHES.map(b => <option key={b.id} value={b.id} style={{ background: '#0a0908' }}>{b.name}</option>),
+  ];
+
   return (
-    <>
-      {viewReceipt && <ReceiptLightbox url={viewReceipt} onClose={() => setViewReceipt(null)} />}
-      <div className="space-y-1.5">
-        <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.45)' }}>Historial de abonos</p>
-        {payments.map((p, i) => {
-          const mc = PAY_METHODS.find(m => m.id === p.method)?.color ?? '#C5A059';
-          const dt = new Date(p.paid_at);
-          return (
-            <div key={p.id} className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.05)', background: 'rgba(255,255,255,0.015)' }}>
-              <div className="flex items-center gap-2 px-3 py-2 text-xs font-light">
-                <span className="shrink-0 w-4 h-4 rounded-full flex items-center justify-center font-medium text-black" style={{ background: mc, fontSize: 9 }}>{i + 1}</span>
-                <span className="px-2 py-0.5 rounded-full shrink-0" style={{ background: `${mc}18`, color: mc }}>{p.method}</span>
-                <span className="text-white font-medium">Gs. {Number(p.amount).toLocaleString()}</span>
-                {p.reference && <span className="truncate" style={{ color: 'rgba(255,255,255,0.38)' }}>{p.reference}</span>}
-                <span className="ml-auto shrink-0" style={{ color: 'rgba(255,255,255,0.28)' }}>
-                  {dt.toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' })}
-                  {' '}<span style={{ color: 'rgba(255,255,255,0.18)' }}>{dt.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}</span>
-                </span>
-              </div>
-              {isAdmin && p.receipt_url && (
-                <div className="px-3 pb-2 flex items-center gap-2" style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
-                  <Receipt size={9} style={{ color: 'rgba(197,160,89,0.45)', flexShrink: 0 }} />
-                  <button onClick={() => setViewReceipt(p.receipt_url!)}
-                    className="relative group rounded-lg overflow-hidden shrink-0" style={{ width: 44, height: 44, border: '1px solid rgba(197,160,89,0.30)' }}>
-                    <img src={p.receipt_url} alt="comprobante" className="w-full h-full object-cover" />
-                    <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" style={{ background: 'rgba(0,0,0,0.6)' }}>
-                      <ZoomIn size={12} style={{ color: '#C5A059' }} />
-                    </div>
-                  </button>
-                </div>
-              )}
+    <div className="min-h-screen">
+      <div className="flex-1 min-w-0 overflow-y-auto p-6 space-y-4" style={{ maxWidth: 680 }}>
+
+        {/* Header */}
+        <div className="flex items-start justify-between">
+          <div>
+            <h1 className="text-2xl font-light tracking-wider text-white">Nueva Venta</h1>
+            <p className="text-xs font-light mt-1 capitalize tracking-wide" style={{ color: 'rgba(197,160,89,0.65)' }}>{today}</p>
+          </div>
+          <div className="flex items-center gap-3 mt-1">
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-light"
+              style={{ background: 'rgba(197,160,89,0.08)', border: '1px solid rgba(197,160,89,0.2)', color: '#C5A059' }}>
+              <Hash size={11} />{saleNumber}
             </div>
-          );
-        })}
-        <div className="flex justify-between pt-1.5 border-t text-xs font-light" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
-          <span style={{ color: 'rgba(255,255,255,0.35)' }}>Total abonado</span>
-          <span style={{ color: '#10b981' }}>Gs. {total.toLocaleString()}</span>
+            <button onClick={resetForm}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-light"
+              style={{ color: 'rgba(239,68,68,0.65)', border: '1px solid rgba(239,68,68,0.2)' }}>
+              <X size={13} />Cancelar
+            </button>
+          </div>
         </div>
+
+        {saveErr && (
+          <div className="flex items-center gap-3 p-3.5 rounded-xl border text-sm font-light"
+            style={{ background: 'rgba(239,68,68,0.07)', borderColor: 'rgba(239,68,68,0.28)', color: '#ef4444' }}>
+            <AlertCircle size={15} />{saveErr}
+          </div>
+        )}
+        {saved && (
+          <div className="flex items-center gap-3 p-3.5 rounded-xl border text-sm font-light"
+            style={{ background: 'rgba(16,185,129,0.07)', borderColor: 'rgba(16,185,129,0.28)', color: '#10b981' }}>
+            <Check size={15} />{saved}
+          </div>
+        )}
+
+        {/* Cliente */}
+        <Section title="Cliente" icon={<User size={15} />}>
+          <div className="grid grid-cols-2 gap-3">
+            <div><FieldLabel>Nombre <span style={{ color: '#C5A059' }}>*</span></FieldLabel><GoldInput value={nFirst} onChange={setNFirst} placeholder="Nombre" /></div>
+            <div><FieldLabel>Apellido <span style={{ color: '#C5A059' }}>*</span></FieldLabel><GoldInput value={nLast} onChange={setNLast} placeholder="Apellido" /></div>
+            <div><FieldLabel>Teléfono / WhatsApp</FieldLabel><GoldInput value={nPhone} onChange={setNPhone} placeholder="0981-000000" /></div>
+            <div><FieldLabel>C.I.</FieldLabel><GoldInput value={nCi} onChange={setNCi} placeholder="Número de cédula" /></div>
+          </div>
+        </Section>
+
+        {/* Sucursales */}
+        <Section title="Sucursales" icon={<Building2 size={15} />}>
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl" style={{ background: 'rgba(197,160,89,0.06)', border: '1px solid rgba(197,160,89,0.20)' }}>
+              <User size={13} style={{ color: '#C5A059', flexShrink: 0 }} />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>Vendedora</p>
+                <p className="text-sm text-white font-light truncate">{profile?.full_name ?? '—'}</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div><FieldLabel>Sucursal de venta *</FieldLabel><GoldSelect value={saleBranch} onChange={setSaleBranch}>{branchOpts}</GoldSelect></div>
+              <div><FieldLabel>Sucursal de entrega *</FieldLabel><GoldSelect value={delBranch} onChange={setDelBranch}>{branchOpts}</GoldSelect></div>
+              <div><FieldLabel>Sucursal de cobro *</FieldLabel><GoldSelect value={payBranch} onChange={setPayBranch}>{branchOpts}</GoldSelect></div>
+            </div>
+          </div>
+        </Section>
+
+        {/* Canal y Entrega */}
+        <Section title="Canal de Venta y Entrega" icon={<Truck size={15} />}>
+          <div className="space-y-4">
+            <div className="flex gap-2">
+              {([{ v:'local' as const, l:'Local', ic:<Store size={13}/> }, { v:'online' as const, l:'Online', ic:<ShoppingBag size={13}/> }]).map(opt => (
+                <button key={opt.v} onClick={() => setChannel(opt.v)}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-light flex-1 justify-center"
+                  style={{ background: channel===opt.v ? 'rgba(197,160,89,0.14)' : 'rgba(255,255,255,0.03)', border: `1px solid ${channel===opt.v ? 'rgba(197,160,89,0.44)' : 'rgba(255,255,255,0.08)'}`, color: channel===opt.v ? '#C5A059' : 'rgba(255,255,255,0.44)' }}>
+                  {opt.ic}{opt.l}
+                </button>
+              ))}
+            </div>
+            <div>
+              <FieldLabel>Tipo de entrega</FieldLabel>
+              <div className="flex gap-2 flex-wrap">
+                {([
+                  { v:'retiro' as const,     l:'Retiro en sucursal', ic:<Store   size={12}/> },
+                  { v:'delivery' as const,   l:'Delivery',           ic:<MapPin  size={12}/> },
+                  { v:'encomienda' as const, l:'Encomienda',         ic:<Package size={12}/> },
+                ]).map(opt => (
+                  <button key={opt.v} onClick={() => setDelType(opt.v)}
+                    className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-light"
+                    style={{ background: delType===opt.v ? 'rgba(197,160,89,0.14)' : 'rgba(255,255,255,0.03)', border: `1px solid ${delType===opt.v ? 'rgba(197,160,89,0.44)' : 'rgba(255,255,255,0.08)'}`, color: delType===opt.v ? '#C5A059' : 'rgba(255,255,255,0.44)' }}>
+                    {opt.ic}{opt.l}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {delType === 'retiro' && <div><FieldLabel>Sucursal de retiro</FieldLabel><GoldSelect value={delBranch} onChange={setDelBranch}>{branchOpts}</GoldSelect></div>}
+            {delType === 'delivery' && (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2"><FieldLabel>Dirección</FieldLabel><GoldInput value={delAddress} onChange={setDelAddress} placeholder="Calle y número" /></div>
+                <div><FieldLabel>Referencia</FieldLabel><GoldInput value={delRef} onChange={setDelRef} placeholder="Entre calles..." /></div>
+                <div><FieldLabel>Teléfono</FieldLabel><GoldInput value={delPhone} onChange={setDelPhone} placeholder="0981-000000" /></div>
+              </div>
+            )}
+            {delType === 'encomienda' && (
+              <div className="grid grid-cols-2 gap-3">
+                <div><FieldLabel>Empresa</FieldLabel><GoldInput value={shipCo} onChange={setShipCo} placeholder="Rysa, Cometa..." /></div>
+                <div><FieldLabel>Ciudad destino</FieldLabel><GoldInput value={shipCity} onChange={setShipCity} placeholder="Ciudad" /></div>
+                <div><FieldLabel>Nombre receptor</FieldLabel><GoldInput value={shipRec} onChange={setShipRec} placeholder="Nombre completo" /></div>
+                <div><FieldLabel>Teléfono</FieldLabel><GoldInput value={shipPhone} onChange={setShipPhone} placeholder="0981-000000" /></div>
+                <div className="col-span-2"><FieldLabel>Número de guía (opcional)</FieldLabel><GoldInput value={shipTrack} onChange={setShipTrack} placeholder="Número de seguimiento" /></div>
+              </div>
+            )}
+          </div>
+        </Section>
+
+        {/* Anteojos */}
+        <Section title="Anteojos" icon={<Glasses size={15} />}>
+          <div className="space-y-3">
+            {eyeglasses.map((eg, idx) => (
+              <SimpleEyeglassCard key={eg._id} eg={eg} idx={idx} onUpdate={patch => updateEg(eg._id, patch)} onRemove={() => removeEyeglass(eg._id)} />
+            ))}
+            {/* Resumen de precios si hay más de 1 armazón */}
+            {eyeglasses.length > 1 && eyeglasses.some(eg => eg.price) && (
+              <div className="rounded-xl px-4 py-3 space-y-1.5" style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.15)' }}>
+                <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.6)' }}>Resumen de precios</p>
+                {eyeglasses.map((eg, i) => eg.price ? (
+                  <div key={eg._id} className="flex justify-between text-xs font-light">
+                    <span style={{ color: 'rgba(255,255,255,0.5)' }}>Anteojo {i + 1}: {eg.frame_description || '—'}</span>
+                    <span style={{ color: '#C5A059' }}>Gs. {fmt(Number(eg.price))}</span>
+                  </div>
+                ) : null)}
+                <div className="flex justify-between text-xs font-medium border-t pt-1.5" style={{ borderColor: 'rgba(197,160,89,0.15)' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.6)' }}>Suma parcial</span>
+                  <span style={{ color: '#C5A059' }}>Gs. {fmt(sumPrices)}</span>
+                </div>
+              </div>
+            )}
+            <button onClick={addEyeglass}
+              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-sm font-light border-dashed border"
+              style={{ borderColor: 'rgba(197,160,89,0.30)', color: '#C5A059', background: 'rgba(197,160,89,0.03)' }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(197,160,89,0.09)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'rgba(197,160,89,0.03)')}>
+              <Plus size={15} />Agregar anteojo
+            </button>
+          </div>
+        </Section>
+
+        {/* Totales */}
+        <Section title="Totales" icon={<Banknote size={15} />} accent>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <FieldLabel>Total venta *</FieldLabel>
+                <input type="number" value={saleTotal} onChange={e => setSaleTotal(e.target.value)} placeholder="500000"
+                  className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border text-right"
+                  style={{ borderColor: 'rgba(197,160,89,0.30)' }} />
+              </div>
+              <div>
+                <FieldLabel>Seña / Monto entregado</FieldLabel>
+                <input type="number" value={saleDeposit} onChange={e => setSaleDeposit(e.target.value)} placeholder="0"
+                  className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border text-right"
+                  style={{ borderColor: 'rgba(197,160,89,0.22)' }} />
+              </div>
+            </div>
+            <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.20)' }}>
+              <div className="grid grid-cols-3 divide-x" style={{ borderColor: 'rgba(197,160,89,0.14)' }}>
+                {[
+                  { label: 'TOTAL',       value: fmt(totalNum),   color: '#C5A059' },
+                  { label: 'ENTREGADO',   value: fmt(depositNum), color: '#10b981' },
+                  { label: 'SALDO PEND.', value: fmt(balanceNum), color: balanceNum > 0 ? '#f59e0b' : '#6b7280' },
+                ].map(item => (
+                  <div key={item.label} className="flex flex-col items-center py-4 px-3">
+                    <p className="text-xs font-light tracking-widest mb-1.5" style={{ color: 'rgba(255,255,255,0.35)' }}>{item.label}</p>
+                    <p className="text-xl font-light" style={{ color: item.color }}>{item.value}</p>
+                    <p className="text-xs mt-0.5 font-light" style={{ color: 'rgba(255,255,255,0.22)' }}>Gs.</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </Section>
+
+        {/* Pagos mixtos */}
+        <Section title="Métodos de Pago" icon={<Banknote size={15} />}>
+          <div className="space-y-3">
+            <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>
+              Podés agregar múltiples métodos. Ej: 100k efectivo + 300k transferencia.
+            </p>
+            {payments.map((pay, idx) => (
+              <PaymentCard
+                key={pay._id} pay={pay} idx={idx} total={totalNum}
+                onUpdate={patch => updatePay(pay._id, patch)}
+                onRemove={() => removePayment(pay._id)}
+                canRemove={payments.length > 1}
+              />
+            ))}
+            <button onClick={addPayment}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-light border-dashed border"
+              style={{ borderColor: 'rgba(197,160,89,0.25)', color: 'rgba(197,160,89,0.7)', background: 'rgba(197,160,89,0.02)' }}>
+              <Plus size={13} />Agregar otro método de pago
+            </button>
+          </div>
+        </Section>
+
+        {/* Estado */}
+        <Section title="Estado del Trabajo" icon={<Clock size={15} />}>
+          <div className="flex gap-2 flex-wrap">
+            {(Object.entries(STATUS_CFG) as [SaleStatus, { label: string; color: string }][])
+              .filter(([k]) => k !== 'cancelado')
+              .map(([k, v]) => (
+                <button key={k} onClick={() => setStatus(k)}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-light"
+                  style={{ background: status===k ? `${v.color}18` : 'rgba(255,255,255,0.03)', border: `1px solid ${status===k ? v.color+'55' : 'rgba(255,255,255,0.08)'}`, color: status===k ? v.color : 'rgba(255,255,255,0.44)' }}>
+                  {status === k && <Check size={12} />}{v.label}
+                </button>
+              ))}
+          </div>
+        </Section>
+
+        {/* Observaciones */}
+        <Section title="Observaciones" icon={<FileText size={15} />}>
+          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3}
+            placeholder="Notas internas, instrucciones especiales..."
+            className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm outline-none border resize-none font-light"
+            style={{ borderColor: 'rgba(197,160,89,0.22)' }} />
+        </Section>
+
+        <button onClick={handleSaveSale} disabled={saving}
+          className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl text-base font-medium disabled:opacity-40"
+          style={{ background: '#C5A059', color: '#000' }}>
+          {saving
+            ? <><div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />Guardando...</>
+            : <><Save size={18} />Guardar Venta</>}
+        </button>
+        <div className="h-6" />
       </div>
-    </>
+    </div>
   );
 }
