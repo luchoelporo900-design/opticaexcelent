@@ -141,6 +141,7 @@ export default function LabPage() {
   const [branchFilter, setBranchFilter] = useState('todos');
   const [statusFilter, setStatusFilter] = useState<string>('todos');
   const [sellerFilter, setSellerFilter] = useState('todos');
+  const [dateFilter,   setDateFilter]   = useState<'hoy' | 'semana' | 'mes' | 'todos'>('todos');
   const [search,       setSearch]       = useState('');
   const [expandedId,   setExpandedId]   = useState<string | null>(null);
   const [notes,        setNotes]        = useState<Record<string, string>>({});
@@ -193,6 +194,21 @@ export default function LabPage() {
     window.dispatchEvent(new Event('optica_ventas_updated'));
   }
 
+  // ── Filtro por fecha ──────────────────────────────────────────────────────
+  function inPeriod(fechaStr: string) {
+    const fecha = new Date(fechaStr);
+    const now   = new Date();
+    if (dateFilter === 'hoy') return fecha.toDateString() === now.toDateString();
+    if (dateFilter === 'semana') {
+      const lunes = new Date(now);
+      lunes.setDate(now.getDate() - (now.getDay() === 0 ? 6 : now.getDay() - 1));
+      lunes.setHours(0, 0, 0, 0);
+      return fecha >= lunes;
+    }
+    if (dateFilter === 'mes') return fecha.getMonth() === now.getMonth() && fecha.getFullYear() === now.getFullYear();
+    return true;
+  }
+
   const allSellers = [...new Set(orders.map(o => o.seller_name).filter(Boolean))].sort();
 
   const roleFiltered = orders.filter(o => {
@@ -207,6 +223,7 @@ export default function LabPage() {
     if (statusFilter !== 'todos' && o.status !== statusFilter) return false;
     if (branchFilter !== 'todos' && o.branch_name !== branchFilter) return false;
     if (sellerFilter !== 'todos' && o.seller_name !== sellerFilter) return false;
+    if (!inPeriod(o.created_at)) return false;
     if (search) {
       const q      = normalize(search);
       const qNum   = search.replace(/\D/g, '');
@@ -220,11 +237,24 @@ export default function LabPage() {
     return true;
   });
 
-  const countByStatus = (s: string) => roleFiltered.filter(o => o.status === s).length;
-  const hasFilters = search || branchFilter !== 'todos' || sellerFilter !== 'todos' || statusFilter !== 'todos';
+  // Contadores por período para los botones
+  const countForPeriod = (period: 'hoy' | 'semana' | 'mes' | 'todos') => {
+    return roleFiltered.filter(o => {
+      if (!visibleStatuses.includes(o.status)) return false;
+      const fecha = new Date(o.created_at);
+      const now   = new Date();
+      if (period === 'hoy')    return fecha.toDateString() === now.toDateString();
+      if (period === 'semana') { const l = new Date(now); l.setDate(now.getDate()-(now.getDay()===0?6:now.getDay()-1)); l.setHours(0,0,0,0); return fecha >= l; }
+      if (period === 'mes')    return fecha.getMonth()===now.getMonth()&&fecha.getFullYear()===now.getFullYear();
+      return true;
+    }).length;
+  };
+
+  const countByStatus = (s: string) => roleFiltered.filter(o => o.status === s && inPeriod(o.created_at)).length;
+  const hasFilters = search || branchFilter !== 'todos' || sellerFilter !== 'todos' || statusFilter !== 'todos' || dateFilter !== 'todos';
 
   function clearFilters() {
-    setSearch(''); setBranchFilter('todos'); setSellerFilter('todos'); setStatusFilter('todos');
+    setSearch(''); setBranchFilter('todos'); setSellerFilter('todos'); setStatusFilter('todos'); setDateFilter('todos');
   }
 
   return (
@@ -240,6 +270,7 @@ export default function LabPage() {
         </div>
       )}
 
+      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl text-white font-light tracking-wider">Panel de Laboratorio</h1>
@@ -261,6 +292,7 @@ export default function LabPage() {
         </div>
       </div>
 
+      {/* KPIs — ahora filtrados por período */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {(isVendedora ? ['enviado', 'proceso', 'listo'] : STATUS_FLOW).map(s => {
           const cfg   = statusConfig[s as LabStatus];
@@ -276,6 +308,27 @@ export default function LabPage() {
         })}
       </div>
 
+      {/* Filtros por fecha */}
+      <div className="flex gap-2 flex-wrap">
+        {([
+          { id: 'hoy'    as const, label: `Hoy (${countForPeriod('hoy')})` },
+          { id: 'semana' as const, label: `Esta semana (${countForPeriod('semana')})` },
+          { id: 'mes'    as const, label: `Este mes (${countForPeriod('mes')})` },
+          { id: 'todos'  as const, label: `Todos (${countForPeriod('todos')})` },
+        ]).map(opt => (
+          <button key={opt.id} onClick={() => setDateFilter(opt.id)}
+            className="px-3 py-1.5 rounded-lg text-xs font-light"
+            style={{
+              background: dateFilter === opt.id ? 'rgba(197,160,89,0.15)' : 'rgba(255,255,255,0.03)',
+              border:     `1px solid ${dateFilter === opt.id ? 'rgba(197,160,89,0.4)' : 'rgba(255,255,255,0.08)'}`,
+              color:      dateFilter === opt.id ? '#C5A059' : 'rgba(255,255,255,0.4)',
+            }}>
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Filtros de búsqueda */}
       <div className="flex flex-wrap gap-3 items-center">
         <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'rgba(197,160,89,0.5)' }} />
