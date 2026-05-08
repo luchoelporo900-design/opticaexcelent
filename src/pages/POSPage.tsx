@@ -32,7 +32,14 @@ type EyeglassItem = {
   price: string;
   saleType: SaleType;
   stock_frame_id?: string;
-  receta_a_confirmar?: boolean;   // ← NUEVO
+  receta_a_confirmar?: boolean;
+};
+
+type InsumoItem = {
+  _id: string;
+  descripcion: string;
+  precio: string;
+  photo_url: string;
 };
 
 type PaymentEntry = {
@@ -83,8 +90,11 @@ function newEyeglass(): EyeglassItem {
   return {
     _id: uid(), frame_description:'', photo_url:'', crystals:'', treatments:'',
     showReceta: false, prescription: emptyRx(), price:'', saleType:'completa',
-    receta_a_confirmar: false,   // ← NUEVO
+    receta_a_confirmar: false,
   };
+}
+function newInsumo(): InsumoItem {
+  return { _id: uid(), descripcion: '', precio: '', photo_url: '' };
 }
 function newPayment(): PaymentEntry {
   return { _id: uid(), method: 'efectivo', amount: '', reference: '', receipts: [] };
@@ -266,7 +276,6 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
       </div>
 
       <div className="p-4 space-y-3">
-        {/* Armazón con buscador */}
         <div>
           <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Armazón</p>
           <div className="flex gap-3 items-start">
@@ -341,7 +350,6 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
           )}
         </div>
 
-        {/* Precio individual */}
         <div>
           <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>
             Precio de este anteojo (Gs.) <span style={{ color: 'rgba(255,255,255,0.25)' }}>— armazón + cristales + receta</span>
@@ -351,7 +359,6 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
             style={{ borderColor: 'rgba(197,160,89,0.30)', color: '#C5A059' }} />
         </div>
 
-        {/* Cristales y Tratamiento */}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Cristales</p>
@@ -367,7 +374,6 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
           </div>
         </div>
 
-        {/* Tipo de venta */}
         <div>
           <p className="text-xs font-light mb-2" style={{ color: 'rgba(255,255,255,0.4)' }}>Tipo de venta:</p>
           <div className="flex gap-2 flex-wrap">
@@ -387,9 +393,7 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
           )}
         </div>
 
-        {/* ── RECETA — dos botones ── */}
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Completar receta */}
           <button
             onClick={() => onUpdate({ showReceta: !eg.showReceta, receta_a_confirmar: false })}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light"
@@ -397,8 +401,6 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
             {eg.showReceta ? <ChevronUp size={11} /> : <Plus size={11} />}
             {eg.showReceta ? 'Ocultar receta' : '+ Completar receta'}
           </button>
-
-          {/* Receta a confirmar — solo visible cuando la receta está oculta */}
           {!eg.showReceta && (
             <button
               onClick={() => onUpdate({ receta_a_confirmar: !eg.receta_a_confirmar, showReceta: false })}
@@ -419,26 +421,26 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
             <div>
               <p className="text-xs font-light mb-2" style={{ color: '#C5A059' }}>OD — Ojo Derecho</p>
               <div className="grid grid-cols-3 gap-2">
-                <RxInput label="Esfera"   value={eg.prescription.od_esfera}   onChange={v => updateRx('od_esfera', v)}   placeholder="-2.00" />
-                <RxInput label="Cilindro" value={eg.prescription.od_cilindro} onChange={v => updateRx('od_cilindro', v)} placeholder="-0.50" />
-                <RxInput label="Eje"      value={eg.prescription.od_eje}      onChange={v => updateRx('od_eje', v)}      placeholder="180" />
+                <RxInput label="Esfera"   value={eg.prescription.od_esfera}   onChange={v => onUpdate({ prescription: { ...eg.prescription, od_esfera: v } })}   placeholder="-2.00" />
+                <RxInput label="Cilindro" value={eg.prescription.od_cilindro} onChange={v => onUpdate({ prescription: { ...eg.prescription, od_cilindro: v } })} placeholder="-0.50" />
+                <RxInput label="Eje"      value={eg.prescription.od_eje}      onChange={v => onUpdate({ prescription: { ...eg.prescription, od_eje: v } })}      placeholder="180" />
               </div>
             </div>
             <div>
               <p className="text-xs font-light mb-2" style={{ color: '#C5A059' }}>OI — Ojo Izquierdo</p>
               <div className="grid grid-cols-3 gap-2">
-                <RxInput label="Esfera"   value={eg.prescription.oi_esfera}   onChange={v => updateRx('oi_esfera', v)}   placeholder="-1.75" />
-                <RxInput label="Cilindro" value={eg.prescription.oi_cilindro} onChange={v => updateRx('oi_cilindro', v)} placeholder="-0.25" />
-                <RxInput label="Eje"      value={eg.prescription.oi_eje}      onChange={v => updateRx('oi_eje', v)}      placeholder="175" />
+                <RxInput label="Esfera"   value={eg.prescription.oi_esfera}   onChange={v => onUpdate({ prescription: { ...eg.prescription, oi_esfera: v } })}   placeholder="-1.75" />
+                <RxInput label="Cilindro" value={eg.prescription.oi_cilindro} onChange={v => onUpdate({ prescription: { ...eg.prescription, oi_cilindro: v } })} placeholder="-0.25" />
+                <RxInput label="Eje"      value={eg.prescription.oi_eje}      onChange={v => onUpdate({ prescription: { ...eg.prescription, oi_eje: v } })}      placeholder="175" />
               </div>
             </div>
             <div className="grid grid-cols-4 gap-2">
-              <RxInput label="ADD"    value={eg.prescription.add}       onChange={v => updateRx('add', v)}       placeholder="+2.00" />
-              <RxInput label="DP"     value={eg.prescription.dp}        onChange={v => updateRx('dp', v)}        placeholder="64" />
-              <RxInput label="Altura" value={eg.prescription.od_altura} onChange={v => updateRx('od_altura', v)} placeholder="20" />
+              <RxInput label="ADD"    value={eg.prescription.add}       onChange={v => onUpdate({ prescription: { ...eg.prescription, add: v } })}       placeholder="+2.00" />
+              <RxInput label="DP"     value={eg.prescription.dp}        onChange={v => onUpdate({ prescription: { ...eg.prescription, dp: v } })}        placeholder="64" />
+              <RxInput label="Altura" value={eg.prescription.od_altura} onChange={v => onUpdate({ prescription: { ...eg.prescription, od_altura: v } })} placeholder="20" />
               <div>
                 <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.35)' }}>Obs</p>
-                <input type="text" value={eg.prescription.obs} onChange={e => updateRx('obs', e.target.value)}
+                <input type="text" value={eg.prescription.obs} onChange={e => onUpdate({ prescription: { ...eg.prescription, obs: e.target.value } })}
                   className="w-full px-2.5 py-2 rounded-lg bg-transparent text-white text-xs font-light outline-none border"
                   style={{ borderColor: 'rgba(197,160,89,0.20)' }} />
               </div>
@@ -532,6 +534,7 @@ export default function POSPage() {
   const [shipTrack,  setShipTrack]  = useState('');
 
   const [eyeglasses, setEyeglasses] = useState<EyeglassItem[]>([]);
+  const [insumos,    setInsumos]    = useState<InsumoItem[]>([]);
   const [payments,   setPayments]   = useState<PaymentEntry[]>([newPayment()]);
 
   const [status, setStatus] = useState<SaleStatus>('pendiente');
@@ -561,11 +564,16 @@ export default function POSPage() {
   function updateEg(id: string, patch: Partial<EyeglassItem>) {
     setEyeglasses(prev => prev.map(eg => eg._id === id ? { ...eg, ...patch } : eg));
   }
+  function addInsumo()               { setInsumos(prev => [...prev, newInsumo()]); }
+  function removeInsumo(id: string)  { setInsumos(prev => prev.filter(i => i._id !== id)); }
+  function updateInsumo(id: string, patch: Partial<InsumoItem>) {
+    setInsumos(prev => prev.map(i => i._id === id ? { ...i, ...patch } : i));
+  }
   function updatePay(id: string, patch: Partial<PaymentEntry>) {
     setPayments(prev => prev.map(p => p._id === id ? { ...p, ...patch } : p));
   }
-  function addPayment()               { setPayments(prev => [...prev, newPayment()]); }
-  function removePayment(id: string)  { setPayments(prev => prev.filter(p => p._id !== id)); }
+  function addPayment()              { setPayments(prev => [...prev, newPayment()]); }
+  function removePayment(id: string) { setPayments(prev => prev.filter(p => p._id !== id)); }
 
   async function handleSaveSale() {
     setSaveErr('');
@@ -587,6 +595,10 @@ export default function POSPage() {
       const payBranchName  = FIXED_BRANCHES.find(b => b.id === payBranch)?.name  ?? payBranch;
       const allReceipts    = payments.flatMap(p => p.receipts);
 
+      // Opción A: si seña vacía → cobrado completo
+      const finalDeposit = depositNum > 0 ? depositNum : totalNum;
+      const finalBalance = Math.max(0, totalNum - finalDeposit);
+
       await saveToStorage({
         id: saleId,
         fecha: new Date().toISOString(),
@@ -596,11 +608,25 @@ export default function POSPage() {
         sucursalCobro:   payBranchName,
         vendedora:       sellerName,
         total:           totalNum,
-        sena:            depositNum,
-        saldo:           balanceNum,
+        sena:            finalDeposit,
+        saldo:           finalBalance,
         metodoPago:      primaryMethod,
         estadoTrabajo:   status,
-        anteojos:        eyeglasses,
+        anteojos: [
+          ...eyeglasses,
+          ...insumos.map(ins => ({
+            _id:               ins._id,
+            frame_description: ins.descripcion,
+            photo_url:         ins.photo_url,
+            crystals:          '',
+            treatments:        '',
+            showReceta:        false,
+            prescription:      emptyRx(),
+            price:             ins.precio,
+            saleType:          'reparacion' as SaleType,
+            tipo:              'insumo',
+          })),
+        ],
         observaciones:   notes,
         receipt_url:     allReceipts[0] || undefined,
         channel,
@@ -614,7 +640,7 @@ export default function POSPage() {
         })),
       } as any);
 
-      // Descontar stock
+      // Descontar stock solo de anteojos reales
       for (const eg of eyeglasses) {
         if (eg.stock_frame_id) {
           const { data: frame } = await supabase.from('armazones').select('*').eq('id', eg.stock_frame_id).single();
@@ -647,6 +673,7 @@ export default function POSPage() {
   function resetForm() {
     setNFirst(''); setNLast(''); setNCi(''); setNPhone('');
     setEyeglasses([]);
+    setInsumos([]);
     setSaleTotal(''); setSaleDeposit('');
     setPayments([newPayment()]);
     setNotes(''); setStatus('pendiente');
@@ -808,6 +835,89 @@ export default function POSPage() {
           </div>
         </Section>
 
+        {/* ── INSUMOS / REPARACIONES ── */}
+        <Section title="Insumos / Reparaciones" icon={<Wrench size={15} />}>
+          <div className="space-y-3">
+            <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.35)' }}>
+              Limpia cristales, estuches, reparaciones — no cuentan como anteojos vendidos ni en comisiones.
+            </p>
+
+            {insumos.map((ins, idx) => (
+              <div key={ins._id} className="rounded-xl overflow-hidden"
+                style={{ background: 'rgba(167,139,250,0.04)', border: '1px solid rgba(167,139,250,0.20)' }}>
+                <div className="flex items-center justify-between px-4 py-2.5"
+                  style={{ borderBottom: '1px solid rgba(167,139,250,0.10)' }}>
+                  <div className="flex items-center gap-2">
+                    <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold text-black shrink-0"
+                      style={{ background: '#a78bfa' }}>{idx + 1}</span>
+                    <span className="text-sm font-light text-white truncate max-w-[180px]">
+                      {ins.descripcion || `Insumo ${idx + 1}`}
+                    </span>
+                    {ins.precio && (
+                      <span className="text-xs font-light" style={{ color: '#a78bfa' }}>
+                        Gs. {fmt(Number(ins.precio))}
+                      </span>
+                    )}
+                  </div>
+                  <button onClick={() => removeInsumo(ins._id)} style={{ color: 'rgba(239,68,68,0.45)' }}
+                    onMouseEnter={e => (e.currentTarget.style.color = '#ef4444')}
+                    onMouseLeave={e => (e.currentTarget.style.color = 'rgba(239,68,68,0.45)')}>
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+
+                <div className="p-4 space-y-3">
+                  <div>
+                    <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Descripción</p>
+                    <input type="text" value={ins.descripcion}
+                      onChange={e => updateInsumo(ins._id, { descripcion: e.target.value })}
+                      placeholder="Limpia cristal, estuche, reparación bisagra..."
+                      className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border"
+                      style={{ borderColor: 'rgba(167,139,250,0.25)' }} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Precio (Gs.)</p>
+                      <input type="number" value={ins.precio}
+                        onChange={e => updateInsumo(ins._id, { precio: e.target.value })}
+                        placeholder="15000"
+                        className="w-full px-3 py-2.5 rounded-xl bg-transparent text-sm font-light outline-none border text-right"
+                        style={{ borderColor: 'rgba(167,139,250,0.25)', color: '#a78bfa' }} />
+                    </div>
+                    <div>
+                      <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>
+                        Foto <span style={{ color: 'rgba(255,255,255,0.25)' }}>(opcional)</span>
+                      </p>
+                      {ins.photo_url ? (
+                        <div className="relative inline-block">
+                          <img src={ins.photo_url} alt="insumo"
+                            className="h-16 w-20 object-cover rounded-lg border"
+                            style={{ borderColor: 'rgba(167,139,250,0.30)' }} />
+                          <button onClick={() => updateInsumo(ins._id, { photo_url: '' })}
+                            className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center"
+                            style={{ background: '#ef4444' }}>
+                            <X size={8} color="#fff" />
+                          </button>
+                        </div>
+                      ) : (
+                        <PhotoBtn onFile={url => updateInsumo(ins._id, { photo_url: url })} />
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            <button onClick={addInsumo}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-light border-dashed border"
+              style={{ borderColor: 'rgba(167,139,250,0.30)', color: '#a78bfa', background: 'rgba(167,139,250,0.03)' }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(167,139,250,0.08)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'rgba(167,139,250,0.03)')}>
+              <Plus size={14} />Agregar insumo / reparación
+            </button>
+          </div>
+        </Section>
+
         {/* Totales */}
         <Section title="Totales" icon={<Banknote size={15} />} accent>
           <div className="space-y-4">
@@ -820,17 +930,23 @@ export default function POSPage() {
               </div>
               <div>
                 <FieldLabel>Seña / Monto entregado</FieldLabel>
-                <input type="number" value={saleDeposit} onChange={e => setSaleDeposit(e.target.value)} placeholder="0"
+                <input type="number" value={saleDeposit} onChange={e => setSaleDeposit(e.target.value)}
+                  placeholder="Dejar vacío = cobrado completo"
                   className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border text-right"
                   style={{ borderColor: 'rgba(197,160,89,0.22)' }} />
+                <p className="text-xs font-light mt-1" style={{ color: saleDeposit === '' || parseFloat(saleDeposit) === 0 ? '#10b981' : 'rgba(255,255,255,0.3)' }}>
+                  {saleDeposit === '' || parseFloat(saleDeposit) === 0
+                    ? '✓ Se registrará como cobrado completo'
+                    : `Saldo pendiente: Gs. ${fmt(Math.max(0, totalNum - parseFloat(saleDeposit)))}`}
+                </p>
               </div>
             </div>
             <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.20)' }}>
               <div className="grid grid-cols-3 divide-x" style={{ borderColor: 'rgba(197,160,89,0.14)' }}>
                 {[
-                  { label: 'TOTAL',       value: fmt(totalNum),   color: '#C5A059' },
-                  { label: 'ENTREGADO',   value: fmt(depositNum), color: '#10b981' },
-                  { label: 'SALDO PEND.', value: fmt(balanceNum), color: balanceNum > 0 ? '#f59e0b' : '#6b7280' },
+                  { label: 'TOTAL',       value: fmt(totalNum),                                                          color: '#C5A059' },
+                  { label: 'ENTREGADO',   value: fmt(depositNum > 0 ? depositNum : totalNum),                            color: '#10b981' },
+                  { label: 'SALDO PEND.', value: fmt(depositNum > 0 ? Math.max(0, totalNum - depositNum) : 0),           color: depositNum > 0 && totalNum > depositNum ? '#f59e0b' : '#6b7280' },
                 ].map(item => (
                   <div key={item.label} className="flex flex-col items-center py-4 px-3">
                     <p className="text-xs font-light tracking-widest mb-1.5" style={{ color: 'rgba(255,255,255,0.35)' }}>{item.label}</p>

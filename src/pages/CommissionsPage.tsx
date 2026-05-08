@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { Trophy, Medal, Star, Users, ChevronDown, Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
@@ -7,7 +7,6 @@ import { StoredSale } from '../lib/salesStorage';
 const CURRENT_MONTH = new Date().toISOString().slice(0, 7);
 const TODAY         = new Date().toISOString().slice(0, 10);
 
-// ── Helpers de fecha ──────────────────────────────────────────────────────────
 function getWeekRange(dateStr: string): { start: string; end: string; label: string } {
   const d   = new Date(dateStr + 'T12:00:00');
   const day = d.getDay();
@@ -27,7 +26,6 @@ function getWeeksInMonth(month: string): { start: string; end: string; label: st
   const lastDay  = new Date(y, m, 0);
   const weeks: { start: string; end: string; label: string; num: number }[] = [];
   let current = new Date(firstDay);
-  // retroceder al lunes de la primera semana
   const dow = current.getDay();
   current.setDate(current.getDate() - (dow === 0 ? 6 : dow - 1));
   let weekNum = 1;
@@ -64,6 +62,7 @@ function calcPointsForSale(sale: StoredSale): number {
   if (anteojos.length === 0) return 1;
   let pts = 0;
   for (const eg of anteojos) {
+    if (eg.tipo === 'insumo') continue;           // ← insumos no suman
     if (eg.saleType === 'reparacion') continue;
     if (eg.saleType === 'completa') { pts += 1; continue; }
     if (eg.saleType === 'media')    { pts += 0.5; continue; }
@@ -79,7 +78,7 @@ function calcPointsForSale(sale: StoredSale): number {
 function countAnteojos(sale: StoredSale): number {
   const anteojos = (sale.anteojos as any[]) || [];
   if (anteojos.length === 0) return 1;
-  return anteojos.filter(eg => eg.saleType !== 'reparacion').length || 1;
+  return anteojos.filter(eg => eg.saleType !== 'reparacion' && eg.tipo !== 'insumo').length || 1;
 }
 
 function calcLevel(points: number): 'oro' | 'bronce' | 'sin_nivel' {
@@ -105,7 +104,6 @@ function formatMonth(m: string) {
 }
 function fmt(n: number) { return n.toLocaleString('es-PY', { minimumFractionDigits: 0, maximumFractionDigits: 0 }); }
 
-// ── Tipos ─────────────────────────────────────────────────────────────────────
 type DaySummary = {
   date: string; sales: StoredSale[];
   totalSales: number; totalAnteojos: number;
@@ -118,7 +116,6 @@ type SellerSummary = {
   total_points: number;
 };
 
-// ── Builders ──────────────────────────────────────────────────────────────────
 function buildDaySummaries(sellerName: string, filteredSales: StoredSale[]): DaySummary[] {
   const mine = filteredSales.filter(v => v.vendedora === sellerName);
   const byDay: Record<string, StoredSale[]> = {};
@@ -167,26 +164,21 @@ function getAvailableMonths(allSales: StoredSale[]): string[] {
   return [...months].sort((a, b) => b.localeCompare(a));
 }
 
-// ── Componente principal ──────────────────────────────────────────────────────
 export default function CommissionsPage() {
   const { profile } = useAuth();
   const { sales: allSales } = useData();
   const isAdmin = profile?.role === 'admin' || profile?.role === 'gerente';
 
-  // Scope: mes / semana / día
   const [scope,         setScope]         = useState<'month' | 'week' | 'day'>('month');
   const [selectedMonth, setSelectedMonth] = useState(CURRENT_MONTH);
   const [selectedWeek,  setSelectedWeek]  = useState(() => getWeekRange(TODAY).start);
   const [selectedDay,   setSelectedDay]   = useState(TODAY);
   const [expandedDay,   setExpandedDay]   = useState<string | null>(TODAY);
 
-  const months      = useMemo(() => getAvailableMonths(allSales), [allSales]);
+  const months       = useMemo(() => getAvailableMonths(allSales), [allSales]);
   const weeksInMonth = useMemo(() => getWeeksInMonth(selectedMonth), [selectedMonth]);
+  const weekInfo     = useMemo(() => getWeekRange(selectedWeek), [selectedWeek]);
 
-  // Semana actual dentro del selector de semanas
-  const weekInfo = useMemo(() => getWeekRange(selectedWeek), [selectedWeek]);
-
-  // Navegar semana anterior / siguiente
   function prevWeek() {
     const d = new Date(selectedWeek + 'T12:00:00');
     d.setDate(d.getDate() - 7);
@@ -198,25 +190,22 @@ export default function CommissionsPage() {
     setSelectedWeek(d.toISOString().slice(0, 10));
   }
 
-  // Ventas filtradas según scope
   const filteredSales = useMemo(() => {
     return allSales.filter(v =>
       matchesScope(v.fecha, scope, selectedMonth, weekInfo.start, weekInfo.end, selectedDay)
     );
   }, [allSales, scope, selectedMonth, weekInfo, selectedDay]);
 
-  // Datos derivados
   const myDays    = useMemo(() => !isAdmin && profile?.full_name ? buildDaySummaries(profile.full_name, filteredSales) : [], [isAdmin, profile?.full_name, filteredSales]);
   const adminData = useMemo(() => isAdmin ? buildAdminSummaries(filteredSales) : [], [isAdmin, filteredSales]);
 
-  const todayData  = myDays.find(d => d.date === TODAY);
-  const todayPts   = todayData?.totalPoints ?? 0;
-  const todayLvl   = todayData?.level ?? 'sin_nivel';
-  const todayPrize = prizeConfig(todayLvl);
+  const todayData       = myDays.find(d => d.date === TODAY);
+  const todayPts        = todayData?.totalPoints ?? 0;
+  const todayLvl        = todayData?.level ?? 'sin_nivel';
+  const todayPrize      = prizeConfig(todayLvl);
   const daysOroMonth    = myDays.filter(d => d.level === 'oro').length;
   const daysBronceMonth = myDays.filter(d => d.level === 'bronce').length;
 
-  // Label del periodo seleccionado
   const scopeLabel = useMemo(() => {
     if (scope === 'month') return formatMonth(selectedMonth);
     if (scope === 'week')  return `Semana ${weekInfo.label}`;
@@ -226,7 +215,6 @@ export default function CommissionsPage() {
   return (
     <div className="p-6 space-y-6">
 
-      {/* ── HEADER + CONTROLES DE PERIODO ── */}
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-2xl text-white font-light tracking-wider">Comisiones y Premios</h1>
@@ -235,9 +223,7 @@ export default function CommissionsPage() {
           </p>
         </div>
 
-        {/* Selector de scope + periodo */}
         <div className="flex flex-col gap-2 items-end">
-          {/* Tabs: Mes / Semana / Día */}
           <div className="flex rounded-xl overflow-hidden" style={{ border: '1px solid rgba(197,160,89,0.25)' }}>
             {([
               { id: 'month' as const, label: 'Mes'    },
@@ -252,7 +238,6 @@ export default function CommissionsPage() {
             ))}
           </div>
 
-          {/* Control de periodo según scope */}
           {scope === 'month' && (
             <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)}
               className="px-4 py-2 rounded-xl text-xs font-light bg-transparent text-white outline-none border capitalize"
@@ -270,8 +255,7 @@ export default function CommissionsPage() {
               </button>
               <div className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-light"
                 style={{ background: 'rgba(197,160,89,0.08)', border: '1px solid rgba(197,160,89,0.25)', color: '#C5A059', minWidth: 160, justifyContent: 'center' }}>
-                <Calendar size={12} />
-                {weekInfo.label}
+                <Calendar size={12} />{weekInfo.label}
               </div>
               <button onClick={nextWeek}
                 className="w-8 h-8 rounded-lg flex items-center justify-center"
@@ -303,7 +287,6 @@ export default function CommissionsPage() {
             </div>
           )}
 
-          {/* Label del periodo activo */}
           <p className="text-xs font-light capitalize" style={{ color: 'rgba(197,160,89,0.55)' }}>{scopeLabel}</p>
         </div>
       </div>
@@ -333,7 +316,6 @@ export default function CommissionsPage() {
       {!isAdmin && (
         <div className="space-y-4">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            {/* Puntos hoy */}
             <div className="rounded-xl p-4 col-span-2 lg:col-span-1"
               style={{ background: todayPrize.bg, border: `1px solid ${todayPrize.border}` }}>
               <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.45)' }}>Puntos hoy</p>
@@ -370,7 +352,6 @@ export default function CommissionsPage() {
             </div>
           </div>
 
-          {/* Historial de días */}
           <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(197,160,89,0.15)' }}>
             <div className="px-5 py-3.5" style={{ borderBottom: '1px solid rgba(197,160,89,0.1)', background: 'rgba(197,160,89,0.04)' }}>
               <p className="text-sm font-light text-white">Mis días · <span className="capitalize">{scopeLabel}</span></p>
@@ -425,16 +406,17 @@ export default function CommissionsPage() {
                           </p>
                           {day.sales.map(v => {
                             const anteojos = (v.anteojos as any[]) || [];
-                            if (anteojos.length > 1) {
+                            const soloAnteojos = anteojos.filter((eg: any) => eg.tipo !== 'insumo');
+                            if (soloAnteojos.length > 1) {
                               return (
                                 <div key={v.id} className="rounded-lg overflow-hidden"
                                   style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.05)' }}>
                                   <div className="flex items-center justify-between py-2 px-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                                     <span className="text-xs font-mono" style={{ color: '#C5A059' }}>VTA-{v.id}</span>
                                     <span className="text-xs text-white font-light">{v.cliente.nombre} {v.cliente.apellido}</span>
-                                    <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.3)' }}>{anteojos.length} armazones</span>
+                                    <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.3)' }}>{soloAnteojos.length} armazones</span>
                                   </div>
-                                  {anteojos.map((eg: any, i: number) => {
+                                  {soloAnteojos.map((eg: any, i: number) => {
                                     if (eg.saleType === 'reparacion') return (
                                       <div key={i} className="flex items-center justify-between py-1.5 px-3">
                                         <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>Armazón {i+1}: {eg.frame_description||'Reparación'}</span>
@@ -459,8 +441,8 @@ export default function CommissionsPage() {
                             }
                             const pts = calcPointsForSale(v);
                             const ptColor = pts>=1 ? '#10b981' : '#f59e0b';
-                            const desc = anteojos.length>0
-                              ? anteojos.map((eg: any) => { const p=[]; if(eg.frame_description)p.push(eg.frame_description); if(eg.crystals)p.push(eg.crystals); return p.join(' + ')||(eg.saleType==='media'?'½ venta':'1 venta'); }).join(' | ')
+                            const desc = soloAnteojos.length>0
+                              ? soloAnteojos.map((eg: any) => { const p=[]; if(eg.frame_description)p.push(eg.frame_description); if(eg.crystals)p.push(eg.crystals); return p.join(' + ')||(eg.saleType==='media'?'½ venta':'1 venta'); }).join(' | ')
                               : 'Sin detalle';
                             return (
                               <div key={v.id} className="flex items-center justify-between py-2 px-3 rounded-lg"

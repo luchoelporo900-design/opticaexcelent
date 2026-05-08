@@ -62,8 +62,10 @@ export default function BalancesPage() {
   const isAdmin     = profile?.role === 'admin' || profile?.role === 'gerente';
   const isVendedora = profile?.role === 'vendedora';
 
-  const [searchText, setSearchText] = useState('');
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [searchText,  setSearchText]  = useState('');
+  const [expandedId,  setExpandedId]  = useState<string | null>(null);
+  const [dateFilter,  setDateFilter]  = useState<'hoy' | 'semana' | 'mes' | 'todos'>('todos');
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
   const [addPayFor,  setAddPayFor]  = useState<string | null>(null);
   const [payAmt,     setPayAmt]     = useState('');
@@ -99,6 +101,21 @@ export default function BalancesPage() {
       anteojos:            v.anteojos || [],
       observaciones:       v.observaciones || '',
     }));
+
+  // ── Filtro por fecha ──────────────────────────────────────────────────────
+  function inPeriod(fechaStr: string) {
+    const fecha = new Date(fechaStr);
+    const now   = new Date();
+    if (dateFilter === 'hoy') return fecha.toDateString() === now.toDateString();
+    if (dateFilter === 'semana') {
+      const lunes = new Date(now);
+      lunes.setDate(now.getDate() - (now.getDay() === 0 ? 6 : now.getDay() - 1));
+      lunes.setHours(0, 0, 0, 0);
+      return fecha >= lunes;
+    }
+    if (dateFilter === 'mes') return fecha.getMonth() === now.getMonth() && fecha.getFullYear() === now.getFullYear();
+    return true;
+  }
 
   async function handleReceiptPhoto(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -148,6 +165,7 @@ export default function BalancesPage() {
   }
 
   const filtered = rows.filter(r => {
+    if (!inPeriod(r.created_at)) return false;
     if (!searchText) return true;
     const q    = searchText.toLowerCase();
     const name = `${r.customer_first_name} ${r.customer_last_name}`;
@@ -161,15 +179,37 @@ export default function BalancesPage() {
     : [];
   const todayTotal = todayPayments.reduce((s, p) => s + Number(p.monto), 0);
 
+  // Contar por período para el botón "Todos"
+  const countHoy    = rows.filter(r => { const f = new Date(r.created_at); const n = new Date(); return f.toDateString() === n.toDateString(); }).length;
+  const countSemana = rows.filter(r => { const f = new Date(r.created_at); const n = new Date(); const l = new Date(n); l.setDate(n.getDate() - (n.getDay()===0?6:n.getDay()-1)); l.setHours(0,0,0,0); return f >= l; }).length;
+  const countMes    = rows.filter(r => { const f = new Date(r.created_at); const n = new Date(); return f.getMonth()===n.getMonth()&&f.getFullYear()===n.getFullYear(); }).length;
+
   return (
     <div className="p-4 lg:p-6 space-y-5 max-w-5xl mx-auto">
+
+      {/* Lightbox */}
+      {lightboxSrc && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ background: 'rgba(0,0,0,0.88)', backdropFilter: 'blur(6px)' }}
+          onClick={() => setLightboxSrc(null)}>
+          <div className="relative" onClick={e => e.stopPropagation()}>
+            <img src={lightboxSrc} alt="Vista ampliada"
+              className="rounded-xl shadow-2xl"
+              style={{ maxWidth: '90vw', maxHeight: '88vh', objectFit: 'contain' }} />
+            <button onClick={() => setLightboxSrc(null)}
+              className="absolute -top-3 -right-3 w-8 h-8 rounded-full flex items-center justify-center font-bold text-black"
+              style={{ background: '#C5A059', fontSize: 18, lineHeight: 1 }}>×</button>
+          </div>
+        </div>
+      )}
 
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-light tracking-wider text-white">
             {isVendedora ? 'Mis Ventas Activas' : 'Saldos Pendientes'}
           </h1>
-          <p className="text-xs text-gold-muted mt-0.5 tracking-wide">
+          <p className="text-xs text-gold-muted mt-0.5 tracking-wide" style={{ color: 'rgba(197,160,89,0.6)' }}>
             {isVendedora ? `${profile?.full_name} · ventas no entregadas` : 'Ventas activas pendientes de entrega o cobro'}
           </p>
         </div>
@@ -197,6 +237,7 @@ export default function BalancesPage() {
         </div>
       )}
 
+      {/* KPIs */}
       <div className="grid grid-cols-3 gap-4">
         <div className="rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(197,160,89,0.22)' }}>
           <p className="text-xs font-light mb-2" style={{ color: 'rgba(255,255,255,0.4)' }}>
@@ -216,12 +257,32 @@ export default function BalancesPage() {
         </div>
       </div>
 
+      {/* Filtros por fecha */}
+      <div className="flex gap-2 flex-wrap">
+        {([
+          { id: 'hoy'    as const, label: `Hoy (${countHoy})` },
+          { id: 'semana' as const, label: `Esta semana (${countSemana})` },
+          { id: 'mes'    as const, label: `Este mes (${countMes})` },
+          { id: 'todos'  as const, label: `Todos (${rows.length})` },
+        ]).map(opt => (
+          <button key={opt.id} onClick={() => setDateFilter(opt.id)}
+            className="px-3 py-1.5 rounded-lg text-xs font-light"
+            style={{
+              background: dateFilter === opt.id ? 'rgba(197,160,89,0.15)' : 'rgba(255,255,255,0.03)',
+              border:     `1px solid ${dateFilter === opt.id ? 'rgba(197,160,89,0.4)' : 'rgba(255,255,255,0.08)'}`,
+              color:      dateFilter === opt.id ? '#C5A059' : 'rgba(255,255,255,0.4)',
+            }}>
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
       <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
         {filtered.length === 0 ? (
           <div className="text-center py-16">
             <Check size={32} style={{ color: 'rgba(16,185,129,0.3)', margin: '0 auto 12px' }} />
             <p className="text-sm font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>
-              {searchText ? 'Sin resultados' : 'No hay ventas activas'}
+              {searchText ? 'Sin resultados' : 'No hay ventas activas en este período'}
             </p>
           </div>
         ) : (
@@ -232,7 +293,7 @@ export default function BalancesPage() {
               const isPayOpen  = addPayFor === row.id;
               const clientName = `${row.customer_first_name} ${row.customer_last_name}`.trim() || '—';
               const payHistory = isExp ? getPayHistory(row.id) : [];
-              const lensPhotos = isExp ? (row.anteojos as any[]).filter((eg: any) => eg.photo_url) : [];
+              const lensPhotos = isExp ? (row.anteojos as any[]).filter((eg: any) => eg.photo_url && eg.tipo !== 'insumo') : [];
               const isPaid     = Number(row.balance) <= 0;
               const waLink     = buildWaLink(clientName, row.customer_phone || '', row.branch_name || '', Number(row.balance));
 
@@ -243,7 +304,6 @@ export default function BalancesPage() {
                     style={{ background: isExp ? 'rgba(197,160,89,0.03)' : 'transparent' }}
                     onClick={() => setExpandedId(isExp ? null : row.id)}>
 
-                    {/* Línea 1: número + nombre + chevron */}
                     <div className="flex items-center gap-2 mb-1">
                       <span className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-black shrink-0"
                         style={{ background: '#C5A059', fontSize: 10 }}>{row.num}</span>
@@ -251,14 +311,12 @@ export default function BalancesPage() {
                       <ChevronDown size={14} style={{ color: 'rgba(255,255,255,0.3)', transform: isExp ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }} />
                     </div>
 
-                    {/* Línea 2: VTA + sucursal + vendedora */}
                     <div className="flex items-center gap-1.5 flex-wrap pl-8 mb-1">
                       <span className="text-xs font-mono" style={{ color: '#C5A059' }}>#{row.sale_number}</span>
                       {row.branch_name && <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.35)' }}>· {row.branch_name}</span>}
                       {isAdmin && row.seller_name && <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.35)' }}>· {row.seller_name}</span>}
                     </div>
 
-                    {/* Línea 3: CI + teléfono */}
                     {(row.customer_ci || row.customer_phone) && (
                       <div className="flex items-center gap-3 pl-8 mb-1">
                         {row.customer_ci && <span className="text-xs font-light" style={{ color: 'rgba(197,160,89,0.6)' }}>CI: {row.customer_ci}</span>}
@@ -266,7 +324,6 @@ export default function BalancesPage() {
                       </div>
                     )}
 
-                    {/* Línea 4: total + saldo + estado */}
                     <div className="flex items-center gap-3 pl-8 flex-wrap">
                       <div>
                         <span className="text-xs text-white font-light">Gs. {fmt(Number(row.total))}</span>
@@ -285,7 +342,6 @@ export default function BalancesPage() {
                   {isExp && (
                     <div className="px-4 pb-5 space-y-4" style={{ background: 'rgba(197,160,89,0.02)' }}>
 
-                      {/* WhatsApp del cliente */}
                       {row.customer_phone && (
                         <div className="flex items-center gap-3 pt-2 flex-wrap">
                           <div className="flex items-center gap-1.5">
@@ -310,9 +366,9 @@ export default function BalancesPage() {
                           <div className="flex gap-2 flex-wrap">
                             {lensPhotos.map((eg: any, i: number) => (
                               <img key={i} src={eg.photo_url} alt={`lente ${i+1}`}
-                                className="h-20 w-24 object-cover rounded-lg border cursor-pointer"
+                                className="h-20 w-24 object-cover rounded-lg border cursor-pointer hover:opacity-80 transition-opacity"
                                 style={{ borderColor: 'rgba(197,160,89,0.25)' }}
-                                onClick={() => window.open(eg.photo_url, '_blank')} />
+                                onClick={e => { e.stopPropagation(); setLightboxSrc(eg.photo_url); }} />
                             ))}
                           </div>
                         </div>
@@ -336,9 +392,9 @@ export default function BalancesPage() {
                                   </span>
                                   {(p as any).receipt_url && (
                                     <img src={(p as any).receipt_url} alt="comprobante"
-                                      className="h-10 w-14 object-cover rounded border cursor-pointer"
+                                      className="h-10 w-14 object-cover rounded border cursor-pointer hover:opacity-80 transition-opacity"
                                       style={{ borderColor: 'rgba(197,160,89,0.25)' }}
-                                      onClick={() => window.open((p as any).receipt_url, '_blank')} />
+                                      onClick={e => { e.stopPropagation(); setLightboxSrc((p as any).receipt_url); }} />
                                   )}
                                 </div>
                               );
@@ -347,7 +403,6 @@ export default function BalancesPage() {
                         </div>
                       )}
 
-                      {/* Formulario de abono */}
                       {!isPaid && (
                         <div className="pt-3" style={{ borderTop: '1px solid rgba(197,160,89,0.10)' }}>
                           {isPayOpen ? (
@@ -382,7 +437,10 @@ export default function BalancesPage() {
                                 </p>
                                 {payReceipt ? (
                                   <div className="relative inline-block">
-                                    <img src={payReceipt} alt="comprobante" className="h-24 w-32 object-cover rounded-lg border" style={{ borderColor: 'rgba(197,160,89,0.25)' }} />
+                                    <img src={payReceipt} alt="comprobante"
+                                      className="h-24 w-32 object-cover rounded-lg border cursor-pointer hover:opacity-80 transition-opacity"
+                                      style={{ borderColor: 'rgba(197,160,89,0.25)' }}
+                                      onClick={() => setLightboxSrc(payReceipt)} />
                                     <button onClick={() => setPayReceipt('')} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: '#ef4444' }}>
                                       <X size={10} color="#fff" />
                                     </button>
@@ -420,7 +478,6 @@ export default function BalancesPage() {
                         </div>
                       )}
 
-                      {/* Botón Marcar Entregado */}
                       <div className="pt-3 space-y-2" style={{ borderTop: '1px solid rgba(197,160,89,0.10)' }}>
                         {(row.status === 'en_laboratorio' || row.status === 'listo') && (
                           <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
