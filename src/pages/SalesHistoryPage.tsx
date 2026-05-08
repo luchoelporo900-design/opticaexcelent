@@ -88,6 +88,14 @@ function newEyeglass(): EyeglassItem {
   return { _id: uid(), frame_description:'', photo_url:'', crystals:'', treatments:'', showReceta:false, prescription:emptyRx(), price:'', saleType:'completa', receta_a_confirmar: false };
 }
 
+// ── Helper: mostrar receta si tiene datos, sin importar showReceta ──────────
+function hasRxData(rx: any): boolean {
+  if (!rx) return false;
+  return !!(rx.od_esfera || rx.od_cilindro || rx.od_eje || rx.od_altura ||
+            rx.oi_esfera || rx.oi_cilindro || rx.oi_eje || rx.oi_altura ||
+            rx.add || rx.dp);
+}
+
 // ─── PhotoInput ───────────────────────────────────────────────────────────────
 function PhotoInput({ value, onChange, label = 'Foto' }: { value: string; onChange: (v: string) => void; label?: string }) {
   const cameraRef  = useRef<HTMLInputElement>(null);
@@ -166,7 +174,7 @@ function RxInput({ label, value, onChange, placeholder }: { label: string; value
   );
 }
 
-// ─── EyeglassEditCard con receta_a_confirmar ──────────────────────────────────
+// ─── EyeglassEditCard ─────────────────────────────────────────────────────────
 function EyeglassEditCard({ eg, idx, onUpdate, onRemove }: {
   eg: EyeglassItem; idx: number;
   onUpdate: (p: Partial<EyeglassItem>) => void;
@@ -202,7 +210,6 @@ function EyeglassEditCard({ eg, idx, onUpdate, onRemove }: {
           <Trash2 size={14} />
         </button>
       </div>
-
       <div className="p-4 space-y-3">
         <div className="flex gap-3 items-start">
           <div className="flex-1">
@@ -225,7 +232,6 @@ function EyeglassEditCard({ eg, idx, onUpdate, onRemove }: {
             )}
           </div>
         </div>
-
         <div className="grid grid-cols-2 gap-3">
           <div>
             <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Cristales</p>
@@ -240,7 +246,6 @@ function EyeglassEditCard({ eg, idx, onUpdate, onRemove }: {
               style={{ borderColor: 'rgba(197,160,89,0.22)' }} />
           </div>
         </div>
-
         <div>
           <p className="text-xs font-light mb-2" style={{ color: 'rgba(255,255,255,0.4)' }}>Tipo de venta</p>
           <div className="flex gap-2 flex-wrap">
@@ -253,31 +258,22 @@ function EyeglassEditCard({ eg, idx, onUpdate, onRemove }: {
             ))}
           </div>
         </div>
-
-        {/* ── RECETA — dos botones ── */}
         <div className="flex items-center gap-2 flex-wrap">
-          <button
-            onClick={() => onUpdate({ showReceta: !eg.showReceta, receta_a_confirmar: false })}
+          <button onClick={() => onUpdate({ showReceta: !eg.showReceta, receta_a_confirmar: false })}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light"
             style={{ color: 'rgba(197,160,89,0.7)', border: '1px solid rgba(197,160,89,0.20)' }}>
             {eg.showReceta ? <ChevronUp size={11} /> : <Plus size={11} />}
             {eg.showReceta ? 'Ocultar receta' : '+ Cargar receta'}
           </button>
           {!eg.showReceta && (
-            <button
-              onClick={() => onUpdate({ receta_a_confirmar: !eg.receta_a_confirmar, showReceta: false })}
+            <button onClick={() => onUpdate({ receta_a_confirmar: !eg.receta_a_confirmar, showReceta: false })}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light"
-              style={{
-                color:      eg.receta_a_confirmar ? '#f97316' : 'rgba(249,115,22,0.55)',
-                border:     `1px solid ${eg.receta_a_confirmar ? 'rgba(249,115,22,0.50)' : 'rgba(249,115,22,0.22)'}`,
-                background: eg.receta_a_confirmar ? 'rgba(249,115,22,0.10)' : 'transparent',
-              }}>
+              style={{ color: eg.receta_a_confirmar ? '#f97316' : 'rgba(249,115,22,0.55)', border: `1px solid ${eg.receta_a_confirmar ? 'rgba(249,115,22,0.50)' : 'rgba(249,115,22,0.22)'}`, background: eg.receta_a_confirmar ? 'rgba(249,115,22,0.10)' : 'transparent' }}>
               <AlertTriangle size={11} />
               {eg.receta_a_confirmar ? '⚠ Receta a confirmar' : 'Receta a confirmar'}
             </button>
           )}
         </div>
-
         {eg.showReceta && (
           <div className="rounded-xl p-3 space-y-3" style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.14)' }}>
             <div>
@@ -518,11 +514,8 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
             <X size={14} />
           </button>
         </div>
-
         <div className="p-5 space-y-6">
           {error && <div className="px-3 py-2.5 rounded-xl text-xs" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#f87171' }}>{error}</div>}
-
-          {/* Cliente */}
           <div>
             <p className="text-xs font-light tracking-widest uppercase mb-3" style={{ color: 'rgba(197,160,89,0.6)' }}>Cliente</p>
             <div className="grid grid-cols-2 gap-3">
@@ -536,8 +529,6 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
               ))}
             </div>
           </div>
-
-          {/* Estado */}
           <div>
             <p className="text-xs font-light tracking-widest uppercase mb-3" style={{ color: 'rgba(197,160,89,0.6)' }}>Estado del trabajo</p>
             <div className="grid grid-cols-2 gap-2">
@@ -554,8 +545,6 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
               <span className="px-2 py-0.5 rounded text-xs inline-flex items-center gap-1" style={{ background: `${sc.color}18`, color: sc.color }}>{sc.icon}{sc.label}</span>
             </div>
           </div>
-
-          {/* Montos */}
           <div>
             <p className="text-xs font-light tracking-widest uppercase mb-3" style={{ color: 'rgba(197,160,89,0.6)' }}>Montos (Gs.)</p>
             <div className="grid grid-cols-3 gap-3">
@@ -570,14 +559,10 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
             </div>
             <p className="text-xs font-light mt-2" style={{ color: 'rgba(255,255,255,0.3)' }}>El saldo se recalcula automáticamente.</p>
           </div>
-
-          {/* Comprobante */}
           <div>
             <p className="text-xs font-light tracking-widest uppercase mb-3" style={{ color: 'rgba(197,160,89,0.6)' }}>Comprobante de pago</p>
             <PhotoInput value={receiptUrl} onChange={setReceiptUrl} label="Comprobante" />
           </div>
-
-          {/* Armazones */}
           <div>
             <div className="flex items-center justify-between mb-3">
               <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.6)' }}>Armazones</p>
@@ -596,8 +581,6 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
                 ))}</div>
             }
           </div>
-
-          {/* Vendedora y sucursal */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(197,160,89,0.6)' }}>Vendedora</p>
@@ -615,16 +598,12 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
               </select>
             </div>
           </div>
-
-          {/* Observaciones */}
           <div>
             <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(197,160,89,0.6)' }}>Observaciones</p>
             <textarea value={obs} onChange={e => setObs(e.target.value)} rows={3}
               className="w-full px-3 py-2.5 rounded-xl bg-transparent text-sm font-light text-white outline-none border resize-none"
               style={{ borderColor: 'rgba(197,160,89,0.22)' }} />
           </div>
-
-          {/* Botones */}
           <div className="flex items-center gap-3 pt-1">
             <button onClick={handleSave} disabled={saving}
               className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium"
@@ -656,6 +635,7 @@ export default function SalesHistoryPage() {
   const [editSale,     setEditSale]     = useState<any | null>(null);
   const [deliverSale,  setDeliverSale]  = useState<any | null>(null);
   const [canEdit,      setCanEdit]      = useState(false);
+  const [lightboxSrc,  setLightboxSrc]  = useState<string | null>(null);
 
   useEffect(() => {
     if (!profile) return;
@@ -699,6 +679,21 @@ export default function SalesHistoryPage() {
     <div className="p-4 lg:p-6 space-y-5 max-w-5xl mx-auto">
       {editSale    && <EditModal    sale={editSale}    onClose={() => setEditSale(null)}    onSaved={() => refresh()} />}
       {deliverSale && <DeliverModal sale={deliverSale} onClose={() => setDeliverSale(null)} onDelivered={() => refresh()} />}
+
+      {/* Lightbox */}
+      {lightboxSrc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ background: 'rgba(0,0,0,0.88)', backdropFilter: 'blur(6px)' }}
+          onClick={() => setLightboxSrc(null)}>
+          <div className="relative" onClick={e => e.stopPropagation()}>
+            <img src={lightboxSrc} alt="Vista ampliada" className="rounded-xl shadow-2xl"
+              style={{ maxWidth: '90vw', maxHeight: '88vh', objectFit: 'contain' }} />
+            <button onClick={() => setLightboxSrc(null)}
+              className="absolute -top-3 -right-3 w-8 h-8 rounded-full flex items-center justify-center font-bold text-black"
+              style={{ background: '#C5A059', fontSize: 18, lineHeight: 1 }}>×</button>
+          </div>
+        </div>
+      )}
 
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
@@ -884,8 +879,13 @@ export default function SalesHistoryPage() {
                               style={{ background: 'rgba(255,255,255,0.025)', border: `1px solid ${eg.receta_a_confirmar ? 'rgba(249,115,22,0.28)' : 'rgba(197,160,89,0.12)'}` }}>
                               <div className="flex items-start gap-3">
                                 {eg.photo_url
-                                  ? <img src={eg.photo_url} alt="armazón" className="w-20 h-16 object-cover rounded-lg border shrink-0 cursor-pointer" style={{ borderColor: 'rgba(197,160,89,0.3)' }} onClick={() => window.open(eg.photo_url, '_blank')} />
-                                  : <div className="w-20 h-16 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(197,160,89,0.1)' }}><span className="text-xs" style={{ color: 'rgba(255,255,255,0.2)' }}>Sin foto</span></div>
+                                  ? <img src={eg.photo_url} alt="armazón"
+                                      className="w-20 h-16 object-cover rounded-lg border shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
+                                      style={{ borderColor: 'rgba(197,160,89,0.3)' }}
+                                      onClick={e => { e.stopPropagation(); setLightboxSrc(eg.photo_url); }} />
+                                  : <div className="w-20 h-16 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(197,160,89,0.1)' }}>
+                                      <span className="text-xs" style={{ color: 'rgba(255,255,255,0.2)' }}>Sin foto</span>
+                                    </div>
                                 }
                                 <div className="flex-1 space-y-1">
                                   <div className="flex items-center gap-2 flex-wrap">
@@ -904,21 +904,53 @@ export default function SalesHistoryPage() {
                                   </div>
                                 </div>
                               </div>
-                              {eg.prescription && !eg.receta_a_confirmar && (
+
+                              {/* ── RECETA COMPLETA — muestra si tiene datos ── */}
+                              {hasRxData(eg.prescription) && !eg.receta_a_confirmar && (
                                 <div className="rounded-lg p-3 space-y-2" style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.18)' }}>
                                   <p className="text-xs font-light tracking-widest uppercase flex items-center gap-1.5" style={{ color: 'rgba(197,160,89,0.7)' }}>
                                     <FlaskConical size={11} style={{ color: '#3b82f6' }} />Receta óptica
                                   </p>
+                                  {/* OD y OI en grilla */}
                                   <div className="grid grid-cols-2 gap-3">
-                                    <div>
-                                      <p className="text-xs font-light mb-1" style={{ color: '#C5A059' }}>OD</p>
-                                      <p className="text-xs font-mono" style={{ color: 'rgba(255,255,255,0.75)' }}>{eg.prescription.od_esfera||'—'} / {eg.prescription.od_cilindro||'—'} x {eg.prescription.od_eje||'—'}</p>
-                                    </div>
-                                    <div>
-                                      <p className="text-xs font-light mb-1" style={{ color: '#C5A059' }}>OI</p>
-                                      <p className="text-xs font-mono" style={{ color: 'rgba(255,255,255,0.75)' }}>{eg.prescription.oi_esfera||'—'} / {eg.prescription.oi_cilindro||'—'} x {eg.prescription.oi_eje||'—'}</p>
-                                    </div>
+                                    {[['OD', 'od'], ['OI', 'oi']].map(([label, key]) => (
+                                      <div key={key}>
+                                        <p className="text-xs font-light mb-1" style={{ color: '#C5A059' }}>{label}</p>
+                                        <div className="grid grid-cols-4 gap-1">
+                                          {[
+                                            ['Esf',  `${key}_esfera`],
+                                            ['Cil',  `${key}_cilindro`],
+                                            ['Eje',  `${key}_eje`],
+                                            ['Alt',  `${key}_altura`],
+                                          ].map(([fl, fk]) => (
+                                            <div key={fk} className="text-center">
+                                              <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 9 }}>{fl}</p>
+                                              <div className="px-1 py-1 rounded text-xs font-mono text-center"
+                                                style={{ background: 'rgba(255,255,255,0.06)', color: eg.prescription[fk] ? 'rgba(255,255,255,0.75)' : 'rgba(255,255,255,0.2)' }}>
+                                                {eg.prescription[fk] || '—'}
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    ))}
                                   </div>
+                                  {/* ADD, DP, Obs */}
+                                  {(eg.prescription.add || eg.prescription.dp || eg.prescription.obs) && (
+                                    <div className="grid grid-cols-3 gap-2 pt-1">
+                                      {[['ADD', 'add'], ['DP', 'dp'], ['Obs', 'obs']].map(([fl, fk]) => (
+                                        eg.prescription[fk] ? (
+                                          <div key={fk} className="text-center">
+                                            <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 9 }}>{fl}</p>
+                                            <div className="px-1 py-1 rounded text-xs font-mono text-center"
+                                              style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.75)' }}>
+                                              {eg.prescription[fk]}
+                                            </div>
+                                          </div>
+                                        ) : null
+                                      ))}
+                                    </div>
+                                  )}
                                 </div>
                               )}
                             </div>

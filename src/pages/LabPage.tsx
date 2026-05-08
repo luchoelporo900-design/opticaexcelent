@@ -44,6 +44,13 @@ function normalize(s: string) {
   return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 }
 
+function hasRxData(rx: any): boolean {
+  if (!rx) return false;
+  return !!(rx.od_esfera || rx.od_cilindro || rx.od_eje || rx.od_altura ||
+            rx.oi_esfera || rx.oi_cilindro || rx.oi_eje || rx.oi_altura ||
+            rx.add || rx.dp);
+}
+
 function buildWhatsAppUrlForSeller(sellerPhone: string, sellerName: string, customerName: string, saleNumber: string) {
   if (!sellerPhone) return null;
   const clean = sellerPhone.replace(/\D/g, '');
@@ -62,7 +69,7 @@ function printOrders(orders: LabOrder[]) {
     const statusLabel = statusConfig[o.status]?.label ?? o.status;
     const fecha = new Date(o.created_at).toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit', year: '2-digit' });
     const lentes = o.anteojos.map((eg: any, i: number) => {
-      const receta = (eg.showReceta && eg.prescription) ? `
+      const receta = (hasRxData(eg.prescription)) ? `
         <div style="margin-top:6px;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:11px;">
           <strong>Receta óptica</strong><br/>
           <table style="width:100%;margin-top:4px;border-collapse:collapse;">
@@ -264,7 +271,6 @@ export default function LabPage() {
         </div>
       )}
 
-      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl text-white font-light tracking-wider">Panel de Laboratorio</h1>
@@ -286,7 +292,6 @@ export default function LabPage() {
         </div>
       </div>
 
-      {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {(isVendedora ? ['enviado', 'proceso', 'listo'] : STATUS_FLOW).map(s => {
           const cfg   = statusConfig[s as LabStatus];
@@ -302,7 +307,6 @@ export default function LabPage() {
         })}
       </div>
 
-      {/* Filtros por fecha */}
       <div className="flex gap-2 flex-wrap">
         {([
           { id: 'hoy'    as const, label: `Hoy (${countForPeriod('hoy')})` },
@@ -322,7 +326,6 @@ export default function LabPage() {
         ))}
       </div>
 
-      {/* Filtros búsqueda */}
       <div className="flex flex-wrap gap-3 items-center">
         <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'rgba(197,160,89,0.5)' }} />
@@ -464,12 +467,10 @@ export default function LabPage() {
                             </div>
                           </div>
 
-                          {/* ── RECETA COMPLETA — OD/OI con Altura + ADD/DP/Obs ── */}
-                          {eg.showReceta && eg.prescription && (
+                          {/* ── RECETA — muestra si tiene datos, sin importar showReceta ── */}
+                          {hasRxData(eg.prescription) && (
                             <div className="rounded-lg p-3 space-y-3" style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.14)' }}>
                               <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.65)' }}>Receta óptica</p>
-
-                              {/* OD y OI — 4 columnas */}
                               <div className="grid grid-cols-2 gap-3">
                                 {[['OD', 'od'], ['OI', 'oi']].map(([label, key]) => (
                                   <div key={key}>
@@ -493,8 +494,6 @@ export default function LabPage() {
                                   </div>
                                 ))}
                               </div>
-
-                              {/* ADD, DP, Obs */}
                               <div className="grid grid-cols-3 gap-2">
                                 {[['ADD', 'add'], ['DP', 'dp'], ['Obs', 'obs']].map(([fl, fk]) => (
                                   <div key={fk} className="text-center">
