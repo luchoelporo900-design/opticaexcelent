@@ -71,16 +71,21 @@ function printOrders(orders: LabOrder[]) {
               <td style="padding:2px 4px;">Esf: <strong>${eg.prescription.od_esfera || '—'}</strong></td>
               <td style="padding:2px 4px;">Cil: <strong>${eg.prescription.od_cilindro || '—'}</strong></td>
               <td style="padding:2px 4px;">Eje: <strong>${eg.prescription.od_eje || '—'}</strong></td>
+              <td style="padding:2px 4px;">Alt: <strong>${eg.prescription.od_altura || '—'}</strong></td>
             </tr>
             <tr>
               <td style="padding:2px 6px;font-weight:600;color:#555;">OI</td>
               <td style="padding:2px 4px;">Esf: <strong>${eg.prescription.oi_esfera || '—'}</strong></td>
               <td style="padding:2px 4px;">Cil: <strong>${eg.prescription.oi_cilindro || '—'}</strong></td>
               <td style="padding:2px 4px;">Eje: <strong>${eg.prescription.oi_eje || '—'}</strong></td>
+              <td style="padding:2px 4px;">Alt: <strong>${eg.prescription.oi_altura || '—'}</strong></td>
             </tr>
           </table>
-          ${eg.prescription.add ? `<span style="margin-right:10px;">ADD: <strong>${eg.prescription.add}</strong></span>` : ''}
-          ${eg.prescription.dp  ? `<span>DP: <strong>${eg.prescription.dp}</strong></span>` : ''}
+          <div style="margin-top:6px;display:flex;gap:16px;">
+            ${eg.prescription.add ? `<span>ADD: <strong>${eg.prescription.add}</strong></span>` : ''}
+            ${eg.prescription.dp  ? `<span>DP: <strong>${eg.prescription.dp}</strong></span>`  : ''}
+            ${eg.prescription.obs ? `<span>Obs: <strong>${eg.prescription.obs}</strong></span>` : ''}
+          </div>
         </div>` : '';
       return `
         <div style="margin-top:8px;padding:8px;border:1px solid #e0d8c8;border-radius:4px;background:#fffdf7;">
@@ -155,7 +160,6 @@ export default function LabPage() {
         .from('lab_orders')
         .select('*')
         .order('created_at', { ascending: false });
-
       setOrders((data || []).map((row: any) => ({
         ...row,
         anteojos: row.anteojos || [],
@@ -168,7 +172,6 @@ export default function LabPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
-
   useEffect(() => {
     const interval = setInterval(() => load(), 30000);
     return () => clearInterval(interval);
@@ -179,22 +182,17 @@ export default function LabPage() {
     const byName = profile?.full_name ?? 'Laboratorio';
     const order  = orders.find(o => o.id === id);
     if (!order) return;
-
     const newHistory = [...(order.history || []), { status, timestamp: now, by: byName }];
     const newNotes   = notes[id] ?? order.notes;
-
     await supabase.from('lab_orders').update({
       status, updated_at: now, notes: newNotes, history: newHistory,
     }).eq('id', id);
-
     setOrders(prev => prev.map(o =>
       o.id === id ? { ...o, status, updated_at: now, notes: newNotes, history: newHistory } : o
     ));
-
     window.dispatchEvent(new Event('optica_ventas_updated'));
   }
 
-  // ── Filtro por fecha ──────────────────────────────────────────────────────
   function inPeriod(fechaStr: string) {
     const fecha = new Date(fechaStr);
     const now   = new Date();
@@ -210,12 +208,10 @@ export default function LabPage() {
   }
 
   const allSellers = [...new Set(orders.map(o => o.seller_name).filter(Boolean))].sort();
-
   const roleFiltered = orders.filter(o => {
     if (isVendedora) return o.seller_name === profile?.full_name;
     return true;
   });
-
   const visibleStatuses = isVendedora ? ['enviado', 'proceso', 'listo'] : STATUS_FLOW;
 
   const filtered = roleFiltered.filter(o => {
@@ -225,24 +221,22 @@ export default function LabPage() {
     if (sellerFilter !== 'todos' && o.seller_name !== sellerFilter) return false;
     if (!inPeriod(o.created_at)) return false;
     if (search) {
-      const q      = normalize(search);
-      const qNum   = search.replace(/\D/g, '');
-      const name   = normalize(o.customer_name);
-      const ci     = normalize(o.customer_ci || '');
-      const seller = normalize(o.seller_name || '');
-      const phone  = (o.customer_phone || '').replace(/\D/g, '');
-      const vtaId  = o.sale_number.toLowerCase();
-      return name.includes(q) || ci.includes(q) || seller.includes(q) || vtaId.includes(search.toLowerCase()) || (qNum.length >= 3 && phone.includes(qNum));
+      const q    = normalize(search);
+      const qNum = search.replace(/\D/g, '');
+      const name = normalize(o.customer_name);
+      const ci   = normalize(o.customer_ci || '');
+      const sel  = normalize(o.seller_name || '');
+      const ph   = (o.customer_phone || '').replace(/\D/g, '');
+      const vta  = o.sale_number.toLowerCase();
+      return name.includes(q) || ci.includes(q) || sel.includes(q) || vta.includes(search.toLowerCase()) || (qNum.length >= 3 && ph.includes(qNum));
     }
     return true;
   });
 
-  // Contadores por período para los botones
   const countForPeriod = (period: 'hoy' | 'semana' | 'mes' | 'todos') => {
     return roleFiltered.filter(o => {
       if (!visibleStatuses.includes(o.status)) return false;
-      const fecha = new Date(o.created_at);
-      const now   = new Date();
+      const fecha = new Date(o.created_at); const now = new Date();
       if (period === 'hoy')    return fecha.toDateString() === now.toDateString();
       if (period === 'semana') { const l = new Date(now); l.setDate(now.getDate()-(now.getDay()===0?6:now.getDay()-1)); l.setHours(0,0,0,0); return fecha >= l; }
       if (period === 'mes')    return fecha.getMonth()===now.getMonth()&&fecha.getFullYear()===now.getFullYear();
@@ -292,7 +286,7 @@ export default function LabPage() {
         </div>
       </div>
 
-      {/* KPIs — ahora filtrados por período */}
+      {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {(isVendedora ? ['enviado', 'proceso', 'listo'] : STATUS_FLOW).map(s => {
           const cfg   = statusConfig[s as LabStatus];
@@ -328,7 +322,7 @@ export default function LabPage() {
         ))}
       </div>
 
-      {/* Filtros de búsqueda */}
+      {/* Filtros búsqueda */}
       <div className="flex flex-wrap gap-3 items-center">
         <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'rgba(197,160,89,0.5)' }} />
@@ -469,22 +463,45 @@ export default function LabPage() {
                               </div>
                             </div>
                           </div>
+
+                          {/* ── RECETA COMPLETA — OD/OI con Altura + ADD/DP/Obs ── */}
                           {eg.showReceta && eg.prescription && (
-                            <div className="rounded-lg p-3 space-y-2" style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.14)' }}>
+                            <div className="rounded-lg p-3 space-y-3" style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.14)' }}>
                               <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.65)' }}>Receta óptica</p>
+
+                              {/* OD y OI — 4 columnas */}
                               <div className="grid grid-cols-2 gap-3">
                                 {[['OD', 'od'], ['OI', 'oi']].map(([label, key]) => (
                                   <div key={key}>
                                     <p className="text-xs font-light mb-1.5" style={{ color: '#C5A059' }}>{label}</p>
-                                    <div className="grid grid-cols-3 gap-1.5">
-                                      {[['Esfera', `${key}_esfera`], ['Cilindro', `${key}_cilindro`], ['Eje', `${key}_eje`]].map(([fl, fk]) => (
+                                    <div className="grid grid-cols-4 gap-1">
+                                      {[
+                                        ['Esfera',   `${key}_esfera`],
+                                        ['Cilindro', `${key}_cilindro`],
+                                        ['Eje',      `${key}_eje`],
+                                        ['Altura',   `${key}_altura`],
+                                      ].map(([fl, fk]) => (
                                         <div key={fk} className="text-center">
-                                          <p className="text-xs mb-1" style={{ color: 'rgba(255,255,255,0.3)', fontSize: 9 }}>{fl}</p>
-                                          <div className="px-1 py-1.5 rounded text-xs font-mono text-center" style={{ background: 'rgba(255,255,255,0.06)', color: eg.prescription[fk] ? '#fff' : 'rgba(255,255,255,0.2)' }}>
+                                          <p className="mb-1" style={{ color: 'rgba(255,255,255,0.3)', fontSize: 9 }}>{fl}</p>
+                                          <div className="px-1 py-1.5 rounded text-xs font-mono text-center"
+                                            style={{ background: 'rgba(255,255,255,0.06)', color: eg.prescription[fk] ? '#fff' : 'rgba(255,255,255,0.2)' }}>
                                             {eg.prescription[fk] || '—'}
                                           </div>
                                         </div>
                                       ))}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+
+                              {/* ADD, DP, Obs */}
+                              <div className="grid grid-cols-3 gap-2">
+                                {[['ADD', 'add'], ['DP', 'dp'], ['Obs', 'obs']].map(([fl, fk]) => (
+                                  <div key={fk} className="text-center">
+                                    <p className="mb-1" style={{ color: 'rgba(255,255,255,0.3)', fontSize: 9 }}>{fl}</p>
+                                    <div className="px-1 py-1.5 rounded text-xs font-mono text-center"
+                                      style={{ background: 'rgba(255,255,255,0.06)', color: eg.prescription[fk] ? '#fff' : 'rgba(255,255,255,0.2)' }}>
+                                      {eg.prescription[fk] || '—'}
                                     </div>
                                   </div>
                                 ))}
