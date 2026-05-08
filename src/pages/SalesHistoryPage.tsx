@@ -88,7 +88,6 @@ function newEyeglass(): EyeglassItem {
   return { _id: uid(), frame_description:'', photo_url:'', crystals:'', treatments:'', showReceta:false, prescription:emptyRx(), price:'', saleType:'completa', receta_a_confirmar: false };
 }
 
-// ── Helper: mostrar receta si tiene datos, sin importar showReceta ──────────
 function hasRxData(rx: any): boolean {
   if (!rx) return false;
   return !!(rx.od_esfera || rx.od_cilindro || rx.od_eje || rx.od_altura ||
@@ -636,6 +635,7 @@ export default function SalesHistoryPage() {
   const [deliverSale,  setDeliverSale]  = useState<any | null>(null);
   const [canEdit,      setCanEdit]      = useState(false);
   const [lightboxSrc,  setLightboxSrc]  = useState<string | null>(null);
+  const [deletingId,   setDeletingId]   = useState<string | null>(null);
 
   useEffect(() => {
     if (!profile) return;
@@ -643,6 +643,25 @@ export default function SalesHistoryPage() {
     supabase.from('optica_users').select('puede_editar_ventas').eq('id', profile.id).maybeSingle()
       .then(({ data }) => setCanEdit(data?.puede_editar_ventas ?? false));
   }, [profile]);
+
+  // ── Eliminar venta (solo admin) ───────────────────────────────────────────
+  async function handleDelete(saleId: number, clientName: string) {
+    const confirmed = window.confirm(
+      `¿Eliminar la venta de ${clientName}?\n\nEsto eliminará la venta, sus pagos y el pedido de laboratorio.\nEsta acción no se puede deshacer.`
+    );
+    if (!confirmed) return;
+    setDeletingId(String(saleId));
+    try {
+      await supabase.from('pagos').delete().eq('venta_id', String(saleId));
+      await supabase.from('lab_orders').delete().eq('sale_id', saleId);
+      await supabase.from('ventas').delete().eq('id', saleId);
+      await refresh();
+    } catch (err) {
+      console.error('Error eliminando venta:', err);
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   const sales = allSales
     .filter(v => {
@@ -786,6 +805,7 @@ export default function SalesHistoryPage() {
               const saldoVisible = getSaldoDisplay(v);
               const isEntregado  = v.estadoTrabajo === 'entregado';
               const hasConfirmar = anteojos.some((eg: any) => eg.receta_a_confirmar);
+              const isDeleting   = deletingId === key;
 
               return (
                 <div key={key}>
@@ -794,6 +814,8 @@ export default function SalesHistoryPage() {
                     <div className="flex items-center gap-2 mb-1">
                       <span className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-black shrink-0" style={{ background: '#C5A059', fontSize: 10 }}>{saleIdx + 1}</span>
                       <p className="text-sm text-white font-light flex-1 truncate">{name}</p>
+
+                      {/* Botón Entregar */}
                       {canEdit && !isEntregado && v.estadoTrabajo !== 'cancelado' && (
                         <button onClick={e => { e.stopPropagation(); setDeliverSale(v); }}
                           className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-light shrink-0"
@@ -801,6 +823,8 @@ export default function SalesHistoryPage() {
                           <Package size={11} /><span className="hidden lg:inline">Entregar</span>
                         </button>
                       )}
+
+                      {/* Botón Editar */}
                       {canEdit && (
                         <button onClick={e => { e.stopPropagation(); setEditSale(v); }}
                           className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-light shrink-0"
@@ -808,6 +832,18 @@ export default function SalesHistoryPage() {
                           <Pencil size={11} /><span className="hidden lg:inline">Editar</span>
                         </button>
                       )}
+
+                      {/* Botón Eliminar — solo admin */}
+                      {isAdmin && (
+                        <button
+                          onClick={e => { e.stopPropagation(); handleDelete(v.id, name); }}
+                          disabled={isDeleting}
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-light shrink-0"
+                          style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: isDeleting ? 'rgba(239,68,68,0.3)' : 'rgba(239,68,68,0.7)', cursor: isDeleting ? 'not-allowed' : 'pointer' }}>
+                          <Trash2 size={11} /><span className="hidden lg:inline">{isDeleting ? '...' : 'Eliminar'}</span>
+                        </button>
+                      )}
+
                       <ChevronDown size={14} style={{ color: 'rgba(255,255,255,0.3)', transform: isExp ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }} />
                     </div>
                     <div className="flex items-center gap-1.5 flex-wrap pl-8 mb-1.5">
@@ -905,24 +941,18 @@ export default function SalesHistoryPage() {
                                 </div>
                               </div>
 
-                              {/* ── RECETA COMPLETA — muestra si tiene datos ── */}
+                              {/* Receta completa — muestra si tiene datos */}
                               {hasRxData(eg.prescription) && !eg.receta_a_confirmar && (
                                 <div className="rounded-lg p-3 space-y-2" style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.18)' }}>
                                   <p className="text-xs font-light tracking-widest uppercase flex items-center gap-1.5" style={{ color: 'rgba(197,160,89,0.7)' }}>
                                     <FlaskConical size={11} style={{ color: '#3b82f6' }} />Receta óptica
                                   </p>
-                                  {/* OD y OI en grilla */}
                                   <div className="grid grid-cols-2 gap-3">
                                     {[['OD', 'od'], ['OI', 'oi']].map(([label, key]) => (
                                       <div key={key}>
                                         <p className="text-xs font-light mb-1" style={{ color: '#C5A059' }}>{label}</p>
                                         <div className="grid grid-cols-4 gap-1">
-                                          {[
-                                            ['Esf',  `${key}_esfera`],
-                                            ['Cil',  `${key}_cilindro`],
-                                            ['Eje',  `${key}_eje`],
-                                            ['Alt',  `${key}_altura`],
-                                          ].map(([fl, fk]) => (
+                                          {[['Esf',`${key}_esfera`],['Cil',`${key}_cilindro`],['Eje',`${key}_eje`],['Alt',`${key}_altura`]].map(([fl,fk]) => (
                                             <div key={fk} className="text-center">
                                               <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 9 }}>{fl}</p>
                                               <div className="px-1 py-1 rounded text-xs font-mono text-center"
@@ -935,10 +965,9 @@ export default function SalesHistoryPage() {
                                       </div>
                                     ))}
                                   </div>
-                                  {/* ADD, DP, Obs */}
                                   {(eg.prescription.add || eg.prescription.dp || eg.prescription.obs) && (
                                     <div className="grid grid-cols-3 gap-2 pt-1">
-                                      {[['ADD', 'add'], ['DP', 'dp'], ['Obs', 'obs']].map(([fl, fk]) => (
+                                      {[['ADD','add'],['DP','dp'],['Obs','obs']].map(([fl,fk]) => (
                                         eg.prescription[fk] ? (
                                           <div key={fk} className="text-center">
                                             <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 9 }}>{fl}</p>
