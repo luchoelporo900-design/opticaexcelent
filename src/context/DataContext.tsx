@@ -137,16 +137,26 @@ export function DataProvider({ children }: { children: ReactNode }) {
           if (payload.eventType === 'INSERT') {
             const newSale = rowToSale(payload.new);
             setSales(prev => {
-              // Si ya existe (fue guardada en este dispositivo), actualizar
               const exists = prev.some(s => s.id === newSale.id);
-              if (exists) return prev.map(s => s.id === newSale.id ? newSale : s);
-              return [newSale, ...prev];
+              const updated = exists
+                ? prev.map(s => s.id === newSale.id ? newSale : s)
+                : [newSale, ...prev];
+              localStorage.setItem('optica_yolanda_ventas', JSON.stringify(updated));
+              return updated;
             });
           } else if (payload.eventType === 'UPDATE') {
-            const updated = rowToSale(payload.new);
-            setSales(prev => prev.map(s => s.id === updated.id ? updated : s));
+            const updatedSale = rowToSale(payload.new);
+            setSales(prev => {
+              const updated = prev.map(s => s.id === updatedSale.id ? updatedSale : s);
+              localStorage.setItem('optica_yolanda_ventas', JSON.stringify(updated));
+              return updated;
+            });
           } else if (payload.eventType === 'DELETE') {
-            setSales(prev => prev.filter(s => s.id !== Number(payload.old.id)));
+            setSales(prev => {
+              const updated = prev.filter(s => s.id !== Number(payload.old.id));
+              localStorage.setItem('optica_yolanda_ventas', JSON.stringify(updated));
+              return updated;
+            });
           }
         }
       )
@@ -162,13 +172,23 @@ export function DataProvider({ children }: { children: ReactNode }) {
             setPayments(prev => {
               const exists = prev.some(p => p.id === newPay.id);
               if (exists) return prev;
-              return [newPay, ...prev];
+              const updated = [newPay, ...prev];
+              localStorage.setItem('optica_yolanda_abonos', JSON.stringify(updated));
+              return updated;
             });
           } else if (payload.eventType === 'UPDATE') {
-            const updated = rowToPayment(payload.new);
-            setPayments(prev => prev.map(p => p.id === updated.id ? updated : p));
+            const updatedPay = rowToPayment(payload.new);
+            setPayments(prev => {
+              const updated = prev.map(p => p.id === updatedPay.id ? updatedPay : p);
+              localStorage.setItem('optica_yolanda_abonos', JSON.stringify(updated));
+              return updated;
+            });
           } else if (payload.eventType === 'DELETE') {
-            setPayments(prev => prev.filter(p => p.id !== Number(payload.old.id)));
+            setPayments(prev => {
+              const updated = prev.filter(p => p.id !== Number(payload.old.id));
+              localStorage.setItem('optica_yolanda_abonos', JSON.stringify(updated));
+              return updated;
+            });
           }
         }
       )
@@ -184,13 +204,23 @@ export function DataProvider({ children }: { children: ReactNode }) {
             setExpenses(prev => {
               const exists = prev.some(e => e.id === newExp.id);
               if (exists) return prev;
-              return [newExp, ...prev];
+              const updated = [newExp, ...prev];
+              localStorage.setItem('optica_yolanda_gastos', JSON.stringify(updated));
+              return updated;
             });
           } else if (payload.eventType === 'UPDATE') {
-            const updated = rowToExpense(payload.new);
-            setExpenses(prev => prev.map(e => e.id === updated.id ? updated : e));
+            const updatedExp = rowToExpense(payload.new);
+            setExpenses(prev => {
+              const updated = prev.map(e => e.id === updatedExp.id ? updatedExp : e);
+              localStorage.setItem('optica_yolanda_gastos', JSON.stringify(updated));
+              return updated;
+            });
           } else if (payload.eventType === 'DELETE') {
-            setExpenses(prev => prev.filter(e => e.id !== Number(payload.old.id)));
+            setExpenses(prev => {
+              const updated = prev.filter(e => e.id !== Number(payload.old.id));
+              localStorage.setItem('optica_yolanda_gastos', JSON.stringify(updated));
+              return updated;
+            });
           }
         }
       )
