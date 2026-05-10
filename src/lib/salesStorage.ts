@@ -54,7 +54,29 @@ export type SalesSummary = {
   totalCobrado: number;
 };
 
-// ── Comprimir imagen antes de subir ──────────────────────────────────────────
+// ── compressImage — exportada para compatibilidad con BalancesPage y StockPage
+export function compressImage(dataUrl: string, maxKB = 200): Promise<string> {
+  return new Promise(resolve => {
+    if (!dataUrl.startsWith('data:image')) { resolve(dataUrl); return; }
+    const img = new Image();
+    img.onload = () => {
+      const MAX_BYTES = maxKB * 1024;
+      if (dataUrl.length * 0.75 <= MAX_BYTES) { resolve(dataUrl); return; }
+      const canvas = document.createElement('canvas');
+      const scaleFactor = Math.sqrt(MAX_BYTES / (dataUrl.length * 0.75));
+      canvas.width  = Math.max(1, Math.floor(img.width  * scaleFactor));
+      canvas.height = Math.max(1, Math.floor(img.height * scaleFactor));
+      canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
+      let out = canvas.toDataURL('image/jpeg', 0.75);
+      if (out.length * 0.75 > MAX_BYTES) out = canvas.toDataURL('image/jpeg', 0.50);
+      resolve(out);
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+// ── Comprimir File antes de subir a Cloudinary ────────────────────────────────
 async function compressImageFile(file: File, maxWidth = 1200, quality = 0.7): Promise<Blob> {
   return new Promise((resolve) => {
     const img = new Image();
@@ -79,7 +101,7 @@ async function compressImageFile(file: File, maxWidth = 1200, quality = 0.7): Pr
 
 // ── Upload a Cloudinary ───────────────────────────────────────────────────────
 export async function uploadToCloudinary(file: File): Promise<string> {
-  const compressed = await compressImageFile(file); // ✅ comprime primero
+  const compressed = await compressImageFile(file);
 
   const formData = new FormData();
   formData.append('file', compressed, 'foto.webp');
