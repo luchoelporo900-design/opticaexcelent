@@ -35,6 +35,7 @@ type BranchRow = { branch_name: string; sale_count: number; total: number; colle
 type PhotoEntry = {
   sale_number: string; branch_name: string; seller_name: string;
   created_at: string; photo_url: string; frame_description: string; customer_name: string;
+  is_receta?: boolean; // ✅ para distinguir en galería
 };
 
 function fmt(n: number) {
@@ -99,7 +100,7 @@ function EyeglassReviewCard({ eg, idx, onLightbox }: { eg: any; idx: number; onL
     <div className="rounded-xl overflow-hidden"
       style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(197,160,89,0.14)' }}>
 
-      {/* Foto + info básica */}
+      {/* Foto armazón + info básica */}
       <div className="flex items-start gap-3 p-3">
         {eg.photo_url ? (
           <button onClick={() => onLightbox(eg.photo_url)}
@@ -140,7 +141,23 @@ function EyeglassReviewCard({ eg, idx, onLightbox }: { eg: any; idx: number; onL
         </div>
       </div>
 
-      {/* Receta */}
+      {/* ✅ FOTO DE RECETA */}
+      {eg.receta_url && (
+        <div className="px-3 pb-2 flex items-center gap-2">
+          <p className="text-xs font-light shrink-0" style={{ color: 'rgba(255,255,255,0.35)' }}>📋 Foto receta:</p>
+          <button onClick={() => onLightbox(eg.receta_url)}
+            className="relative group rounded-lg overflow-hidden shrink-0"
+            style={{ width: 64, height: 48, border: '1px solid rgba(59,130,246,0.35)' }}>
+            <img src={eg.receta_url} alt="receta" className="w-full h-full object-cover" />
+            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+              style={{ background: 'rgba(0,0,0,0.55)' }}>
+              <ZoomIn size={12} style={{ color: '#3b82f6' }} />
+            </div>
+          </button>
+        </div>
+      )}
+
+      {/* Receta óptica (datos) */}
       {isConfirmar ? (
         <div className="mx-3 mb-3 flex items-center gap-2 px-3 py-2 rounded-lg"
           style={{ background: 'rgba(249,115,22,0.08)', border: '1px solid rgba(249,115,22,0.30)' }}>
@@ -203,26 +220,31 @@ function PhotoThumb({ entry }: { entry: PhotoEntry }) {
     <>
       <button onClick={() => setOpen(true)}
         className="relative group rounded-xl overflow-hidden"
-        style={{ width: 80, height: 80, border: '1px solid rgba(197,160,89,0.20)', flexShrink: 0 }}>
-        <img src={entry.photo_url} alt={entry.frame_description || 'armazón'} className="w-full h-full object-cover" />
+        style={{
+          width: 80, height: 80, flexShrink: 0,
+          border: entry.is_receta
+            ? '1px solid rgba(59,130,246,0.35)'
+            : '1px solid rgba(197,160,89,0.20)',
+        }}>
+        <img src={entry.photo_url} alt={entry.frame_description || 'foto'} className="w-full h-full object-cover" />
         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
           style={{ background: 'rgba(0,0,0,0.65)' }}>
-          <ZoomIn size={16} style={{ color: '#C5A059' }} />
+          <ZoomIn size={16} style={{ color: entry.is_receta ? '#3b82f6' : '#C5A059' }} />
         </div>
         <div className="absolute bottom-0 inset-x-0 px-1 py-0.5"
-          style={{ background: 'rgba(0,0,0,0.6)', fontSize: 8, color: 'rgba(197,160,89,0.9)' }}>
-          {entry.branch_name}
+          style={{ background: 'rgba(0,0,0,0.6)', fontSize: 8, color: entry.is_receta ? 'rgba(59,130,246,0.9)' : 'rgba(197,160,89,0.9)' }}>
+          {entry.is_receta ? '📋 receta' : entry.branch_name}
         </div>
       </button>
       {open && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-6"
           style={{ background: 'rgba(0,0,0,0.93)' }} onClick={() => setOpen(false)}>
           <div className="relative max-w-2xl w-full" onClick={e => e.stopPropagation()}>
-            <img src={entry.photo_url} alt={entry.frame_description || 'armazón'} className="w-full rounded-2xl"
-              style={{ border: '1px solid rgba(197,160,89,0.3)', maxHeight: '80vh', objectFit: 'contain' }} />
+            <img src={entry.photo_url} alt={entry.frame_description || 'foto'} className="w-full rounded-2xl"
+              style={{ border: `1px solid ${entry.is_receta ? 'rgba(59,130,246,0.3)' : 'rgba(197,160,89,0.3)'}`, maxHeight: '80vh', objectFit: 'contain' }} />
             <div className="mt-3 text-center">
               <p className="text-xs text-white font-light">{entry.sale_number} · {entry.customer_name} · {entry.branch_name}</p>
-              {entry.frame_description && <p className="text-xs font-light" style={{ color: 'rgba(197,160,89,0.7)' }}>{entry.frame_description}</p>}
+              {entry.frame_description && <p className="text-xs font-light" style={{ color: entry.is_receta ? 'rgba(59,130,246,0.7)' : 'rgba(197,160,89,0.7)' }}>{entry.frame_description}</p>}
             </div>
             <button onClick={() => setOpen(false)} className="absolute top-3 right-3 p-2 rounded-full"
               style={{ background: 'rgba(0,0,0,0.7)', color: 'rgba(255,255,255,0.7)' }}>
@@ -326,12 +348,25 @@ export default function ReportPage() {
     const photoRows: PhotoEntry[] = [];
     for (const v of ventas) {
       for (const eg of (v.anteojos as any[] || [])) {
+        // ✅ Foto del armazón
         if (eg.photo_url) {
           photoRows.push({
             sale_number: `VTA-${v.id}`, branch_name: v.sucursalVenta || '',
             seller_name: v.vendedora || '', created_at: v.fecha,
             photo_url: eg.photo_url, frame_description: eg.frame_description || '',
             customer_name: `${v.cliente.nombre} ${v.cliente.apellido}`.trim(),
+            is_receta: false,
+          });
+        }
+        // ✅ Foto de receta
+        if (eg.receta_url) {
+          photoRows.push({
+            sale_number: `VTA-${v.id}`, branch_name: v.sucursalVenta || '',
+            seller_name: v.vendedora || '', created_at: v.fecha,
+            photo_url: eg.receta_url,
+            frame_description: `📋 Receta${eg.frame_description ? ' — ' + eg.frame_description : ''}`,
+            customer_name: `${v.cliente.nombre} ${v.cliente.apellido}`.trim(),
+            is_receta: true,
           });
         }
       }
@@ -543,7 +578,6 @@ export default function ReportPage() {
                       style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(197,160,89,0.10)' }}>
                       <span className="text-xs font-mono" style={{ color: '#C5A059' }}>VTA-{v.id}</span>
                       <span className="text-xs text-white font-light flex-1 truncate">{v.cliente.nombre} {v.cliente.apellido}</span>
-                      {/* ── Canal y entrega en las alertas ── */}
                       <ChannelBadge channel={(v as any).channel} />
                       <DeliveryBadge type={(v as any).delivery_type} />
                       <span className="text-xs font-light" style={{ color: '#22c55e' }}>Gs. {fmt(Number(v.total))}</span>
@@ -658,7 +692,7 @@ export default function ReportPage() {
         </div>
       </div>
 
-      {/* Lista de ventas — detalle completo para revisión */}
+      {/* Lista de ventas */}
       <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
         <div className="flex items-center justify-between px-5 py-4"
           style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
@@ -682,7 +716,6 @@ export default function ReportPage() {
               const anteojos      = (v.anteojos as any[]) || [];
               const channel       = (v as any).channel as string | undefined;
               const deliveryType  = (v as any).delivery_type as string | undefined;
-              // receta a confirmar: al menos un armazón con receta_a_confirmar
               const hasConfirmar  = anteojos.some((eg: any) => eg.receta_a_confirmar);
 
               return (
@@ -695,7 +728,6 @@ export default function ReportPage() {
                     boxShadow:  isHighlighted ? '0 0 24px rgba(245,158,11,0.18)' : 'none',
                   }}>
 
-                  {/* Fila resumen */}
                   <div className="flex items-center gap-3 px-5 py-3.5 cursor-pointer"
                     style={{ background: isHighlighted ? 'rgba(245,158,11,0.05)' : isExp ? 'rgba(197,160,89,0.03)' : i%2===0 ? 'transparent' : 'rgba(255,255,255,0.008)' }}
                     onClick={() => setExpandedSale(isExp ? null : saleKey)}>
@@ -704,7 +736,6 @@ export default function ReportPage() {
                         <span className="text-xs font-mono" style={{ color: isHighlighted ? '#f59e0b' : '#C5A059' }}>VTA-{v.id}</span>
                         <span className="text-xs text-white font-light">{v.cliente.nombre} {v.cliente.apellido}</span>
                         <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.35)' }}>{v.sucursalVenta}</span>
-                        {/* ── Canal y entrega visibles en la fila ── */}
                         <ChannelBadge channel={channel} />
                         <DeliveryBadge type={deliveryType} />
                         {hasConfirmar && (
@@ -742,12 +773,10 @@ export default function ReportPage() {
                     <ChevronDown size={13} style={{ color: 'rgba(255,255,255,0.3)', transform: isExp ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }} />
                   </div>
 
-                  {/* Detalle expandido — panel completo de revisión */}
                   {isExp && (
                     <div className="px-5 pb-5 space-y-4"
                       style={{ background: 'rgba(197,160,89,0.02)', borderTop: '1px solid rgba(197,160,89,0.08)' }}>
 
-                      {/* ── CANAL Y ENTREGA ── */}
                       <div className="pt-3 flex flex-wrap items-center gap-3">
                         <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
                           style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
@@ -775,7 +804,7 @@ export default function ReportPage() {
                         </div>
                       </div>
 
-                      {/* ── ARMAZONES Y RECETAS ── */}
+                      {/* ── ARMAZONES, FOTOS DE RECETA Y RECETA ÓPTICA ── */}
                       {anteojos.length > 0 && (
                         <div>
                           <p className="text-xs font-light tracking-widest uppercase mb-2"
@@ -850,7 +879,6 @@ export default function ReportPage() {
                         </div>
                       )}
 
-                      {/* Observaciones */}
                       {v.observaciones && (
                         <div className="px-3 py-2.5 rounded-lg"
                           style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
@@ -866,15 +894,20 @@ export default function ReportPage() {
         )}
       </div>
 
-      {/* Galería de fotos */}
+      {/* ✅ Galería de fotos Y recetas */}
       {photos.length > 0 && (
         <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
           <div className="flex items-center justify-between px-5 py-4"
             style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
             <div className="flex items-center gap-2">
               <Camera size={14} style={{ color: 'rgba(197,160,89,0.6)' }} />
-              <span className="text-xs font-light tracking-wider text-white">Fotos de armazones</span>
-              <span className="px-2 py-0.5 rounded-full text-xs font-light" style={{ background: 'rgba(197,160,89,0.12)', color: '#C5A059' }}>{photos.length}</span>
+              <span className="text-xs font-light tracking-wider text-white">Fotos de armazones y recetas</span>
+              <span className="px-2 py-0.5 rounded-full text-xs font-light" style={{ background: 'rgba(197,160,89,0.12)', color: '#C5A059' }}>
+                {photos.filter(p => !p.is_receta).length} armazones
+              </span>
+              <span className="px-2 py-0.5 rounded-full text-xs font-light" style={{ background: 'rgba(59,130,246,0.12)', color: '#3b82f6' }}>
+                {photos.filter(p => p.is_receta).length} recetas
+              </span>
             </div>
             <select value={photoBranch} onChange={e => setPhotoBranch(e.target.value)}
               className="bg-transparent text-xs outline-none px-2 py-1 rounded-lg"

@@ -5,11 +5,11 @@ import {
   Glasses, FlaskConical, Phone, Eye, Receipt, Camera,
 } from 'lucide-react';
 import { supabase, Customer } from '../lib/supabase';
-import { useData } from '../context/DataContext';   // ← FIX
+import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
 import { StoredSale, StoredPayment } from '../lib/salesStorage';
 
-// ── Types ────────────────────────────────────────────────────────────────────
+// ── Types (ReportPage patch marker) ─────────────────────────────────────────
 
 type SaleEyeglass = {
   id: string;
@@ -18,6 +18,7 @@ type SaleEyeglass = {
   treatments: string;
   prescription_text: string;
   photo_url: string;
+  receta_url?: string;   // ✅ AGREGADO
   price: number;
   showReceta?: boolean;
   prescription?: {
@@ -65,7 +66,7 @@ type DerivedCustomer = {
   branch_id: string | null;
   notes: string | null;
   created_at: string;
-  source: 'local';          // siempre 'local' porque viene de ventas
+  source: 'local';
 };
 
 type ClientHistory = {
@@ -264,6 +265,13 @@ function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
                           <span style={{ color: 'rgba(197,160,89,0.55)' }}>Tratamientos: </span>{eg.treatments}
                         </p>
                       )}
+                      {/* ✅ FOTO DE RECETA */}
+                      {eg.receta_url && (
+                        <div className="mt-1">
+                          <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.35)' }}>📋 Foto receta</p>
+                          <PhotoThumb url={eg.receta_url} alt={`receta ${idx + 1}`} />
+                        </div>
+                      )}
                     </div>
                   </div>
                   {eg.prescription && (
@@ -382,10 +390,6 @@ function SaleCard({ sale, isAdmin }: { sale: SaleEntry; isAdmin?: boolean }) {
 function ClientFicha({ history, onClose, isAdmin }: { history: ClientHistory; onClose: () => void; isAdmin?: boolean }) {
   const { customer, sales } = history;
   const totalSpent   = sales.reduce((s, v) => s + Number(v.total), 0);
-
-  // ── FIX Problema 2: saldo real = suma de balance de cada venta ──────────
-  // No recalculamos desde pagos — usamos el campo saldo que ya está correcto
-  // después de closeSaleLocal (que fuerza saldo=0 al entregar)
   const totalPending = sales
     .filter(v => v.status !== 'entregado' && v.status !== 'cancelado')
     .reduce((s, v) => s + Math.max(0, Number(v.balance)), 0);
@@ -479,7 +483,7 @@ type Props = {
 
 export default function CustomersPage({ initialSearch = '', onSearchConsumed }: Props) {
   const { profile } = useAuth();
-  const { sales: allSales, payments: allPayments } = useData();  // ← FIX
+  const { sales: allSales, payments: allPayments } = useData();
   const [search,       setSearch]       = useState('');
   const [history,      setHistory]      = useState<ClientHistory | null>(null);
   const [loadingFicha, setLoadingFicha] = useState(false);
@@ -488,18 +492,14 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
     if (initialSearch) { setSearch(initialSearch); onSearchConsumed?.(); }
   }, [initialSearch]);
 
-  // ── FIX Problema 3: derivar clientes únicos desde ventas ─────────────────
-  // No se usa tabla customers (vacía). Cada venta tiene datos del cliente.
   const customers = useMemo<DerivedCustomer[]>(() => {
     const seen = new Map<string, DerivedCustomer>();
-    // Ordenamos por fecha desc para que el "primer registro" sea el más reciente
     const sorted = [...allSales].sort(
       (a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()
     );
     for (const sale of sorted) {
       const fullName = `${sale.cliente.nombre} ${sale.cliente.apellido}`.trim();
       if (!fullName) continue;
-      // Clave: nombre normalizado + CI si existe
       const key = sale.cliente.ci
         ? `ci:${sale.cliente.ci}`
         : `name:${fullName.toLowerCase().replace(/\s+/g, ' ')}`;
@@ -522,7 +522,6 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
     return Array.from(seen.values());
   }, [allSales]);
 
-  // ── Abrir ficha: construir historial desde ventas del context ────────────
   const openFicha = useCallback((customer: DerivedCustomer) => {
     setLoadingFicha(true);
     setHistory({ customer, sales: [] });
@@ -536,7 +535,6 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
       })
       .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime())
       .map(v => {
-        // Pagos de esta venta
         const salePayments: SalePaymentEntry[] = allPayments
           .filter(p => p.saleId === v.id)
           .sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime())
@@ -563,7 +561,6 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
           created_at:     v.fecha,
           total:          Number(v.total),
           deposit:        Number(v.sena),
-          // ── FIX Problema 2: usar saldo directo de la venta ──────────────
           balance:        Number(v.saldo),
           status:         v.estadoTrabajo,
           seller_name:    v.vendedora,
@@ -577,6 +574,7 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
             treatments:        eg.treatments        ?? '',
             prescription_text: eg.prescription_text ?? '',
             photo_url:         eg.photo_url         ?? '',
+            receta_url:        eg.receta_url         ?? '',   // ✅ AGREGADO
             price:             Number(eg.price) || 0,
             prescription:      eg.prescription ?? null,
             showReceta:        eg.showReceta    ?? false,
@@ -589,7 +587,6 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
     setLoadingFicha(false);
   }, [allSales, allPayments]);
 
-  // Filtro de búsqueda
   const filtered = useMemo(() => {
     if (!search) return customers;
     const qTel = search.replace(/\D/g, '');
@@ -644,13 +641,11 @@ export default function CustomersPage({ initialSearch = '', onSearchConsumed }: 
             <tbody>
               {filtered.map((customer, i) => {
                 const phone = customer.whatsapp || customer.phone;
-                // Contar ventas de este cliente
                 const salesCount = allSales.filter(v => {
                   const vName = `${v.cliente.nombre} ${v.cliente.apellido}`.trim().toLowerCase();
                   return vName === customer.full_name.toLowerCase() ||
                     (customer.ci && v.cliente.ci === customer.ci);
                 }).length;
-                // Calcular saldo pendiente
                 const pendingBalance = allSales
                   .filter(v => {
                     const vName = `${v.cliente.nombre} ${v.cliente.apellido}`.trim().toLowerCase();
