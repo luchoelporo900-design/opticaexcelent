@@ -3,7 +3,7 @@ import {
   Plus, X, Save, ChevronUp, Glasses, Banknote, CreditCard,
   Smartphone, QrCode, Send, MapPin, Truck, Store, Package, User, FileText,
   Check, AlertCircle, Trash2, ShoppingBag, Hash, Clock,
-  Building2, Camera, Image, Wrench, AlertTriangle,
+  Building2, Camera, Image, Wrench, AlertTriangle, Calendar,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { saveSale as saveToStorage, uploadToCloudinary } from '../lib/salesStorage';
@@ -95,6 +95,22 @@ function newEyeglass(): EyeglassItem {
 }
 function newInsumo(): InsumoItem { return { _id: uid(), descripcion: '', precio: '', photo_url: '' }; }
 function newPayment(): PaymentEntry { return { _id: uid(), method: 'efectivo', amount: '', reference: '', receipts: [] }; }
+
+// ── Helpers de fecha ──────────────────────────────────────────────────────────
+function getTodayDate(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+}
+function getTodayTime(): string {
+  const now = new Date();
+  return `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+}
+function buildIso(dateStr: string, timeStr: string): string {
+  return new Date(`${dateStr}T${timeStr}:00`).toISOString();
+}
+function isToday(dateStr: string): boolean {
+  return dateStr === getTodayDate();
+}
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return <p className="text-xs font-light mb-1.5 tracking-wide" style={{ color: 'rgba(255,255,255,0.42)' }}>{children}</p>;
@@ -254,7 +270,6 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
       </div>
 
       <div className="p-4 space-y-3">
-        {/* Armazón */}
         <div>
           <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Armazón</p>
           <div className="flex gap-3 items-start">
@@ -321,7 +336,6 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
           )}
         </div>
 
-        {/* Foto de receta */}
         <div>
           <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>
             Foto de receta <span style={{ color: 'rgba(255,255,255,0.25)' }}>(opcional)</span>
@@ -338,7 +352,6 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
           )}
         </div>
 
-        {/* Precio */}
         <div>
           <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>
             Precio de este anteojo (Gs.) <span style={{ color: 'rgba(255,255,255,0.25)' }}>— armazón + cristales + receta</span>
@@ -490,6 +503,10 @@ export default function POSPage() {
   const [saleNumber] = useState(`VTA-${Date.now().toString().slice(-8)}`);
   const today = new Date().toLocaleDateString('es-PY', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
+  // ✅ Fecha editable — por defecto hoy
+  const [saleDate, setSaleDate] = useState(getTodayDate());
+  const [saleTime, setSaleTime] = useState(getTodayTime());
+
   const [nFirst,  setNFirst]  = useState('');
   const [nLast,   setNLast]   = useState('');
   const [nCi,     setNCi]     = useState('');
@@ -558,12 +575,14 @@ export default function POSPage() {
       const payBranchName  = FIXED_BRANCHES.find(b => b.id === payBranch)?.name  ?? payBranch;
       const allReceipts    = payments.flatMap(p => p.receipts);
 
-      // ── CORRECCIÓN: seña vacía = saldo pendiente, NO cobrado completo ──
       const finalDeposit = depositNum > 0 ? depositNum : 0;
       const finalBalance = Math.max(0, totalNum - finalDeposit);
 
+      // ✅ Usar la fecha seleccionada por la vendedora
+      const fechaISO = buildIso(saleDate, saleTime);
+
       await saveToStorage({
-        id: saleId, fecha: new Date().toISOString(),
+        id: saleId, fecha: fechaISO,
         cliente: { nombre: nFirst.trim(), apellido: nLast.trim(), telefono: nPhone.trim(), ci: nCi.trim() },
         sucursalVenta: saleBranchName, sucursalEntrega: delBranchName, sucursalCobro: payBranchName,
         vendedora: sellerName, total: totalNum, sena: finalDeposit, saldo: finalBalance,
@@ -619,6 +638,7 @@ export default function POSPage() {
     setDelAddress(''); setDelRef(''); setDelPhone('');
     setShipCo(''); setShipCity(''); setShipRec(''); setShipPhone(''); setShipTrack('');
     setSaveErr('');
+    setSaleDate(getTodayDate()); setSaleTime(getTodayTime()); // ✅ reset fecha
     if (profile?.branch_id) {
       const bid = profile.branch_id.toLowerCase().replace(/ /g,'_').replace(/é/g,'e').replace(/á/g,'a');
       setSaleBranch(bid); setDelBranch(bid); setPayBranch(bid);
@@ -636,6 +656,8 @@ export default function POSPage() {
     : depositNum >= totalNum
       ? '✓ Cobrado completo'
       : `Saldo pendiente: Gs. ${fmt(Math.max(0, totalNum - depositNum))}`;
+
+  const fechaPasada = !isToday(saleDate);
 
   return (
     <div className="min-h-screen">
@@ -666,6 +688,43 @@ export default function POSPage() {
             <Check size={15} />{saved}
           </div>
         )}
+
+        {/* ✅ FECHA DE LA VENTA */}
+        <Section title="Fecha de la venta" icon={<Calendar size={15} />}>
+          <div className="space-y-3">
+            <div className="flex gap-3 flex-wrap">
+              <div className="flex-1 min-w-[160px]">
+                <FieldLabel>Fecha</FieldLabel>
+                <input
+                  type="date"
+                  value={saleDate}
+                  onChange={e => setSaleDate(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border"
+                  style={{ borderColor: fechaPasada ? 'rgba(245,158,11,0.5)' : 'rgba(197,160,89,0.22)', colorScheme: 'dark' }}
+                />
+              </div>
+              <div style={{ minWidth: 120 }}>
+                <FieldLabel>Hora</FieldLabel>
+                <input
+                  type="time"
+                  value={saleTime}
+                  onChange={e => setSaleTime(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border"
+                  style={{ borderColor: 'rgba(197,160,89,0.22)', colorScheme: 'dark' }}
+                />
+              </div>
+            </div>
+            {fechaPasada && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg"
+                style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.30)' }}>
+                <AlertTriangle size={12} style={{ color: '#f59e0b', flexShrink: 0 }} />
+                <span className="text-xs font-light" style={{ color: '#f59e0b' }}>
+                  Estás cargando una venta con fecha pasada — aparecerá en los reportes y caja de ese día.
+                </span>
+              </div>
+            )}
+          </div>
+        </Section>
 
         <Section title="Cliente" icon={<User size={15} />}>
           <div className="grid grid-cols-2 gap-3">
