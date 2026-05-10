@@ -6,7 +6,7 @@ import {
   Building2, Camera, Image, Wrench, AlertTriangle,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { saveSale as saveToStorage, compressImage } from '../lib/salesStorage';
+import { saveSale as saveToStorage, uploadToCloudinary } from '../lib/salesStorage';
 import { supabase } from '../lib/supabase';
 
 type PaymentMethod = 'efectivo' | 'transferencia' | 'tarjeta' | 'qr' | 'giro';
@@ -25,6 +25,7 @@ type EyeglassItem = {
   _id: string;
   frame_description: string;
   photo_url: string;
+  receta_url?: string;
   crystals: string;
   treatments: string;
   showReceta: boolean;
@@ -88,17 +89,12 @@ function emptyRx(): Prescription {
 }
 function newEyeglass(): EyeglassItem {
   return {
-    _id: uid(), frame_description:'', photo_url:'', crystals:'', treatments:'',
-    showReceta: false, prescription: emptyRx(), price:'', saleType:'completa',
-    receta_a_confirmar: false,
+    _id: uid(), frame_description:'', photo_url:'', receta_url:'', crystals:'', treatments:'',
+    showReceta: false, prescription: emptyRx(), price:'', saleType:'completa', receta_a_confirmar: false,
   };
 }
-function newInsumo(): InsumoItem {
-  return { _id: uid(), descripcion: '', precio: '', photo_url: '' };
-}
-function newPayment(): PaymentEntry {
-  return { _id: uid(), method: 'efectivo', amount: '', reference: '', receipts: [] };
-}
+function newInsumo(): InsumoItem { return { _id: uid(), descripcion: '', precio: '', photo_url: '' }; }
+function newPayment(): PaymentEntry { return { _id: uid(), method: 'efectivo', amount: '', reference: '', receipts: [] }; }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return <p className="text-xs font-light mb-1.5 tracking-wide" style={{ color: 'rgba(255,255,255,0.42)' }}>{children}</p>;
@@ -132,22 +128,21 @@ function Section({ title, icon, children, accent }: { title: string; icon: React
   );
 }
 
-function PhotoBtn({ onFile }: { onFile: (url: string) => void }) {
+function PhotoBtn({ onFile, label }: { onFile: (url: string) => void; label?: string }) {
   const camRef = useRef<HTMLInputElement>(null);
   const galRef = useRef<HTMLInputElement>(null);
   async function handle(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async ev => { const c = await compressImage(ev.target?.result as string); onFile(c); };
-    reader.readAsDataURL(file);
     e.target.value = '';
+    try { const url = await uploadToCloudinary(file); onFile(url); }
+    catch { alert('Error al subir la foto. Intentá de nuevo.'); }
   }
   return (
     <div className="flex gap-1.5">
       <button onClick={() => camRef.current?.click()}
         className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs border"
         style={{ borderColor: 'rgba(197,160,89,0.25)', color: 'rgba(197,160,89,0.8)', background: 'rgba(197,160,89,0.05)' }}>
-        <Camera size={12} />Cám.
+        <Camera size={12} />{label ? `${label} Cám.` : 'Cám.'}
       </button>
       <button onClick={() => galRef.current?.click()}
         className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs border"
@@ -161,10 +156,7 @@ function PhotoBtn({ onFile }: { onFile: (url: string) => void }) {
 }
 
 function ReceiptMulti({ receipts, onChange }: { receipts: string[]; onChange: (r: string[]) => void }) {
-  function addReceipt(url: string) {
-    if (receipts.length >= 3) return;
-    onChange([...receipts, url]);
-  }
+  function addReceipt(url: string) { if (receipts.length >= 3) return; onChange([...receipts, url]); }
   function removeReceipt(i: number) { onChange(receipts.filter((_, idx) => idx !== i)); }
   return (
     <div>
@@ -175,8 +167,7 @@ function ReceiptMulti({ receipts, onChange }: { receipts: string[]; onChange: (r
         {receipts.map((url, i) => (
           <div key={i} className="relative">
             <img src={url} alt={`comprobante ${i+1}`} className="h-20 w-24 object-cover rounded-xl border" style={{ borderColor: 'rgba(197,160,89,0.25)' }} />
-            <button onClick={() => removeReceipt(i)}
-              className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: '#ef4444' }}>
+            <button onClick={() => removeReceipt(i)} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: '#ef4444' }}>
               <X size={9} color="#fff" />
             </button>
           </div>
@@ -198,7 +189,6 @@ function RxInput({ label, value, onChange, placeholder }: { label: string; value
   );
 }
 
-// ─── Tarjeta de anteojo ───────────────────────────────────────────────────────
 function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
   eg: EyeglassItem; idx: number;
   onUpdate: (p: Partial<EyeglassItem>) => void;
@@ -213,10 +203,9 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
 
   async function handlePhoto(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async ev => { const c = await compressImage(ev.target?.result as string); onUpdate({ photo_url: c }); };
-    reader.readAsDataURL(file);
     e.target.value = '';
+    try { const url = await uploadToCloudinary(file); onUpdate({ photo_url: url }); }
+    catch { alert('Error al subir la foto. Intentá de nuevo.'); }
   }
 
   async function handleFrameInput(val: string) {
@@ -224,28 +213,19 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
     setStockFrame(null);
     if (val.trim().length < 2) { setSuggestions([]); return; }
     setSearching(true);
-    const { data } = await supabase
-      .from('armazones')
+    const { data } = await supabase.from('armazones')
       .select('id, codigo, nombre, foto_url, precio, stock_azara, stock_fernando, stock_caacupe, stock_la_fina')
-      .or(`codigo.ilike.%${val.trim()}%,nombre.ilike.%${val.trim()}%`)
-      .limit(5);
+      .or(`codigo.ilike.%${val.trim()}%,nombre.ilike.%${val.trim()}%`).limit(5);
     setSuggestions(data || []);
     setSearching(false);
   }
 
   function selectFrame(frame: any) {
     onUpdate({ frame_description: frame.codigo, photo_url: frame.foto_url || '', stock_frame_id: frame.id, price: frame.precio ? String(frame.precio) : eg.price });
-    setStockFrame(frame);
-    setSuggestions([]);
+    setStockFrame(frame); setSuggestions([]);
   }
 
-  function updateRx(field: keyof Prescription, val: string) {
-    onUpdate({ prescription: { ...eg.prescription, [field]: val } });
-  }
-
-  const totalStockFrame = stockFrame
-    ? (stockFrame.stock_azara||0)+(stockFrame.stock_fernando||0)+(stockFrame.stock_caacupe||0)+(stockFrame.stock_la_fina||0)
-    : 0;
+  const totalStockFrame = stockFrame ? (stockFrame.stock_azara||0)+(stockFrame.stock_fernando||0)+(stockFrame.stock_caacupe||0)+(stockFrame.stock_la_fina||0) : 0;
   const activeCfg = SALE_TYPES.find(t => t.id === currentType) ?? SALE_TYPES[0];
 
   return (
@@ -258,9 +238,7 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
             style={{ background: `${activeCfg.color}15`, color: activeCfg.color, border: `1px solid ${activeCfg.color}30` }}>
             {activeCfg.icon}<span className="hidden sm:inline">{activeCfg.label}</span>
           </span>
-          {eg.price && (
-            <span className="text-xs font-light shrink-0" style={{ color: '#C5A059' }}>Gs. {fmt(Number(eg.price))}</span>
-          )}
+          {eg.price && <span className="text-xs font-light shrink-0" style={{ color: '#C5A059' }}>Gs. {fmt(Number(eg.price))}</span>}
           {eg.receta_a_confirmar && (
             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs shrink-0"
               style={{ background: 'rgba(249,115,22,0.12)', color: '#f97316', border: '1px solid rgba(249,115,22,0.30)' }}>
@@ -276,6 +254,7 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
       </div>
 
       <div className="p-4 space-y-3">
+        {/* Armazón */}
         <div>
           <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Armazón</p>
           <div className="flex gap-3 items-start">
@@ -303,9 +282,7 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
                             </div>}
                         <div className="flex-1 min-w-0">
                           <p className="text-xs text-white font-light truncate">{s.nombre}</p>
-                          <p className="text-xs font-light" style={{ color: 'rgba(197,160,89,0.6)' }}>
-                            #{s.codigo} · Stock: {tot} uds.{s.precio ? ` · Gs. ${fmt(s.precio)}` : ''}
-                          </p>
+                          <p className="text-xs font-light" style={{ color: 'rgba(197,160,89,0.6)' }}>#{s.codigo} · Stock: {tot} uds.{s.precio ? ` · Gs. ${fmt(s.precio)}` : ''}</p>
                         </div>
                       </button>
                     );
@@ -324,14 +301,10 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
                 </div>
               ) : (
                 <div className="flex flex-col gap-1">
-                  <button onClick={() => camRef.current?.click()}
-                    className="w-16 h-6 rounded flex items-center justify-center gap-1 border text-xs"
-                    style={{ borderColor: 'rgba(197,160,89,0.22)', background: 'rgba(197,160,89,0.06)', color: 'rgba(197,160,89,0.7)' }}>
+                  <button onClick={() => camRef.current?.click()} className="w-16 h-6 rounded flex items-center justify-center gap-1 border text-xs" style={{ borderColor: 'rgba(197,160,89,0.22)', background: 'rgba(197,160,89,0.06)', color: 'rgba(197,160,89,0.7)' }}>
                     <Camera size={10} /><span style={{ fontSize: 9 }}>Cám.</span>
                   </button>
-                  <button onClick={() => galRef.current?.click()}
-                    className="w-16 h-6 rounded flex items-center justify-center gap-1 border text-xs"
-                    style={{ borderColor: 'rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.03)', color: 'rgba(255,255,255,0.4)' }}>
+                  <button onClick={() => galRef.current?.click()} className="w-16 h-6 rounded flex items-center justify-center gap-1 border text-xs" style={{ borderColor: 'rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.03)', color: 'rgba(255,255,255,0.4)' }}>
                     <Image size={10} /><span style={{ fontSize: 9 }}>Gal.</span>
                   </button>
                   <input ref={camRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhoto} />
@@ -343,13 +316,29 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
           {eg.stock_frame_id && stockFrame && (
             <div className="mt-2 flex items-center gap-2 px-3 py-2 rounded-lg" style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.22)' }}>
               <Check size={12} style={{ color: '#22c55e', flexShrink: 0 }} />
-              <span className="text-xs font-light" style={{ color: '#22c55e' }}>
-                {stockFrame.nombre} · Stock: {totalStockFrame} uds. · Se descontará 1 al guardar
-              </span>
+              <span className="text-xs font-light" style={{ color: '#22c55e' }}>{stockFrame.nombre} · Stock: {totalStockFrame} uds. · Se descontará 1 al guardar</span>
             </div>
           )}
         </div>
 
+        {/* Foto de receta */}
+        <div>
+          <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>
+            Foto de receta <span style={{ color: 'rgba(255,255,255,0.25)' }}>(opcional)</span>
+          </p>
+          {eg.receta_url ? (
+            <div className="relative inline-block">
+              <img src={eg.receta_url} alt="receta" className="h-20 w-28 object-cover rounded-lg border" style={{ borderColor: 'rgba(59,130,246,0.35)' }} />
+              <button onClick={() => onUpdate({ receta_url: '' })} className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center" style={{ background: '#ef4444' }}>
+                <X size={8} color="#fff" />
+              </button>
+            </div>
+          ) : (
+            <PhotoBtn onFile={url => onUpdate({ receta_url: url })} label="Receta" />
+          )}
+        </div>
+
+        {/* Precio */}
         <div>
           <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>
             Precio de este anteojo (Gs.) <span style={{ color: 'rgba(255,255,255,0.25)' }}>— armazón + cristales + receta</span>
@@ -363,14 +352,12 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
           <div>
             <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Cristales</p>
             <input type="text" value={eg.crystals} onChange={e => onUpdate({ crystals: e.target.value })} placeholder="monofocal, multifocal..."
-              className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border"
-              style={{ borderColor: 'rgba(197,160,89,0.22)' }} />
+              className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border" style={{ borderColor: 'rgba(197,160,89,0.22)' }} />
           </div>
           <div>
             <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Tratamiento</p>
             <input type="text" value={eg.treatments} onChange={e => onUpdate({ treatments: e.target.value })} placeholder="antirreflejo, filtro azul..."
-              className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border"
-              style={{ borderColor: 'rgba(197,160,89,0.22)' }} />
+              className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border" style={{ borderColor: 'rgba(197,160,89,0.22)' }} />
           </div>
         </div>
 
@@ -394,22 +381,16 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          <button
-            onClick={() => onUpdate({ showReceta: !eg.showReceta, receta_a_confirmar: false })}
+          <button onClick={() => onUpdate({ showReceta: !eg.showReceta, receta_a_confirmar: false })}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light"
             style={{ color: 'rgba(197,160,89,0.7)', border: '1px solid rgba(197,160,89,0.20)' }}>
             {eg.showReceta ? <ChevronUp size={11} /> : <Plus size={11} />}
             {eg.showReceta ? 'Ocultar receta' : '+ Completar receta'}
           </button>
           {!eg.showReceta && (
-            <button
-              onClick={() => onUpdate({ receta_a_confirmar: !eg.receta_a_confirmar, showReceta: false })}
+            <button onClick={() => onUpdate({ receta_a_confirmar: !eg.receta_a_confirmar, showReceta: false })}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light"
-              style={{
-                color:      eg.receta_a_confirmar ? '#f97316' : 'rgba(249,115,22,0.55)',
-                border:     `1px solid ${eg.receta_a_confirmar ? 'rgba(249,115,22,0.50)' : 'rgba(249,115,22,0.22)'}`,
-                background: eg.receta_a_confirmar ? 'rgba(249,115,22,0.10)' : 'transparent',
-              }}>
+              style={{ color: eg.receta_a_confirmar ? '#f97316' : 'rgba(249,115,22,0.55)', border: `1px solid ${eg.receta_a_confirmar ? 'rgba(249,115,22,0.50)' : 'rgba(249,115,22,0.22)'}`, background: eg.receta_a_confirmar ? 'rgba(249,115,22,0.10)' : 'transparent' }}>
               <AlertTriangle size={11} />
               {eg.receta_a_confirmar ? '⚠ Receta a confirmar' : 'Receta a confirmar'}
             </button>
@@ -420,29 +401,29 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
           <div className="rounded-xl p-3 space-y-3" style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.14)' }}>
             <div>
               <p className="text-xs font-light mb-2" style={{ color: '#C5A059' }}>OD — Ojo Derecho</p>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <RxInput label="Esfera"   value={eg.prescription.od_esfera}   onChange={v => onUpdate({ prescription: { ...eg.prescription, od_esfera: v } })}   placeholder="-2.00" />
                 <RxInput label="Cilindro" value={eg.prescription.od_cilindro} onChange={v => onUpdate({ prescription: { ...eg.prescription, od_cilindro: v } })} placeholder="-0.50" />
                 <RxInput label="Eje"      value={eg.prescription.od_eje}      onChange={v => onUpdate({ prescription: { ...eg.prescription, od_eje: v } })}      placeholder="180" />
+                <RxInput label="Altura"   value={eg.prescription.od_altura}   onChange={v => onUpdate({ prescription: { ...eg.prescription, od_altura: v } })}   placeholder="20" />
               </div>
             </div>
             <div>
               <p className="text-xs font-light mb-2" style={{ color: '#C5A059' }}>OI — Ojo Izquierdo</p>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <RxInput label="Esfera"   value={eg.prescription.oi_esfera}   onChange={v => onUpdate({ prescription: { ...eg.prescription, oi_esfera: v } })}   placeholder="-1.75" />
                 <RxInput label="Cilindro" value={eg.prescription.oi_cilindro} onChange={v => onUpdate({ prescription: { ...eg.prescription, oi_cilindro: v } })} placeholder="-0.25" />
                 <RxInput label="Eje"      value={eg.prescription.oi_eje}      onChange={v => onUpdate({ prescription: { ...eg.prescription, oi_eje: v } })}      placeholder="175" />
+                <RxInput label="Altura"   value={eg.prescription.oi_altura}   onChange={v => onUpdate({ prescription: { ...eg.prescription, oi_altura: v } })}   placeholder="20" />
               </div>
             </div>
-            <div className="grid grid-cols-4 gap-2">
-              <RxInput label="ADD"    value={eg.prescription.add}       onChange={v => onUpdate({ prescription: { ...eg.prescription, add: v } })}       placeholder="+2.00" />
-              <RxInput label="DP"     value={eg.prescription.dp}        onChange={v => onUpdate({ prescription: { ...eg.prescription, dp: v } })}        placeholder="64" />
-              <RxInput label="Altura" value={eg.prescription.od_altura} onChange={v => onUpdate({ prescription: { ...eg.prescription, od_altura: v } })} placeholder="20" />
+            <div className="grid grid-cols-3 gap-2">
+              <RxInput label="ADD" value={eg.prescription.add} onChange={v => onUpdate({ prescription: { ...eg.prescription, add: v } })} placeholder="+2.00" />
+              <RxInput label="DP"  value={eg.prescription.dp}  onChange={v => onUpdate({ prescription: { ...eg.prescription, dp: v } })}  placeholder="64" />
               <div>
                 <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.35)' }}>Obs</p>
                 <input type="text" value={eg.prescription.obs} onChange={e => onUpdate({ prescription: { ...eg.prescription, obs: e.target.value } })}
-                  className="w-full px-2.5 py-2 rounded-lg bg-transparent text-white text-xs font-light outline-none border"
-                  style={{ borderColor: 'rgba(197,160,89,0.20)' }} />
+                  className="w-full px-2.5 py-2 rounded-lg bg-transparent text-white text-xs font-light outline-none border" style={{ borderColor: 'rgba(197,160,89,0.20)' }} />
               </div>
             </div>
           </div>
@@ -452,12 +433,10 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
   );
 }
 
-// ─── Tarjeta de pago mixto ────────────────────────────────────────────────────
 function PaymentCard({ pay, idx, total, onUpdate, onRemove, canRemove }: {
   pay: PaymentEntry; idx: number; total: number;
   onUpdate: (p: Partial<PaymentEntry>) => void;
-  onRemove: () => void;
-  canRemove: boolean;
+  onRemove: () => void; canRemove: boolean;
 }) {
   const mc = PAY_METHODS.find(m => m.id === pay.method)?.color ?? '#C5A059';
   return (
@@ -490,8 +469,7 @@ function PaymentCard({ pay, idx, total, onUpdate, onRemove, canRemove }: {
           <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>
             Monto <span style={{ color: 'rgba(255,255,255,0.25)' }}>(dejar vacío = todo el total)</span>
           </p>
-          <input type="number" value={pay.amount} onChange={e => onUpdate({ amount: e.target.value })}
-            placeholder={fmt(total)}
+          <input type="number" value={pay.amount} onChange={e => onUpdate({ amount: e.target.value })} placeholder={fmt(total)}
             className="w-full px-3 py-2 rounded-xl bg-transparent text-sm font-light outline-none border text-right"
             style={{ borderColor: `${mc}44`, color: mc }} />
         </div>
@@ -507,7 +485,6 @@ function PaymentCard({ pay, idx, total, onUpdate, onRemove, canRemove }: {
   );
 }
 
-// ─── Página principal ─────────────────────────────────────────────────────────
 export default function POSPage() {
   const { profile } = useAuth();
   const [saleNumber] = useState(`VTA-${Date.now().toString().slice(-8)}`);
@@ -517,11 +494,9 @@ export default function POSPage() {
   const [nLast,   setNLast]   = useState('');
   const [nCi,     setNCi]     = useState('');
   const [nPhone,  setNPhone]  = useState('');
-
   const [saleBranch, setSaleBranch] = useState('');
   const [delBranch,  setDelBranch]  = useState('');
   const [payBranch,  setPayBranch]  = useState('');
-
   const [channel,    setChannel]    = useState<Channel>('local');
   const [delType,    setDelType]    = useState<DeliveryType>('retiro');
   const [delAddress, setDelAddress] = useState('');
@@ -532,25 +507,20 @@ export default function POSPage() {
   const [shipRec,    setShipRec]    = useState('');
   const [shipPhone,  setShipPhone]  = useState('');
   const [shipTrack,  setShipTrack]  = useState('');
-
   const [eyeglasses, setEyeglasses] = useState<EyeglassItem[]>([]);
   const [insumos,    setInsumos]    = useState<InsumoItem[]>([]);
   const [payments,   setPayments]   = useState<PaymentEntry[]>([newPayment()]);
-
   const [status, setStatus] = useState<SaleStatus>('pendiente');
   const [notes,  setNotes]  = useState('');
-
   const [saving,  setSaving]  = useState(false);
   const [saved,   setSaved]   = useState('');
   const [saveErr, setSaveErr] = useState('');
-
   const [saleTotal,   setSaleTotal]   = useState('');
   const [saleDeposit, setSaleDeposit] = useState('');
+
   const totalNum   = parseFloat(saleTotal)   || 0;
   const depositNum = parseFloat(saleDeposit) || 0;
-  const balanceNum = Math.max(0, totalNum - depositNum);
-
-  const sumPrices = eyeglasses.reduce((s, eg) => s + (parseFloat(eg.price) || 0), 0);
+  const sumPrices  = eyeglasses.reduce((s, eg) => s + (parseFloat(eg.price) || 0), 0);
 
   useEffect(() => {
     if (profile?.branch_id) {
@@ -561,17 +531,11 @@ export default function POSPage() {
 
   function addEyeglass()              { setEyeglasses(prev => [...prev, newEyeglass()]); }
   function removeEyeglass(id: string) { setEyeglasses(prev => prev.filter(eg => eg._id !== id)); }
-  function updateEg(id: string, patch: Partial<EyeglassItem>) {
-    setEyeglasses(prev => prev.map(eg => eg._id === id ? { ...eg, ...patch } : eg));
-  }
+  function updateEg(id: string, patch: Partial<EyeglassItem>) { setEyeglasses(prev => prev.map(eg => eg._id === id ? { ...eg, ...patch } : eg)); }
   function addInsumo()               { setInsumos(prev => [...prev, newInsumo()]); }
   function removeInsumo(id: string)  { setInsumos(prev => prev.filter(i => i._id !== id)); }
-  function updateInsumo(id: string, patch: Partial<InsumoItem>) {
-    setInsumos(prev => prev.map(i => i._id === id ? { ...i, ...patch } : i));
-  }
-  function updatePay(id: string, patch: Partial<PaymentEntry>) {
-    setPayments(prev => prev.map(p => p._id === id ? { ...p, ...patch } : p));
-  }
+  function updateInsumo(id: string, patch: Partial<InsumoItem>) { setInsumos(prev => prev.map(i => i._id === id ? { ...i, ...patch } : i)); }
+  function updatePay(id: string, patch: Partial<PaymentEntry>) { setPayments(prev => prev.map(p => p._id === id ? { ...p, ...patch } : p)); }
   function addPayment()              { setPayments(prev => [...prev, newPayment()]); }
   function removePayment(id: string) { setPayments(prev => prev.filter(p => p._id !== id)); }
 
@@ -583,7 +547,6 @@ export default function POSPage() {
     if (!saleBranch)    { setSaveErr('Seleccioná la Sucursal de venta.'); return; }
     if (!delBranch)     { setSaveErr('Seleccioná la Sucursal de entrega.'); return; }
     if (!payBranch)     { setSaveErr('Seleccioná la Sucursal de cobro.'); return; }
-
     setSaving(true);
     try {
       const sellerName     = profile?.full_name ?? 'Sin nombre';
@@ -595,52 +558,29 @@ export default function POSPage() {
       const payBranchName  = FIXED_BRANCHES.find(b => b.id === payBranch)?.name  ?? payBranch;
       const allReceipts    = payments.flatMap(p => p.receipts);
 
-      // Opción A: si seña vacía → cobrado completo
-      const finalDeposit = depositNum > 0 ? depositNum : totalNum;
+      // ── CORRECCIÓN: seña vacía = saldo pendiente, NO cobrado completo ──
+      const finalDeposit = depositNum > 0 ? depositNum : 0;
       const finalBalance = Math.max(0, totalNum - finalDeposit);
 
       await saveToStorage({
-        id: saleId,
-        fecha: new Date().toISOString(),
+        id: saleId, fecha: new Date().toISOString(),
         cliente: { nombre: nFirst.trim(), apellido: nLast.trim(), telefono: nPhone.trim(), ci: nCi.trim() },
-        sucursalVenta:   saleBranchName,
-        sucursalEntrega: delBranchName,
-        sucursalCobro:   payBranchName,
-        vendedora:       sellerName,
-        total:           totalNum,
-        sena:            finalDeposit,
-        saldo:           finalBalance,
-        metodoPago:      primaryMethod,
-        estadoTrabajo:   status,
+        sucursalVenta: saleBranchName, sucursalEntrega: delBranchName, sucursalCobro: payBranchName,
+        vendedora: sellerName, total: totalNum, sena: finalDeposit, saldo: finalBalance,
+        metodoPago: primaryMethod, estadoTrabajo: status,
         anteojos: [
           ...eyeglasses,
           ...insumos.map(ins => ({
-            _id:               ins._id,
-            frame_description: ins.descripcion,
-            photo_url:         ins.photo_url,
-            crystals:          '',
-            treatments:        '',
-            showReceta:        false,
-            prescription:      emptyRx(),
-            price:             ins.precio,
-            saleType:          'reparacion' as SaleType,
-            tipo:              'insumo',
+            _id: ins._id, frame_description: ins.descripcion, photo_url: ins.photo_url, receta_url: '',
+            crystals: '', treatments: '', showReceta: false, prescription: emptyRx(),
+            price: ins.precio, saleType: 'reparacion' as SaleType, tipo: 'insumo',
           })),
         ],
-        observaciones:   notes,
-        receipt_url:     allReceipts[0] || undefined,
-        channel,
-        deliveryType: delType,
-        deliveryAddress: delAddress || undefined,
-        pagos: payments.map(p => ({
-          metodo:    p.method,
-          monto:     parseFloat(p.amount) || totalNum,
-          referencia: p.reference || undefined,
-          receipts:  p.receipts,
-        })),
+        observaciones: notes, receipt_url: allReceipts[0] || undefined,
+        channel, deliveryType: delType, deliveryAddress: delAddress || undefined,
+        pagos: payments.map(p => ({ metodo: p.method, monto: parseFloat(p.amount) || totalNum, referencia: p.reference || undefined, receipts: p.receipts })),
       } as any);
 
-      // Descontar stock solo de anteojos reales
       for (const eg of eyeglasses) {
         if (eg.stock_frame_id) {
           const { data: frame } = await supabase.from('armazones').select('*').eq('id', eg.stock_frame_id).single();
@@ -672,11 +612,9 @@ export default function POSPage() {
 
   function resetForm() {
     setNFirst(''); setNLast(''); setNCi(''); setNPhone('');
-    setEyeglasses([]);
-    setInsumos([]);
+    setEyeglasses([]); setInsumos([]);
     setSaleTotal(''); setSaleDeposit('');
-    setPayments([newPayment()]);
-    setNotes(''); setStatus('pendiente');
+    setPayments([newPayment()]); setNotes(''); setStatus('pendiente');
     setChannel('local'); setDelType('retiro');
     setDelAddress(''); setDelRef(''); setDelPhone('');
     setShipCo(''); setShipCity(''); setShipRec(''); setShipPhone(''); setShipTrack('');
@@ -692,43 +630,43 @@ export default function POSPage() {
     ...FIXED_BRANCHES.map(b => <option key={b.id} value={b.id} style={{ background: '#0a0908' }}>{b.name}</option>),
   ];
 
+  const depositInfoColor = saleDeposit === '' || depositNum === 0 ? '#f59e0b' : depositNum >= totalNum ? '#10b981' : 'rgba(255,255,255,0.3)';
+  const depositInfoText  = saleDeposit === '' || depositNum === 0
+    ? '⚠ Sin seña — quedará saldo pendiente por el total'
+    : depositNum >= totalNum
+      ? '✓ Cobrado completo'
+      : `Saldo pendiente: Gs. ${fmt(Math.max(0, totalNum - depositNum))}`;
+
   return (
     <div className="min-h-screen">
       <div className="flex-1 min-w-0 overflow-y-auto p-6 space-y-4" style={{ maxWidth: 680 }}>
 
-        {/* Header */}
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-2xl font-light tracking-wider text-white">Nueva Venta</h1>
             <p className="text-xs font-light mt-1 capitalize tracking-wide" style={{ color: 'rgba(197,160,89,0.65)' }}>{today}</p>
           </div>
           <div className="flex items-center gap-3 mt-1">
-            <div className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-light"
-              style={{ background: 'rgba(197,160,89,0.08)', border: '1px solid rgba(197,160,89,0.2)', color: '#C5A059' }}>
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-light" style={{ background: 'rgba(197,160,89,0.08)', border: '1px solid rgba(197,160,89,0.2)', color: '#C5A059' }}>
               <Hash size={11} />{saleNumber}
             </div>
-            <button onClick={resetForm}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-light"
-              style={{ color: 'rgba(239,68,68,0.65)', border: '1px solid rgba(239,68,68,0.2)' }}>
+            <button onClick={resetForm} className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-light" style={{ color: 'rgba(239,68,68,0.65)', border: '1px solid rgba(239,68,68,0.2)' }}>
               <X size={13} />Cancelar
             </button>
           </div>
         </div>
 
         {saveErr && (
-          <div className="flex items-center gap-3 p-3.5 rounded-xl border text-sm font-light"
-            style={{ background: 'rgba(239,68,68,0.07)', borderColor: 'rgba(239,68,68,0.28)', color: '#ef4444' }}>
+          <div className="flex items-center gap-3 p-3.5 rounded-xl border text-sm font-light" style={{ background: 'rgba(239,68,68,0.07)', borderColor: 'rgba(239,68,68,0.28)', color: '#ef4444' }}>
             <AlertCircle size={15} />{saveErr}
           </div>
         )}
         {saved && (
-          <div className="flex items-center gap-3 p-3.5 rounded-xl border text-sm font-light"
-            style={{ background: 'rgba(16,185,129,0.07)', borderColor: 'rgba(16,185,129,0.28)', color: '#10b981' }}>
+          <div className="flex items-center gap-3 p-3.5 rounded-xl border text-sm font-light" style={{ background: 'rgba(16,185,129,0.07)', borderColor: 'rgba(16,185,129,0.28)', color: '#10b981' }}>
             <Check size={15} />{saved}
           </div>
         )}
 
-        {/* Cliente */}
         <Section title="Cliente" icon={<User size={15} />}>
           <div className="grid grid-cols-2 gap-3">
             <div><FieldLabel>Nombre <span style={{ color: '#C5A059' }}>*</span></FieldLabel><GoldInput value={nFirst} onChange={setNFirst} placeholder="Nombre" /></div>
@@ -738,7 +676,6 @@ export default function POSPage() {
           </div>
         </Section>
 
-        {/* Sucursales */}
         <Section title="Sucursales" icon={<Building2 size={15} />}>
           <div className="space-y-3">
             <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl" style={{ background: 'rgba(197,160,89,0.06)', border: '1px solid rgba(197,160,89,0.20)' }}>
@@ -756,7 +693,6 @@ export default function POSPage() {
           </div>
         </Section>
 
-        {/* Canal y Entrega */}
         <Section title="Canal de Venta y Entrega" icon={<Truck size={15} />}>
           <div className="space-y-4">
             <div className="flex gap-2">
@@ -804,7 +740,6 @@ export default function POSPage() {
           </div>
         </Section>
 
-        {/* Anteojos */}
         <Section title="Anteojos" icon={<Glasses size={15} />}>
           <div className="space-y-3">
             {eyeglasses.map((eg, idx) => (
@@ -835,29 +770,16 @@ export default function POSPage() {
           </div>
         </Section>
 
-        {/* ── INSUMOS / REPARACIONES ── */}
         <Section title="Insumos / Reparaciones" icon={<Wrench size={15} />}>
           <div className="space-y-3">
-            <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.35)' }}>
-              Limpia cristales, estuches, reparaciones — no cuentan como anteojos vendidos ni en comisiones.
-            </p>
-
+            <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.35)' }}>Limpia cristales, estuches, reparaciones — no cuentan como anteojos vendidos ni en comisiones.</p>
             {insumos.map((ins, idx) => (
-              <div key={ins._id} className="rounded-xl overflow-hidden"
-                style={{ background: 'rgba(167,139,250,0.04)', border: '1px solid rgba(167,139,250,0.20)' }}>
-                <div className="flex items-center justify-between px-4 py-2.5"
-                  style={{ borderBottom: '1px solid rgba(167,139,250,0.10)' }}>
+              <div key={ins._id} className="rounded-xl overflow-hidden" style={{ background: 'rgba(167,139,250,0.04)', border: '1px solid rgba(167,139,250,0.20)' }}>
+                <div className="flex items-center justify-between px-4 py-2.5" style={{ borderBottom: '1px solid rgba(167,139,250,0.10)' }}>
                   <div className="flex items-center gap-2">
-                    <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold text-black shrink-0"
-                      style={{ background: '#a78bfa' }}>{idx + 1}</span>
-                    <span className="text-sm font-light text-white truncate max-w-[180px]">
-                      {ins.descripcion || `Insumo ${idx + 1}`}
-                    </span>
-                    {ins.precio && (
-                      <span className="text-xs font-light" style={{ color: '#a78bfa' }}>
-                        Gs. {fmt(Number(ins.precio))}
-                      </span>
-                    )}
+                    <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold text-black shrink-0" style={{ background: '#a78bfa' }}>{idx + 1}</span>
+                    <span className="text-sm font-light text-white truncate max-w-[180px]">{ins.descripcion || `Insumo ${idx + 1}`}</span>
+                    {ins.precio && <span className="text-xs font-light" style={{ color: '#a78bfa' }}>Gs. {fmt(Number(ins.precio))}</span>}
                   </div>
                   <button onClick={() => removeInsumo(ins._id)} style={{ color: 'rgba(239,68,68,0.45)' }}
                     onMouseEnter={e => (e.currentTarget.style.color = '#ef4444')}
@@ -865,37 +787,24 @@ export default function POSPage() {
                     <Trash2 size={14} />
                   </button>
                 </div>
-
                 <div className="p-4 space-y-3">
                   <div>
                     <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Descripción</p>
-                    <input type="text" value={ins.descripcion}
-                      onChange={e => updateInsumo(ins._id, { descripcion: e.target.value })}
-                      placeholder="Limpia cristal, estuche, reparación bisagra..."
-                      className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border"
-                      style={{ borderColor: 'rgba(167,139,250,0.25)' }} />
+                    <input type="text" value={ins.descripcion} onChange={e => updateInsumo(ins._id, { descripcion: e.target.value })} placeholder="Limpia cristal, estuche, reparación bisagra..."
+                      className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border" style={{ borderColor: 'rgba(167,139,250,0.25)' }} />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Precio (Gs.)</p>
-                      <input type="number" value={ins.precio}
-                        onChange={e => updateInsumo(ins._id, { precio: e.target.value })}
-                        placeholder="15000"
-                        className="w-full px-3 py-2.5 rounded-xl bg-transparent text-sm font-light outline-none border text-right"
-                        style={{ borderColor: 'rgba(167,139,250,0.25)', color: '#a78bfa' }} />
+                      <input type="number" value={ins.precio} onChange={e => updateInsumo(ins._id, { precio: e.target.value })} placeholder="15000"
+                        className="w-full px-3 py-2.5 rounded-xl bg-transparent text-sm font-light outline-none border text-right" style={{ borderColor: 'rgba(167,139,250,0.25)', color: '#a78bfa' }} />
                     </div>
                     <div>
-                      <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>
-                        Foto <span style={{ color: 'rgba(255,255,255,0.25)' }}>(opcional)</span>
-                      </p>
+                      <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Foto <span style={{ color: 'rgba(255,255,255,0.25)' }}>(opcional)</span></p>
                       {ins.photo_url ? (
                         <div className="relative inline-block">
-                          <img src={ins.photo_url} alt="insumo"
-                            className="h-16 w-20 object-cover rounded-lg border"
-                            style={{ borderColor: 'rgba(167,139,250,0.30)' }} />
-                          <button onClick={() => updateInsumo(ins._id, { photo_url: '' })}
-                            className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center"
-                            style={{ background: '#ef4444' }}>
+                          <img src={ins.photo_url} alt="insumo" className="h-16 w-20 object-cover rounded-lg border" style={{ borderColor: 'rgba(167,139,250,0.30)' }} />
+                          <button onClick={() => updateInsumo(ins._id, { photo_url: '' })} className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center" style={{ background: '#ef4444' }}>
                             <X size={8} color="#fff" />
                           </button>
                         </div>
@@ -907,7 +816,6 @@ export default function POSPage() {
                 </div>
               </div>
             ))}
-
             <button onClick={addInsumo}
               className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-light border-dashed border"
               style={{ borderColor: 'rgba(167,139,250,0.30)', color: '#a78bfa', background: 'rgba(167,139,250,0.03)' }}
@@ -918,35 +826,28 @@ export default function POSPage() {
           </div>
         </Section>
 
-        {/* Totales */}
         <Section title="Totales" icon={<Banknote size={15} />} accent>
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <FieldLabel>Total venta *</FieldLabel>
                 <input type="number" value={saleTotal} onChange={e => setSaleTotal(e.target.value)} placeholder="500000"
-                  className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border text-right"
-                  style={{ borderColor: 'rgba(197,160,89,0.30)' }} />
+                  className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border text-right" style={{ borderColor: 'rgba(197,160,89,0.30)' }} />
               </div>
               <div>
                 <FieldLabel>Seña / Monto entregado</FieldLabel>
                 <input type="number" value={saleDeposit} onChange={e => setSaleDeposit(e.target.value)}
-                  placeholder="Dejar vacío = cobrado completo"
-                  className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border text-right"
-                  style={{ borderColor: 'rgba(197,160,89,0.22)' }} />
-                <p className="text-xs font-light mt-1" style={{ color: saleDeposit === '' || parseFloat(saleDeposit) === 0 ? '#10b981' : 'rgba(255,255,255,0.3)' }}>
-                  {saleDeposit === '' || parseFloat(saleDeposit) === 0
-                    ? '✓ Se registrará como cobrado completo'
-                    : `Saldo pendiente: Gs. ${fmt(Math.max(0, totalNum - parseFloat(saleDeposit)))}`}
-                </p>
+                  placeholder="Dejar vacío = sin seña"
+                  className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border text-right" style={{ borderColor: 'rgba(197,160,89,0.22)' }} />
+                <p className="text-xs font-light mt-1" style={{ color: depositInfoColor }}>{depositInfoText}</p>
               </div>
             </div>
             <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.20)' }}>
               <div className="grid grid-cols-3 divide-x" style={{ borderColor: 'rgba(197,160,89,0.14)' }}>
                 {[
-                  { label: 'TOTAL',       value: fmt(totalNum),                                                          color: '#C5A059' },
-                  { label: 'ENTREGADO',   value: fmt(depositNum > 0 ? depositNum : totalNum),                            color: '#10b981' },
-                  { label: 'SALDO PEND.', value: fmt(depositNum > 0 ? Math.max(0, totalNum - depositNum) : 0),           color: depositNum > 0 && totalNum > depositNum ? '#f59e0b' : '#6b7280' },
+                  { label: 'TOTAL',       value: fmt(totalNum),                              color: '#C5A059' },
+                  { label: 'ENTREGADO',   value: fmt(depositNum),                            color: depositNum > 0 ? '#10b981' : '#6b7280' },
+                  { label: 'SALDO PEND.', value: fmt(Math.max(0, totalNum - depositNum)),    color: totalNum > depositNum ? '#f59e0b' : '#6b7280' },
                 ].map(item => (
                   <div key={item.label} className="flex flex-col items-center py-4 px-3">
                     <p className="text-xs font-light tracking-widest mb-1.5" style={{ color: 'rgba(255,255,255,0.35)' }}>{item.label}</p>
@@ -959,19 +860,12 @@ export default function POSPage() {
           </div>
         </Section>
 
-        {/* Pagos mixtos */}
         <Section title="Métodos de Pago" icon={<Banknote size={15} />}>
           <div className="space-y-3">
-            <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>
-              Podés agregar múltiples métodos. Ej: 100k efectivo + 300k transferencia.
-            </p>
+            <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>Podés agregar múltiples métodos. Ej: 100k efectivo + 300k transferencia.</p>
             {payments.map((pay, idx) => (
-              <PaymentCard
-                key={pay._id} pay={pay} idx={idx} total={totalNum}
-                onUpdate={patch => updatePay(pay._id, patch)}
-                onRemove={() => removePayment(pay._id)}
-                canRemove={payments.length > 1}
-              />
+              <PaymentCard key={pay._id} pay={pay} idx={idx} total={totalNum}
+                onUpdate={patch => updatePay(pay._id, patch)} onRemove={() => removePayment(pay._id)} canRemove={payments.length > 1} />
             ))}
             <button onClick={addPayment}
               className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-light border-dashed border"
@@ -981,7 +875,6 @@ export default function POSPage() {
           </div>
         </Section>
 
-        {/* Estado */}
         <Section title="Estado del Trabajo" icon={<Clock size={15} />}>
           <div className="flex gap-2 flex-wrap">
             {(Object.entries(STATUS_CFG) as [SaleStatus, { label: string; color: string }][])
@@ -996,7 +889,6 @@ export default function POSPage() {
           </div>
         </Section>
 
-        {/* Observaciones */}
         <Section title="Observaciones" icon={<FileText size={15} />}>
           <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3}
             placeholder="Notas internas, instrucciones especiales..."

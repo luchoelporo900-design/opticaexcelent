@@ -8,7 +8,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
 import { supabase } from '../lib/supabase';
-import { closeSaleLocal, compressImage } from '../lib/salesStorage';
+import { closeSaleLocal, uploadToCloudinary } from '../lib/salesStorage';
 
 type PaymentMethod = 'efectivo' | 'transferencia' | 'tarjeta' | 'qr' | 'giro';
 type DeliveryMode  = 'retiro' | 'delivery' | 'encomienda';
@@ -24,6 +24,7 @@ type EyeglassItem = {
   _id: string;
   frame_description: string;
   photo_url: string;
+  receta_url?: string;
   crystals: string;
   treatments: string;
   showReceta: boolean;
@@ -85,7 +86,7 @@ function emptyRx(): Prescription {
   return { od_esfera:'', od_cilindro:'', od_eje:'', od_altura:'', oi_esfera:'', oi_cilindro:'', oi_eje:'', oi_altura:'', add:'', dp:'', obs:'' };
 }
 function newEyeglass(): EyeglassItem {
-  return { _id: uid(), frame_description:'', photo_url:'', crystals:'', treatments:'', showReceta:false, prescription:emptyRx(), price:'', saleType:'completa', receta_a_confirmar: false };
+  return { _id: uid(), frame_description:'', photo_url:'', receta_url:'', crystals:'', treatments:'', showReceta:false, prescription:emptyRx(), price:'', saleType:'completa', receta_a_confirmar: false };
 }
 
 function hasRxData(rx: any): boolean {
@@ -95,41 +96,34 @@ function hasRxData(rx: any): boolean {
             rx.add || rx.dp);
 }
 
-// ─── PhotoInput ───────────────────────────────────────────────────────────────
-function PhotoInput({ value, onChange, label = 'Foto' }: { value: string; onChange: (v: string) => void; label?: string }) {
-  const cameraRef  = useRef<HTMLInputElement>(null);
-  const galleryRef = useRef<HTMLInputElement>(null);
-  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+// ── PhotoBtn con Cloudinary ───────────────────────────────────────────────────
+function PhotoBtn({ onFile, label = 'Foto' }: { onFile: (url: string) => void; label?: string }) {
+  const camRef = useRef<HTMLInputElement>(null);
+  const galRef = useRef<HTMLInputElement>(null);
+  async function handle(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async ev => { const c = await compressImage(ev.target?.result as string); onChange(c); };
-    reader.readAsDataURL(file);
     e.target.value = '';
-  }
-  if (value) {
-    return (
-      <div className="relative inline-block">
-        <img src={value} alt={label} className="h-24 w-32 object-cover rounded-xl border" style={{ borderColor: 'rgba(197,160,89,0.3)' }} />
-        <button onClick={() => onChange('')} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: '#ef4444' }}>
-          <X size={10} color="#fff" />
-        </button>
-      </div>
-    );
+    try {
+      const url = await uploadToCloudinary(file);
+      onFile(url);
+    } catch {
+      alert('Error al subir la foto. Intentá de nuevo.');
+    }
   }
   return (
-    <div className="flex gap-2 flex-wrap">
-      <button onClick={() => cameraRef.current?.click()}
-        className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-light border"
+    <div className="flex gap-1.5 flex-wrap">
+      <button onClick={() => camRef.current?.click()}
+        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs border"
         style={{ borderColor: 'rgba(197,160,89,0.25)', color: 'rgba(197,160,89,0.8)', background: 'rgba(197,160,89,0.05)' }}>
-        <Camera size={13} />Cámara
+        <Camera size={12} />{label} Cám.
       </button>
-      <button onClick={() => galleryRef.current?.click()}
-        className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-light border"
-        style={{ borderColor: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.5)', background: 'rgba(255,255,255,0.03)' }}>
-        <Image size={13} />Galería
+      <button onClick={() => galRef.current?.click()}
+        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs border"
+        style={{ borderColor: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.45)', background: 'rgba(255,255,255,0.03)' }}>
+        <Image size={12} />Gal.
       </button>
-      <input ref={cameraRef}  type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFile} />
-      <input ref={galleryRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
+      <input ref={camRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handle} />
+      <input ref={galRef} type="file" accept="image/*" className="hidden" onChange={handle} />
     </div>
   );
 }
@@ -139,10 +133,13 @@ function PhotoInputCompact({ onChange }: { onChange: (v: string) => void }) {
   const galleryRef = useRef<HTMLInputElement>(null);
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async ev => { const c = await compressImage(ev.target?.result as string); onChange(c); };
-    reader.readAsDataURL(file);
     e.target.value = '';
+    try {
+      const url = await uploadToCloudinary(file);
+      onChange(url);
+    } catch {
+      alert('Error al subir la foto. Intentá de nuevo.');
+    }
   }
   return (
     <div className="flex flex-col gap-1">
@@ -210,6 +207,7 @@ function EyeglassEditCard({ eg, idx, onUpdate, onRemove }: {
         </button>
       </div>
       <div className="p-4 space-y-3">
+        {/* Armazón + foto */}
         <div className="flex gap-3 items-start">
           <div className="flex-1">
             <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Armazón</p>
@@ -231,6 +229,24 @@ function EyeglassEditCard({ eg, idx, onUpdate, onRemove }: {
             )}
           </div>
         </div>
+
+        {/* Foto de receta */}
+        <div>
+          <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>
+            Foto de receta <span style={{ color: 'rgba(255,255,255,0.25)' }}>(opcional)</span>
+          </p>
+          {eg.receta_url ? (
+            <div className="relative inline-block">
+              <img src={eg.receta_url} alt="receta" className="h-20 w-28 object-cover rounded-lg border" style={{ borderColor: 'rgba(59,130,246,0.35)' }} />
+              <button onClick={() => onUpdate({ receta_url: '' })} className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center" style={{ background: '#ef4444' }}>
+                <X size={8} color="#fff" />
+              </button>
+            </div>
+          ) : (
+            <PhotoBtn onFile={url => onUpdate({ receta_url: url })} label="Receta" />
+          )}
+        </div>
+
         <div className="grid grid-cols-2 gap-3">
           <div>
             <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Cristales</p>
@@ -277,24 +293,25 @@ function EyeglassEditCard({ eg, idx, onUpdate, onRemove }: {
           <div className="rounded-xl p-3 space-y-3" style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.14)' }}>
             <div>
               <p className="text-xs font-light mb-2" style={{ color: '#C5A059' }}>OD — Ojo Derecho</p>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <RxInput label="Esfera"   value={eg.prescription.od_esfera}   onChange={v => updateRx('od_esfera', v)}   placeholder="-2.00" />
                 <RxInput label="Cilindro" value={eg.prescription.od_cilindro} onChange={v => updateRx('od_cilindro', v)} placeholder="-0.50" />
                 <RxInput label="Eje"      value={eg.prescription.od_eje}      onChange={v => updateRx('od_eje', v)}      placeholder="180" />
+                <RxInput label="Altura"   value={eg.prescription.od_altura}   onChange={v => updateRx('od_altura', v)}   placeholder="20" />
               </div>
             </div>
             <div>
               <p className="text-xs font-light mb-2" style={{ color: '#C5A059' }}>OI — Ojo Izquierdo</p>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <RxInput label="Esfera"   value={eg.prescription.oi_esfera}   onChange={v => updateRx('oi_esfera', v)}   placeholder="-1.75" />
                 <RxInput label="Cilindro" value={eg.prescription.oi_cilindro} onChange={v => updateRx('oi_cilindro', v)} placeholder="-0.25" />
                 <RxInput label="Eje"      value={eg.prescription.oi_eje}      onChange={v => updateRx('oi_eje', v)}      placeholder="175" />
+                <RxInput label="Altura"   value={eg.prescription.oi_altura}   onChange={v => updateRx('oi_altura', v)}   placeholder="20" />
               </div>
             </div>
-            <div className="grid grid-cols-4 gap-2">
-              <RxInput label="ADD" value={eg.prescription.add}       onChange={v => updateRx('add', v)}       placeholder="+2.00" />
-              <RxInput label="DP"  value={eg.prescription.dp}        onChange={v => updateRx('dp', v)}        placeholder="64" />
-              <RxInput label="Alt" value={eg.prescription.od_altura} onChange={v => updateRx('od_altura', v)} placeholder="20" />
+            <div className="grid grid-cols-3 gap-2">
+              <RxInput label="ADD" value={eg.prescription.add} onChange={v => updateRx('add', v)} placeholder="+2.00" />
+              <RxInput label="DP"  value={eg.prescription.dp}  onChange={v => updateRx('dp', v)}  placeholder="64" />
               <div>
                 <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.35)' }}>Obs</p>
                 <input type="text" value={eg.prescription.obs} onChange={e => updateRx('obs', e.target.value)}
@@ -439,6 +456,7 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
       _id:                uid(),
       frame_description:  eg.frame_description  ?? '',
       photo_url:          eg.photo_url          ?? '',
+      receta_url:         eg.receta_url         ?? '',
       crystals:           eg.crystals           ?? '',
       treatments:         eg.treatments         ?? '',
       showReceta:         false,
@@ -481,6 +499,7 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
       anteojos: eyeglasses.map(eg => ({
         frame_description:  eg.frame_description,
         photo_url:          eg.photo_url,
+        receta_url:         eg.receta_url ?? '',
         crystals:           eg.crystals,
         treatments:         eg.treatments,
         prescription:       eg.prescription,
@@ -515,6 +534,8 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
         </div>
         <div className="p-5 space-y-6">
           {error && <div className="px-3 py-2.5 rounded-xl text-xs" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#f87171' }}>{error}</div>}
+
+          {/* Cliente */}
           <div>
             <p className="text-xs font-light tracking-widest uppercase mb-3" style={{ color: 'rgba(197,160,89,0.6)' }}>Cliente</p>
             <div className="grid grid-cols-2 gap-3">
@@ -528,6 +549,8 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
               ))}
             </div>
           </div>
+
+          {/* Estado */}
           <div>
             <p className="text-xs font-light tracking-widest uppercase mb-3" style={{ color: 'rgba(197,160,89,0.6)' }}>Estado del trabajo</p>
             <div className="grid grid-cols-2 gap-2">
@@ -544,10 +567,12 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
               <span className="px-2 py-0.5 rounded text-xs inline-flex items-center gap-1" style={{ background: `${sc.color}18`, color: sc.color }}>{sc.icon}{sc.label}</span>
             </div>
           </div>
+
+          {/* Montos */}
           <div>
             <p className="text-xs font-light tracking-widest uppercase mb-3" style={{ color: 'rgba(197,160,89,0.6)' }}>Montos (Gs.)</p>
             <div className="grid grid-cols-3 gap-3">
-              {[{label:'Total',value:total,onChange:setTotal,color:'#C5A059'},{label:'Seña',value:sena,onChange:setSena,color:'#10b981'},{label:'Saldo',value:saldo,onChange:setSaldo,color:Number(saldo)>0?'#f59e0b':'#10b981'}].map(f => (
+              {[{label:'Total',value:total,onChange:setTotal,color:'#C5A059'},{label:'Seña / Cobrado',value:sena,onChange:setSena,color:'#10b981'},{label:'Saldo pendiente',value:saldo,onChange:setSaldo,color:Number(saldo)>0?'#f59e0b':'#10b981'}].map(f => (
                 <div key={f.label}>
                   <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.35)' }}>{f.label}</p>
                   <input type="number" value={f.value} onChange={e => f.onChange(e.target.value)}
@@ -556,12 +581,25 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
                 </div>
               ))}
             </div>
-            <p className="text-xs font-light mt-2" style={{ color: 'rgba(255,255,255,0.3)' }}>El saldo se recalcula automáticamente.</p>
+            <p className="text-xs font-light mt-2" style={{ color: 'rgba(255,255,255,0.3)' }}>El saldo se recalcula automáticamente al cambiar total o seña.</p>
           </div>
+
+          {/* Comprobante */}
           <div>
             <p className="text-xs font-light tracking-widest uppercase mb-3" style={{ color: 'rgba(197,160,89,0.6)' }}>Comprobante de pago</p>
-            <PhotoInput value={receiptUrl} onChange={setReceiptUrl} label="Comprobante" />
+            {receiptUrl ? (
+              <div className="relative inline-block">
+                <img src={receiptUrl} alt="comprobante" className="h-24 w-32 object-cover rounded-xl border" style={{ borderColor: 'rgba(197,160,89,0.3)' }} />
+                <button onClick={() => setReceiptUrl('')} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: '#ef4444' }}>
+                  <X size={10} color="#fff" />
+                </button>
+              </div>
+            ) : (
+              <PhotoBtn onFile={setReceiptUrl} label="Comprobante" />
+            )}
           </div>
+
+          {/* Armazones */}
           <div>
             <div className="flex items-center justify-between mb-3">
               <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.6)' }}>Armazones</p>
@@ -580,6 +618,8 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
                 ))}</div>
             }
           </div>
+
+          {/* Vendedora y sucursal */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(197,160,89,0.6)' }}>Vendedora</p>
@@ -597,12 +637,15 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
               </select>
             </div>
           </div>
+
+          {/* Observaciones */}
           <div>
             <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(197,160,89,0.6)' }}>Observaciones</p>
             <textarea value={obs} onChange={e => setObs(e.target.value)} rows={3}
               className="w-full px-3 py-2.5 rounded-xl bg-transparent text-sm font-light text-white outline-none border resize-none"
               style={{ borderColor: 'rgba(197,160,89,0.22)' }} />
           </div>
+
           <div className="flex items-center gap-3 pt-1">
             <button onClick={handleSave} disabled={saving}
               className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium"
@@ -644,7 +687,6 @@ export default function SalesHistoryPage() {
       .then(({ data }) => setCanEdit(data?.puede_editar_ventas ?? false));
   }, [profile]);
 
-  // ── Eliminar venta (solo admin) ───────────────────────────────────────────
   async function handleDelete(saleId: number, clientName: string) {
     const confirmed = window.confirm(
       `¿Eliminar la venta de ${clientName}?\n\nEsto eliminará la venta, sus pagos y el pedido de laboratorio.\nEsta acción no se puede deshacer.`
@@ -699,7 +741,6 @@ export default function SalesHistoryPage() {
       {editSale    && <EditModal    sale={editSale}    onClose={() => setEditSale(null)}    onSaved={() => refresh()} />}
       {deliverSale && <DeliverModal sale={deliverSale} onClose={() => setDeliverSale(null)} onDelivered={() => refresh()} />}
 
-      {/* Lightbox */}
       {lightboxSrc && (
         <div className="fixed inset-0 z-50 flex items-center justify-center"
           style={{ background: 'rgba(0,0,0,0.88)', backdropFilter: 'blur(6px)' }}
@@ -766,7 +807,7 @@ export default function SalesHistoryPage() {
         )}
       </div>
 
-      {/* Filtros de estado */}
+      {/* Filtros */}
       <div className="flex flex-wrap gap-1.5">
         <button onClick={() => setStatusFilter('todos')}
           className="px-3 py-1.5 rounded-lg text-xs font-light"
@@ -814,8 +855,6 @@ export default function SalesHistoryPage() {
                     <div className="flex items-center gap-2 mb-1">
                       <span className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-black shrink-0" style={{ background: '#C5A059', fontSize: 10 }}>{saleIdx + 1}</span>
                       <p className="text-sm text-white font-light flex-1 truncate">{name}</p>
-
-                      {/* Botón Entregar */}
                       {canEdit && !isEntregado && v.estadoTrabajo !== 'cancelado' && (
                         <button onClick={e => { e.stopPropagation(); setDeliverSale(v); }}
                           className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-light shrink-0"
@@ -823,8 +862,6 @@ export default function SalesHistoryPage() {
                           <Package size={11} /><span className="hidden lg:inline">Entregar</span>
                         </button>
                       )}
-
-                      {/* Botón Editar */}
                       {canEdit && (
                         <button onClick={e => { e.stopPropagation(); setEditSale(v); }}
                           className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-light shrink-0"
@@ -832,18 +869,13 @@ export default function SalesHistoryPage() {
                           <Pencil size={11} /><span className="hidden lg:inline">Editar</span>
                         </button>
                       )}
-
-                      {/* Botón Eliminar — solo admin */}
                       {isAdmin && (
-                        <button
-                          onClick={e => { e.stopPropagation(); handleDelete(v.id, name); }}
-                          disabled={isDeleting}
+                        <button onClick={e => { e.stopPropagation(); handleDelete(v.id, name); }} disabled={isDeleting}
                           className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-light shrink-0"
                           style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: isDeleting ? 'rgba(239,68,68,0.3)' : 'rgba(239,68,68,0.7)', cursor: isDeleting ? 'not-allowed' : 'pointer' }}>
                           <Trash2 size={11} /><span className="hidden lg:inline">{isDeleting ? '...' : 'Eliminar'}</span>
                         </button>
                       )}
-
                       <ChevronDown size={14} style={{ color: 'rgba(255,255,255,0.3)', transform: isExp ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }} />
                     </div>
                     <div className="flex items-center gap-1.5 flex-wrap pl-8 mb-1.5">
@@ -938,27 +970,36 @@ export default function SalesHistoryPage() {
                                     {eg.crystals   && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(59,130,246,0.12)', color: '#3b82f6' }}>{eg.crystals}</span>}
                                     {eg.treatments && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(16,185,129,0.12)', color: '#10b981' }}>{eg.treatments}</span>}
                                   </div>
+                                  {/* Foto de receta */}
+                                  {eg.receta_url && (
+                                    <div className="mt-2">
+                                      <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.35)' }}>📋 Foto de receta</p>
+                                      <img src={eg.receta_url} alt="receta"
+                                        className="h-20 w-28 object-cover rounded-lg border cursor-pointer hover:opacity-80 transition-opacity"
+                                        style={{ borderColor: 'rgba(59,130,246,0.35)' }}
+                                        onClick={e => { e.stopPropagation(); setLightboxSrc(eg.receta_url); }} />
+                                    </div>
+                                  )}
                                 </div>
                               </div>
 
-                              {/* Receta completa — muestra si tiene datos */}
                               {hasRxData(eg.prescription) && !eg.receta_a_confirmar && (
                                 <div className="rounded-lg p-3 space-y-2" style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.18)' }}>
                                   <p className="text-xs font-light tracking-widest uppercase flex items-center gap-1.5" style={{ color: 'rgba(197,160,89,0.7)' }}>
                                     <FlaskConical size={11} style={{ color: '#3b82f6' }} />Receta óptica
                                   </p>
-                                  <div className="grid grid-cols-2 gap-3">
+                                  <div className="grid grid-cols-1 gap-3">
                                     {[['OD', 'od'], ['OI', 'oi']].map(([label, key]) => (
                                       <div key={key}>
                                         <p className="text-xs font-light mb-1" style={{ color: '#C5A059' }}>{label}</p>
-                                        <div className="grid grid-cols-4 gap-1">
+                                        <div className="grid grid-cols-2 gap-1">
                                           {[['Esf',`${key}_esfera`],['Cil',`${key}_cilindro`],['Eje',`${key}_eje`],['Alt',`${key}_altura`]].map(([fl,fk]) => (
-                                            <div key={fk} className="text-center">
-                                              <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 9 }}>{fl}</p>
-                                              <div className="px-1 py-1 rounded text-xs font-mono text-center"
+                                            <div key={fk} className="flex items-center gap-1">
+                                              <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10, minWidth: 24 }}>{fl}:</span>
+                                              <span className="px-2 py-1 rounded text-xs font-mono flex-1 text-center"
                                                 style={{ background: 'rgba(255,255,255,0.06)', color: eg.prescription[fk] ? 'rgba(255,255,255,0.75)' : 'rgba(255,255,255,0.2)' }}>
                                                 {eg.prescription[fk] || '—'}
-                                              </div>
+                                              </span>
                                             </div>
                                           ))}
                                         </div>
@@ -966,15 +1007,15 @@ export default function SalesHistoryPage() {
                                     ))}
                                   </div>
                                   {(eg.prescription.add || eg.prescription.dp || eg.prescription.obs) && (
-                                    <div className="grid grid-cols-3 gap-2 pt-1">
+                                    <div className="flex gap-3 flex-wrap pt-1">
                                       {[['ADD','add'],['DP','dp'],['Obs','obs']].map(([fl,fk]) => (
                                         eg.prescription[fk] ? (
-                                          <div key={fk} className="text-center">
-                                            <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 9 }}>{fl}</p>
-                                            <div className="px-1 py-1 rounded text-xs font-mono text-center"
+                                          <div key={fk} className="flex items-center gap-1">
+                                            <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10 }}>{fl}:</span>
+                                            <span className="px-2 py-1 rounded text-xs font-mono"
                                               style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.75)' }}>
                                               {eg.prescription[fk]}
-                                            </div>
+                                            </span>
                                           </div>
                                         ) : null
                                       ))}

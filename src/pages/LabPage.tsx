@@ -143,6 +143,49 @@ function printOrders(orders: LabOrder[]) {
   setTimeout(() => win.print(), 500);
 }
 
+// ── Componente de receta — optimizado para móvil ──────────────────────────────
+function RxDisplay({ prescription }: { prescription: any }) {
+  return (
+    <div className="rounded-lg p-3 space-y-3" style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.14)' }}>
+      <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.65)' }}>Receta óptica</p>
+      {[['OD — Ojo Derecho', 'od'], ['OI — Ojo Izquierdo', 'oi']].map(([label, key]) => (
+        <div key={key}>
+          <p className="text-xs font-light mb-2" style={{ color: '#C5A059' }}>{label}</p>
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              ['Esfera',   `${key}_esfera`],
+              ['Cilindro', `${key}_cilindro`],
+              ['Eje',      `${key}_eje`],
+              ['Altura',   `${key}_altura`],
+            ].map(([fl, fk]) => (
+              <div key={fk} className="flex items-center gap-2 px-2 py-1.5 rounded-lg"
+                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 10, minWidth: 44 }}>{fl}</span>
+                <span className="text-xs font-mono font-medium" style={{ color: prescription[fk] ? '#fff' : 'rgba(255,255,255,0.2)' }}>
+                  {prescription[fk] || '—'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+      {(prescription.add || prescription.dp || prescription.obs) && (
+        <div className="grid grid-cols-3 gap-2 pt-1">
+          {[['ADD', 'add'], ['DP', 'dp'], ['Obs', 'obs']].map(([fl, fk]) => (
+            prescription[fk] ? (
+              <div key={fk} className="flex flex-col items-center px-2 py-1.5 rounded-lg"
+                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 9 }}>{fl}</span>
+                <span className="text-xs font-mono font-medium text-white mt-0.5">{prescription[fk]}</span>
+              </div>
+            ) : null
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function LabPage() {
   const { profile } = useAuth();
   const isLab       = profile?.role === 'laboratorio';
@@ -259,12 +302,12 @@ export default function LabPage() {
   }
 
   return (
-    <div className="p-6 space-y-5" onClick={() => lightbox && setLightbox(null)}>
+    <div className="p-4 lg:p-6 space-y-5" onClick={() => lightbox && setLightbox(null)}>
 
       {lightbox && (
         <div className="fixed inset-0 z-[999] flex items-center justify-center p-6"
           style={{ background: 'rgba(0,0,0,0.93)' }} onClick={() => setLightbox(null)}>
-          <img src={lightbox} alt="foto" className="max-w-xl w-full rounded-2xl object-contain"
+          <img src={lightbox} alt="foto" className="max-w-full w-full rounded-2xl object-contain"
             style={{ maxHeight: '80vh', border: '1px solid rgba(197,160,89,0.3)' }}
             onClick={e => e.stopPropagation()} />
           <p className="absolute bottom-8 text-xs font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>Clic fuera para cerrar</p>
@@ -273,26 +316,26 @@ export default function LabPage() {
 
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl text-white font-light tracking-wider">Panel de Laboratorio</h1>
+          <h1 className="text-xl lg:text-2xl text-white font-light tracking-wider">Panel de Laboratorio</h1>
           <p className="text-sm font-light mt-1" style={{ color: 'rgba(197,160,89,0.7)' }}>
             {isVendedora ? `Mis pedidos · ${profile?.full_name}` : 'Seguimiento de pedidos · Todas las sucursales'}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => printOrders(filtered)}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-light border"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-light border"
             style={{ borderColor: 'rgba(197,160,89,0.3)', color: '#C5A059', background: 'rgba(197,160,89,0.08)' }}>
             <Printer size={14} /> Imprimir ({filtered.length})
           </button>
           <button onClick={load}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-light border"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-light border"
             style={{ borderColor: 'rgba(197,160,89,0.3)', color: '#C5A059', background: 'rgba(197,160,89,0.08)' }}>
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Actualizar
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {(isVendedora ? ['enviado', 'proceso', 'listo'] : STATUS_FLOW).map(s => {
           const cfg   = statusConfig[s as LabStatus];
           const count = countByStatus(s);
@@ -310,8 +353,8 @@ export default function LabPage() {
       <div className="flex gap-2 flex-wrap">
         {([
           { id: 'hoy'    as const, label: `Hoy (${countForPeriod('hoy')})` },
-          { id: 'semana' as const, label: `Esta semana (${countForPeriod('semana')})` },
-          { id: 'mes'    as const, label: `Este mes (${countForPeriod('mes')})` },
+          { id: 'semana' as const, label: `Semana (${countForPeriod('semana')})` },
+          { id: 'mes'    as const, label: `Mes (${countForPeriod('mes')})` },
           { id: 'todos'  as const, label: `Todos (${countForPeriod('todos')})` },
         ]).map(opt => (
           <button key={opt.id} onClick={() => setDateFilter(opt.id)}
@@ -329,8 +372,8 @@ export default function LabPage() {
       <div className="flex flex-wrap gap-3 items-center">
         <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'rgba(197,160,89,0.5)' }} />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Nombre, C.I., celular o venta..."
-            className="pl-9 pr-4 py-2 rounded-lg text-xs bg-transparent text-white outline-none border w-52"
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Nombre, C.I. o venta..."
+            className="pl-9 pr-4 py-2 rounded-lg text-xs bg-transparent text-white outline-none border w-48"
             style={{ borderColor: 'rgba(197,160,89,0.25)', background: 'rgba(255,255,255,0.03)' }} />
         </div>
         {(isLab || isAdmin) && (
@@ -384,7 +427,7 @@ export default function LabPage() {
               <div key={order.id} className="rounded-xl border overflow-hidden"
                 style={{ background: 'rgba(255,255,255,0.02)', borderColor: order.status === 'listo' ? 'rgba(16,185,129,0.4)' : 'rgba(197,160,89,0.12)', boxShadow: order.status === 'listo' ? '0 0 20px rgba(16,185,129,0.06)' : 'none' }}>
 
-                <div className="flex items-start justify-between gap-4 p-4 cursor-pointer" onClick={() => setExpandedId(isExp ? null : order.id)}>
+                <div className="flex items-start justify-between gap-3 p-4 cursor-pointer" onClick={() => setExpandedId(isExp ? null : order.id)}>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap mb-1">
                       <span className="font-mono text-sm font-light" style={{ color: '#C5A059' }}>{order.sale_number}</span>
@@ -419,22 +462,22 @@ export default function LabPage() {
                       <a href={waUrl} target="_blank" rel="noopener noreferrer"
                         className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium"
                         style={{ background: 'rgba(37,211,102,0.15)', color: '#25d366', border: '1px solid rgba(37,211,102,0.35)' }}>
-                        <MessageCircle size={13} />Avisar vendedora
+                        <MessageCircle size={13} />Avisar
                       </a>
                     )}
                     {canAdvance && (
                       <button onClick={() => updateStatus(order.id, nextStatus)}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
                         style={{ background: statusConfig[nextStatus].bg, color: statusConfig[nextStatus].color, border: `1px solid ${statusConfig[nextStatus].color}40` }}>
-                        {nextStatus === 'proceso'   && '▶ En Proceso'}
-                        {nextStatus === 'listo'     && '✓ Marcar Listo'}
+                        {nextStatus === 'proceso'   && '▶ Proceso'}
+                        {nextStatus === 'listo'     && '✓ Listo'}
                         {nextStatus === 'entregado' && '📦 Entregado'}
                       </button>
                     )}
                     {(isLab || isAdmin) && (
                       <input placeholder="Nota..." value={notes[order.id] ?? order.notes}
                         onChange={e => setNotes(prev => ({ ...prev, [order.id]: e.target.value }))}
-                        className="px-2 py-1 rounded text-xs bg-transparent text-white outline-none border w-32"
+                        className="px-2 py-1 rounded text-xs bg-transparent text-white outline-none border w-28"
                         style={{ borderColor: 'rgba(255,255,255,0.1)' }} />
                     )}
                   </div>
@@ -450,10 +493,10 @@ export default function LabPage() {
                         <div key={i} className="rounded-xl p-4 space-y-3" style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(197,160,89,0.14)' }}>
                           <div className="flex items-start gap-3">
                             {eg.photo_url ? (
-                              <img src={eg.photo_url} alt="armazón" className="w-24 h-20 object-cover rounded-lg border cursor-pointer shrink-0"
+                              <img src={eg.photo_url} alt="armazón" className="w-20 h-16 object-cover rounded-lg border cursor-pointer shrink-0"
                                 style={{ borderColor: 'rgba(197,160,89,0.3)' }} onClick={e => { e.stopPropagation(); setLightbox(eg.photo_url); }} />
                             ) : (
-                              <div className="w-24 h-20 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(197,160,89,0.1)' }}>
+                              <div className="w-20 h-16 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(197,160,89,0.1)' }}>
                                 <span className="text-xs" style={{ color: 'rgba(255,255,255,0.2)' }}>Sin foto</span>
                               </div>
                             )}
@@ -464,49 +507,21 @@ export default function LabPage() {
                                 {eg.crystals   && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(59,130,246,0.12)', color: '#3b82f6' }}>🔬 {eg.crystals}</span>}
                                 {eg.treatments && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(16,185,129,0.12)', color: '#10b981' }}>✨ {eg.treatments}</span>}
                               </div>
+                              {/* Foto de receta */}
+                              {eg.receta_url && (
+                                <div className="mt-1">
+                                  <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.35)' }}>📋 Foto receta</p>
+                                  <img src={eg.receta_url} alt="receta"
+                                    className="h-20 w-28 object-cover rounded-lg border cursor-pointer"
+                                    style={{ borderColor: 'rgba(59,130,246,0.35)' }}
+                                    onClick={e => { e.stopPropagation(); setLightbox(eg.receta_url); }} />
+                                </div>
+                              )}
                             </div>
                           </div>
 
-                          {/* ── RECETA — muestra si tiene datos, sin importar showReceta ── */}
-                          {hasRxData(eg.prescription) && (
-                            <div className="rounded-lg p-3 space-y-3" style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.14)' }}>
-                              <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.65)' }}>Receta óptica</p>
-                              <div className="grid grid-cols-2 gap-3">
-                                {[['OD', 'od'], ['OI', 'oi']].map(([label, key]) => (
-                                  <div key={key}>
-                                    <p className="text-xs font-light mb-1.5" style={{ color: '#C5A059' }}>{label}</p>
-                                    <div className="grid grid-cols-4 gap-1">
-                                      {[
-                                        ['Esfera',   `${key}_esfera`],
-                                        ['Cilindro', `${key}_cilindro`],
-                                        ['Eje',      `${key}_eje`],
-                                        ['Altura',   `${key}_altura`],
-                                      ].map(([fl, fk]) => (
-                                        <div key={fk} className="text-center">
-                                          <p className="mb-1" style={{ color: 'rgba(255,255,255,0.3)', fontSize: 9 }}>{fl}</p>
-                                          <div className="px-1 py-1.5 rounded text-xs font-mono text-center"
-                                            style={{ background: 'rgba(255,255,255,0.06)', color: eg.prescription[fk] ? '#fff' : 'rgba(255,255,255,0.2)' }}>
-                                            {eg.prescription[fk] || '—'}
-                                          </div>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                              <div className="grid grid-cols-3 gap-2">
-                                {[['ADD', 'add'], ['DP', 'dp'], ['Obs', 'obs']].map(([fl, fk]) => (
-                                  <div key={fk} className="text-center">
-                                    <p className="mb-1" style={{ color: 'rgba(255,255,255,0.3)', fontSize: 9 }}>{fl}</p>
-                                    <div className="px-1 py-1.5 rounded text-xs font-mono text-center"
-                                      style={{ background: 'rgba(255,255,255,0.06)', color: eg.prescription[fk] ? '#fff' : 'rgba(255,255,255,0.2)' }}>
-                                      {eg.prescription[fk] || '—'}
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
+                          {/* Receta — grid de 2 columnas para móvil */}
+                          {hasRxData(eg.prescription) && <RxDisplay prescription={eg.prescription} />}
                         </div>
                       ))
                     )}
@@ -519,7 +534,7 @@ export default function LabPage() {
 
                     {order.history && order.history.length > 0 && (
                       <div>
-                        <p className="text-xs font-light tracking-widest uppercase mb-2" style={{ color: 'rgba(197,160,89,0.55)' }}>📋 Historial del pedido</p>
+                        <p className="text-xs font-light tracking-widest uppercase mb-2" style={{ color: 'rgba(197,160,89,0.55)' }}>📋 Historial</p>
                         <div className="space-y-1.5">
                           {order.history.map((h, i) => {
                             const hcfg = statusConfig[h.status];
@@ -551,13 +566,13 @@ export default function LabPage() {
                       <div className="space-y-2">
                         <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl" style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.3)' }}>
                           <CheckCircle size={14} style={{ color: '#10b981' }} />
-                          <p className="text-xs font-light" style={{ color: '#10b981' }}>Trabajo listo — esperando que la vendedora entregue al cliente</p>
+                          <p className="text-xs font-light" style={{ color: '#10b981' }}>Trabajo listo — esperando entrega al cliente</p>
                         </div>
                         {waUrl ? (
                           <a href={waUrl} target="_blank" rel="noopener noreferrer"
                             className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-light"
                             style={{ background: 'rgba(37,211,102,0.10)', color: '#25d366', border: '1px solid rgba(37,211,102,0.3)' }}>
-                            <MessageCircle size={14} />Avisar a {order.seller_name} que está listo
+                            <MessageCircle size={14} />Avisar a {order.seller_name}
                           </a>
                         ) : (
                           <p className="text-xs font-light text-center" style={{ color: 'rgba(255,255,255,0.3)' }}>La vendedora no tiene teléfono registrado</p>

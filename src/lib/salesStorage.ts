@@ -76,6 +76,25 @@ export function compressImage(dataUrl: string, maxKB = 200): Promise<string> {
   });
 }
 
+// ── Upload a Cloudinary ───────────────────────────────────────────────────────
+export async function uploadToCloudinary(file: File): Promise<string> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('upload_preset', 'optica_yolanda');
+  formData.append('folder', 'optica/anteojos');
+
+  const res = await fetch(
+    'https://api.cloudinary.com/v1_1/dvtpcst0v/image/upload',
+    { method: 'POST', body: formData }
+  );
+
+  if (!res.ok) throw new Error('Error al subir imagen a Cloudinary');
+
+  const data = await res.json();
+  return data.secure_url as string;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 function saleToRow(sale: StoredSale) {
   return {
     id:               sale.id,
@@ -168,8 +187,6 @@ export async function updateSaleBalance(saleId: number, newBalance: number, newD
   window.dispatchEvent(new CustomEvent('optica_ventas_updated'));
 }
 
-// CORREGIDO: closeSaleLocal ahora siempre pone saldo=0, sena=total y registra
-// el pago final si había saldo pendiente antes de entregar
 export async function closeSaleLocal(
   saleId: number,
   deliveryType: 'retiro' | 'delivery' | 'encomienda',
@@ -177,7 +194,6 @@ export async function closeSaleLocal(
 ): Promise<void> {
   const now = new Date().toISOString();
 
-  // Si viene un pago final, registrarlo antes de cerrar
   if (finalPayment && finalPayment.monto > 0) {
     await recordPayment({
       id: Date.now(),
@@ -193,11 +209,9 @@ export async function closeSaleLocal(
     });
   }
 
-  // Obtener la venta para saber el total
   const sale = getSales().find(s => s.id === saleId);
   const total = sale?.total ?? 0;
 
-  // Siempre cerrar con saldo=0 y estado=entregado
   await supabase.from('ventas').update({
     saldo: 0,
     sena: total,
@@ -211,7 +225,6 @@ export async function closeSaleLocal(
     updated_at: now,
   }).eq('sale_id', saleId);
 
-  // Actualizar localStorage
   const sales = getSales().map(s =>
     s.id === saleId
       ? { ...s, saldo: 0, sena: total, estadoTrabajo: 'entregado', delivery_type: deliveryType, delivered_at: now }
