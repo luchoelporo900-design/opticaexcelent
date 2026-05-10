@@ -96,15 +96,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     try {
       const [{ data: ventasData }, { data: pagosData }, { data: gastosData }] = await Promise.all([
-        // FIX: select explícito en lugar de * para evitar error 500 con anteojos (jsonb)
-        supabase.from('ventas').select(VENTAS_COLUMNS).order('id', { ascending: false }),
-        supabase.from('pagos').select('*').order('id', { ascending: false }),
-        supabase.from('gastos').select('*').order('id', { ascending: false }),
+        // FIX: sin .order() — PostgREST falla con order=id.desc en este proyecto
+        // El ordenamiento se hace en el frontend con .sort()
+        supabase.from('ventas').select(VENTAS_COLUMNS),
+        supabase.from('pagos').select('*'),
+        supabase.from('gastos').select('*'),
       ]);
 
-      const newSales    = (ventasData || []).map(rowToSale);
-      const newPayments = (pagosData  || []).map(rowToPayment);
-      const newExpenses = (gastosData || []).map(rowToExpense);
+      // FIX: ordenamiento en frontend en lugar de en la query
+      const newSales    = (ventasData || []).map(rowToSale).sort((a, b) => b.id - a.id);
+      const newPayments = (pagosData  || []).map(rowToPayment).sort((a, b) => b.id - a.id);
+      const newExpenses = (gastosData || []).map(rowToExpense).sort((a, b) => b.id - a.id);
 
       setSales(newSales);
       setPayments(newPayments);
@@ -161,7 +163,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
             const newSale = rowToSale(payload.new);
             setSales(prev => {
               if (prev.some(s => s.id === newSale.id)) return prev;
-              const updated = [newSale, ...prev];
+              const updated = [newSale, ...prev].sort((a, b) => b.id - a.id);
               try { localStorage.setItem('optica_yolanda_ventas', JSON.stringify(updated)); } catch {}
               return updated;
             });
@@ -191,7 +193,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
             const newPay = rowToPayment(payload.new);
             setPayments(prev => {
               if (prev.some(p => p.id === newPay.id)) return prev;
-              const updated = [newPay, ...prev];
+              const updated = [newPay, ...prev].sort((a, b) => b.id - a.id);
               try { localStorage.setItem('optica_yolanda_abonos', JSON.stringify(updated)); } catch {}
               return updated;
             });
@@ -221,7 +223,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
             const newExp = rowToExpense(payload.new);
             setExpenses(prev => {
               if (prev.some(e => e.id === newExp.id)) return prev;
-              const updated = [newExp, ...prev];
+              const updated = [newExp, ...prev].sort((a, b) => b.id - a.id);
               try { localStorage.setItem('optica_yolanda_gastos', JSON.stringify(updated)); } catch {}
               return updated;
             });
