@@ -4,6 +4,7 @@ import {
   XCircle, FlaskConical, ShoppingBag, MessageCircle, Pencil, X, Save,
   Banknote, CreditCard, Smartphone, QrCode, Send, Store, Truck,
   AlertTriangle, Camera, Image, Plus, ChevronUp, Wrench, Check, Trash2, Glasses,
+  Calendar,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
@@ -96,6 +97,22 @@ function hasRxData(rx: any): boolean {
             rx.add || rx.dp);
 }
 
+// ── Helpers de fecha ──────────────────────────────────────────────────────────
+function isoToDateInput(iso: string): string {
+  // "2025-05-09T21:00:00.000Z" → "2025-05-09"
+  return iso ? iso.slice(0, 10) : new Date().toISOString().slice(0, 10);
+}
+function isoToTimeInput(iso: string): string {
+  // "2025-05-09T21:00:00.000Z" → "21:00"
+  if (!iso) return '00:00';
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+function buildIso(dateStr: string, timeStr: string): string {
+  // "2025-05-09" + "14:30" → ISO string local
+  return new Date(`${dateStr}T${timeStr}:00`).toISOString();
+}
+
 // ── PhotoBtn con Cloudinary ───────────────────────────────────────────────────
 function PhotoBtn({ onFile, label = 'Foto' }: { onFile: (url: string) => void; label?: string }) {
   const camRef = useRef<HTMLInputElement>(null);
@@ -103,12 +120,8 @@ function PhotoBtn({ onFile, label = 'Foto' }: { onFile: (url: string) => void; l
   async function handle(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return;
     e.target.value = '';
-    try {
-      const url = await uploadToCloudinary(file);
-      onFile(url);
-    } catch {
-      alert('Error al subir la foto. Intentá de nuevo.');
-    }
+    try { const url = await uploadToCloudinary(file); onFile(url); }
+    catch { alert('Error al subir la foto. Intentá de nuevo.'); }
   }
   return (
     <div className="flex gap-1.5 flex-wrap">
@@ -134,12 +147,8 @@ function PhotoInputCompact({ onChange }: { onChange: (v: string) => void }) {
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return;
     e.target.value = '';
-    try {
-      const url = await uploadToCloudinary(file);
-      onChange(url);
-    } catch {
-      alert('Error al subir la foto. Intentá de nuevo.');
-    }
+    try { const url = await uploadToCloudinary(file); onChange(url); }
+    catch { alert('Error al subir la foto. Intentá de nuevo.'); }
   }
   return (
     <div className="flex flex-col gap-1">
@@ -261,6 +270,7 @@ function EyeglassEditCard({ eg, idx, onUpdate, onRemove }: {
               style={{ borderColor: 'rgba(197,160,89,0.22)' }} />
           </div>
         </div>
+
         <div>
           <p className="text-xs font-light mb-2" style={{ color: 'rgba(255,255,255,0.4)' }}>Tipo de venta</p>
           <div className="flex gap-2 flex-wrap">
@@ -273,6 +283,7 @@ function EyeglassEditCard({ eg, idx, onUpdate, onRemove }: {
             ))}
           </div>
         </div>
+
         <div className="flex items-center gap-2 flex-wrap">
           <button onClick={() => onUpdate({ showReceta: !eg.showReceta, receta_a_confirmar: false })}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light"
@@ -289,6 +300,7 @@ function EyeglassEditCard({ eg, idx, onUpdate, onRemove }: {
             </button>
           )}
         </div>
+
         {eg.showReceta && (
           <div className="rounded-xl p-3 space-y-3" style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.14)' }}>
             <div>
@@ -451,6 +463,11 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
   const [vendedora,  setVendedora]  = useState(sale.vendedora     ?? '');
   const [sucursal,   setSucursal]   = useState(sale.sucursalVenta ?? '');
   const [receiptUrl, setReceiptUrl] = useState(sale.receipt_url   ?? '');
+
+  // ✅ Fecha editable — para cargar ventas atrasadas
+  const [fechaDate, setFechaDate] = useState(isoToDateInput(sale.fecha));
+  const [fechaTime, setFechaTime] = useState(isoToTimeInput(sale.fecha));
+
   const [eyeglasses, setEyeglasses] = useState<EyeglassItem[]>(() =>
     ((sale.anteojos as any[]) || []).map((eg: any) => ({
       _id:                uid(),
@@ -484,8 +501,13 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
     setError('');
     const t = Number(total), s = Number(sena), b = Number(saldo);
     if (isNaN(t) || isNaN(s) || isNaN(b)) { setError('Total, seña y saldo deben ser números válidos.'); return; }
+    if (!fechaDate) { setError('La fecha es obligatoria.'); return; }
+
     setSaving(true);
+    const nuevaFecha = buildIso(fechaDate, fechaTime);
+
     const { error: err } = await supabase.from('ventas').update({
+      fecha:            nuevaFecha,        // ✅ fecha editable
       estado_trabajo:   estado,
       total: t, sena: s, saldo: b,
       observaciones:    obs.trim()      || null,
@@ -509,6 +531,7 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
         receta_a_confirmar: eg.receta_a_confirmar ?? false,
       })),
     }).eq('id', sale.id);
+
     if (err) { setError('Error al guardar. Intentá de nuevo.'); setSaving(false); return; }
     setSaving(false); onSaved(); onClose();
   }
@@ -534,6 +557,42 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
         </div>
         <div className="p-5 space-y-6">
           {error && <div className="px-3 py-2.5 rounded-xl text-xs" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#f87171' }}>{error}</div>}
+
+          {/* ✅ FECHA DE LA VENTA */}
+          <div>
+            <p className="text-xs font-light tracking-widest uppercase mb-3" style={{ color: 'rgba(197,160,89,0.6)' }}>
+              Fecha de la venta
+            </p>
+            <div className="flex items-center gap-3 p-3 rounded-xl"
+              style={{ background: 'rgba(197,160,89,0.05)', border: '1px solid rgba(197,160,89,0.22)' }}>
+              <Calendar size={14} style={{ color: '#C5A059', flexShrink: 0 }} />
+              <div className="flex gap-3 flex-1 flex-wrap">
+                <div className="flex-1 min-w-[140px]">
+                  <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.35)' }}>Fecha</p>
+                  <input
+                    type="date"
+                    value={fechaDate}
+                    onChange={e => setFechaDate(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-transparent text-white text-sm font-light outline-none border"
+                    style={{ borderColor: 'rgba(197,160,89,0.30)', colorScheme: 'dark' }}
+                  />
+                </div>
+                <div style={{ minWidth: 110 }}>
+                  <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.35)' }}>Hora</p>
+                  <input
+                    type="time"
+                    value={fechaTime}
+                    onChange={e => setFechaTime(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-transparent text-white text-sm font-light outline-none border"
+                    style={{ borderColor: 'rgba(197,160,89,0.30)', colorScheme: 'dark' }}
+                  />
+                </div>
+              </div>
+            </div>
+            <p className="text-xs font-light mt-1.5" style={{ color: 'rgba(255,255,255,0.3)' }}>
+              Podés cambiar la fecha para registrar ventas del viernes, sábado u otro día anterior.
+            </p>
+          </div>
 
           {/* Cliente */}
           <div>
@@ -970,7 +1029,6 @@ export default function SalesHistoryPage() {
                                     {eg.crystals   && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(59,130,246,0.12)', color: '#3b82f6' }}>{eg.crystals}</span>}
                                     {eg.treatments && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(16,185,129,0.12)', color: '#10b981' }}>{eg.treatments}</span>}
                                   </div>
-                                  {/* Foto de receta */}
                                   {eg.receta_url && (
                                     <div className="mt-2">
                                       <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.35)' }}>📋 Foto de receta</p>
