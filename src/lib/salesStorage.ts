@@ -54,32 +54,35 @@ export type SalesSummary = {
   totalCobrado: number;
 };
 
-// ── Image compression ─────────────────────────────────────────────────────────
-export function compressImage(dataUrl: string, maxKB = 200): Promise<string> {
-  return new Promise(resolve => {
-    if (!dataUrl.startsWith('data:image')) { resolve(dataUrl); return; }
+// ── Comprimir imagen antes de subir ──────────────────────────────────────────
+async function compressImageFile(file: File, maxWidth = 1200, quality = 0.7): Promise<Blob> {
+  return new Promise((resolve) => {
     const img = new Image();
+    const url = URL.createObjectURL(file);
     img.onload = () => {
-      const MAX_BYTES = maxKB * 1024;
-      if (dataUrl.length * 0.75 <= MAX_BYTES) { resolve(dataUrl); return; }
+      const scale = Math.min(1, maxWidth / img.width);
       const canvas = document.createElement('canvas');
-      const scaleFactor = Math.sqrt(MAX_BYTES / (dataUrl.length * 0.75));
-      canvas.width  = Math.max(1, Math.floor(img.width  * scaleFactor));
-      canvas.height = Math.max(1, Math.floor(img.height * scaleFactor));
+      canvas.width  = Math.floor(img.width  * scale);
+      canvas.height = Math.floor(img.height * scale);
       canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
-      let out = canvas.toDataURL('image/jpeg', 0.75);
-      if (out.length * 0.75 > MAX_BYTES) out = canvas.toDataURL('image/jpeg', 0.50);
-      resolve(out);
+      URL.revokeObjectURL(url);
+      canvas.toBlob(
+        (blob) => resolve(blob ?? file),
+        'image/webp',
+        quality
+      );
     };
-    img.onerror = () => resolve(dataUrl);
-    img.src = dataUrl;
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
   });
 }
 
 // ── Upload a Cloudinary ───────────────────────────────────────────────────────
 export async function uploadToCloudinary(file: File): Promise<string> {
+  const compressed = await compressImageFile(file); // ✅ comprime primero
+
   const formData = new FormData();
-  formData.append('file', file);
+  formData.append('file', compressed, 'foto.webp');
   formData.append('upload_preset', 'optica_yolanda');
   formData.append('folder', 'optica/anteojos');
 
