@@ -79,7 +79,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [expenses, setExpenses] = useState<StoredExpense[]>([]);
   const [loading,  setLoading]  = useState(true);
 
+  // ── FIX: bandera para evitar llamadas simultáneas a refresh ──────────────
+  const [isFetching, setIsFetching] = useState(false);
+
   const refresh = useCallback(async () => {
+    // Evita requests simultáneos si ya hay uno en curso
+    if (isFetching) return;
+    setIsFetching(true);
     setLoading(true);
     try {
       const [{ data: ventasData }, { data: pagosData }, { data: gastosData }] = await Promise.all([
@@ -98,9 +104,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
       // Cache en localStorage como respaldo offline
       try {
-        localStorage.setItem('optica_yolanda_ventas',  JSON.stringify(newSales));
-        localStorage.setItem('optica_yolanda_abonos',  JSON.stringify(newPayments));
-        localStorage.setItem('optica_yolanda_gastos',  JSON.stringify(newExpenses));
+        localStorage.setItem('optica_yolanda_ventas', JSON.stringify(newSales));
+        localStorage.setItem('optica_yolanda_abonos', JSON.stringify(newPayments));
+        localStorage.setItem('optica_yolanda_gastos', JSON.stringify(newExpenses));
       } catch { /* ignore quota errors */ }
 
     } catch {
@@ -113,23 +119,39 @@ export function DataProvider({ children }: { children: ReactNode }) {
         if (p) setPayments(JSON.parse(p));
         if (e) setExpenses(JSON.parse(e));
       } catch { /* ignore */ }
+    } finally {
+      setLoading(false);
+      setIsFetching(false);
     }
-    setLoading(false);
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Sin isFetching en deps: ref pattern abajo evita el stale closure
 
-  // Cargar al inicio
+  // ── Cargar al inicio ─────────────────────────────────────────────────────
   useEffect(() => { refresh(); }, [refresh]);
 
-  // Escuchar actualizaciones locales (mismo dispositivo)
+  // ── FIX: evento local — solo recarga desde localStorage, NO llama a Supabase
+  // Este evento lo dispara el mismo dispositivo al guardar. Como el realtime
+  // ya sincroniza entre dispositivos, aquí solo refrescamos el estado local
+  // para que la UI del dispositivo que guardó también se actualice sin
+  // generar un request extra a Supabase.
   useEffect(() => {
-    const handler = () => refresh();
+    const handler = () => {
+      try {
+        const s = localStorage.getItem('optica_yolanda_ventas');
+        const p = localStorage.getItem('optica_yolanda_abonos');
+        const e = localStorage.getItem('optica_yolanda_gastos');
+        if (s) setSales(JSON.parse(s));
+        if (p) setPayments(JSON.parse(p));
+        if (e) setExpenses(JSON.parse(e));
+      } catch { /* ignore */ }
+    };
     window.addEventListener('optica_ventas_updated', handler);
     return () => window.removeEventListener('optica_ventas_updated', handler);
-  }, [refresh]);
+  }, []); // Sin refresh en deps: no necesitamos llamar a Supabase aquí
 
   // ── REALTIME: sincronización instantánea entre dispositivos ──────────────
+  // Cada canal actualiza solo su tabla en el estado local sin hacer queries.
   useEffect(() => {
-    // Canal de ventas — cuando cualquier vendedora guarda/edita una venta
     const ventasChannel = supabase
       .channel('ventas-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'ventas' },
@@ -137,24 +159,22 @@ export function DataProvider({ children }: { children: ReactNode }) {
           if (payload.eventType === 'INSERT') {
             const newSale = rowToSale(payload.new);
             setSales(prev => {
-              const exists = prev.some(s => s.id === newSale.id);
-              const updated = exists
-                ? prev.map(s => s.id === newSale.id ? newSale : s)
-                : [newSale, ...prev];
-              localStorage.setItem('optica_yolanda_ventas', JSON.stringify(updated));
+              if (prev.some(s => s.id === newSale.id)) return prev;
+              const updated = [newSale, ...prev];
+              try { localStorage.setItem('optica_yolanda_ventas', JSON.stringify(updated)); } catch {}
               return updated;
             });
           } else if (payload.eventType === 'UPDATE') {
             const updatedSale = rowToSale(payload.new);
             setSales(prev => {
               const updated = prev.map(s => s.id === updatedSale.id ? updatedSale : s);
-              localStorage.setItem('optica_yolanda_ventas', JSON.stringify(updated));
+              try { localStorage.setItem('optica_yolanda_ventas', JSON.stringify(updated)); } catch {}
               return updated;
             });
           } else if (payload.eventType === 'DELETE') {
             setSales(prev => {
               const updated = prev.filter(s => s.id !== Number(payload.old.id));
-              localStorage.setItem('optica_yolanda_ventas', JSON.stringify(updated));
+              try { localStorage.setItem('optica_yolanda_ventas', JSON.stringify(updated)); } catch {}
               return updated;
             });
           }
@@ -162,7 +182,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
       )
       .subscribe();
 
-    // Canal de pagos — cuando se registra un abono
     const pagosChannel = supabase
       .channel('pagos-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'pagos' },
@@ -170,23 +189,22 @@ export function DataProvider({ children }: { children: ReactNode }) {
           if (payload.eventType === 'INSERT') {
             const newPay = rowToPayment(payload.new);
             setPayments(prev => {
-              const exists = prev.some(p => p.id === newPay.id);
-              if (exists) return prev;
+              if (prev.some(p => p.id === newPay.id)) return prev;
               const updated = [newPay, ...prev];
-              localStorage.setItem('optica_yolanda_abonos', JSON.stringify(updated));
+              try { localStorage.setItem('optica_yolanda_abonos', JSON.stringify(updated)); } catch {}
               return updated;
             });
           } else if (payload.eventType === 'UPDATE') {
             const updatedPay = rowToPayment(payload.new);
             setPayments(prev => {
               const updated = prev.map(p => p.id === updatedPay.id ? updatedPay : p);
-              localStorage.setItem('optica_yolanda_abonos', JSON.stringify(updated));
+              try { localStorage.setItem('optica_yolanda_abonos', JSON.stringify(updated)); } catch {}
               return updated;
             });
           } else if (payload.eventType === 'DELETE') {
             setPayments(prev => {
               const updated = prev.filter(p => p.id !== Number(payload.old.id));
-              localStorage.setItem('optica_yolanda_abonos', JSON.stringify(updated));
+              try { localStorage.setItem('optica_yolanda_abonos', JSON.stringify(updated)); } catch {}
               return updated;
             });
           }
@@ -194,7 +212,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
       )
       .subscribe();
 
-    // Canal de gastos
     const gastosChannel = supabase
       .channel('gastos-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'gastos' },
@@ -202,23 +219,22 @@ export function DataProvider({ children }: { children: ReactNode }) {
           if (payload.eventType === 'INSERT') {
             const newExp = rowToExpense(payload.new);
             setExpenses(prev => {
-              const exists = prev.some(e => e.id === newExp.id);
-              if (exists) return prev;
+              if (prev.some(e => e.id === newExp.id)) return prev;
               const updated = [newExp, ...prev];
-              localStorage.setItem('optica_yolanda_gastos', JSON.stringify(updated));
+              try { localStorage.setItem('optica_yolanda_gastos', JSON.stringify(updated)); } catch {}
               return updated;
             });
           } else if (payload.eventType === 'UPDATE') {
             const updatedExp = rowToExpense(payload.new);
             setExpenses(prev => {
               const updated = prev.map(e => e.id === updatedExp.id ? updatedExp : e);
-              localStorage.setItem('optica_yolanda_gastos', JSON.stringify(updated));
+              try { localStorage.setItem('optica_yolanda_gastos', JSON.stringify(updated)); } catch {}
               return updated;
             });
           } else if (payload.eventType === 'DELETE') {
             setExpenses(prev => {
               const updated = prev.filter(e => e.id !== Number(payload.old.id));
-              localStorage.setItem('optica_yolanda_gastos', JSON.stringify(updated));
+              try { localStorage.setItem('optica_yolanda_gastos', JSON.stringify(updated)); } catch {}
               return updated;
             });
           }
@@ -226,19 +242,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
       )
       .subscribe();
 
-    // Limpiar canales al desmontar
+    // ── FIX: POLLING ELIMINADO ───────────────────────────────────────────────
+    // El setInterval de 30 segundos fue removido. El realtime de Supabase
+    // maneja la sincronización entre dispositivos. El polling solo generaba
+    // requests innecesarios que saturaban el plan y causaban errores 500.
+
     return () => {
       supabase.removeChannel(ventasChannel);
       supabase.removeChannel(pagosChannel);
       supabase.removeChannel(gastosChannel);
     };
   }, []);
-
-  // Polling cada 30 segundos como respaldo
-  useEffect(() => {
-    const interval = setInterval(() => refresh(), 30000);
-    return () => clearInterval(interval);
-  }, [refresh]);
 
   return (
     <DataContext.Provider value={{ sales, payments, expenses, loading, refresh }}>
