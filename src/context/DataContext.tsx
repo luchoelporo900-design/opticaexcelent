@@ -72,24 +72,32 @@ function rowToExpense(row: any): StoredExpense {
   };
 }
 
+// ── FIX: columnas explícitas para evitar error 500 con select=* y jsonb ───────
+const VENTAS_COLUMNS = [
+  'id', 'fecha',
+  'cliente_nombre', 'cliente_apellido', 'cliente_telefono', 'cliente_ci',
+  'sucursal_venta', 'sucursal_entrega', 'sucursal_cobro',
+  'vendedora', 'total', 'sena', 'saldo', 'metodo_pago',
+  'estado_trabajo', 'anteojos', 'observaciones',
+  'delivery_type', 'delivered_at', 'receipt_url',
+].join(',');
+
 // ── Provider ──────────────────────────────────────────────────────────────────
 export function DataProvider({ children }: { children: ReactNode }) {
   const [sales,    setSales]    = useState<StoredSale[]>([]);
   const [payments, setPayments] = useState<StoredPayment[]>([]);
   const [expenses, setExpenses] = useState<StoredExpense[]>([]);
   const [loading,  setLoading]  = useState(true);
-
-  // ── FIX: bandera para evitar llamadas simultáneas a refresh ──────────────
   const [isFetching, setIsFetching] = useState(false);
 
   const refresh = useCallback(async () => {
-    // Evita requests simultáneos si ya hay uno en curso
     if (isFetching) return;
     setIsFetching(true);
     setLoading(true);
     try {
       const [{ data: ventasData }, { data: pagosData }, { data: gastosData }] = await Promise.all([
-        supabase.from('ventas').select('*').order('id', { ascending: false }),
+        // FIX: select explícito en lugar de * para evitar error 500 con anteojos (jsonb)
+        supabase.from('ventas').select(VENTAS_COLUMNS).order('id', { ascending: false }),
         supabase.from('pagos').select('*').order('id', { ascending: false }),
         supabase.from('gastos').select('*').order('id', { ascending: false }),
       ]);
@@ -102,7 +110,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
       setPayments(newPayments);
       setExpenses(newExpenses);
 
-      // Cache en localStorage como respaldo offline
       try {
         localStorage.setItem('optica_yolanda_ventas', JSON.stringify(newSales));
         localStorage.setItem('optica_yolanda_abonos', JSON.stringify(newPayments));
@@ -110,7 +117,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
       } catch { /* ignore quota errors */ }
 
     } catch {
-      // Fallback a localStorage si no hay conexión
       try {
         const s = localStorage.getItem('optica_yolanda_ventas');
         const p = localStorage.getItem('optica_yolanda_abonos');
@@ -124,16 +130,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
       setIsFetching(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Sin isFetching en deps: ref pattern abajo evita el stale closure
+  }, []);
 
-  // ── Cargar al inicio ─────────────────────────────────────────────────────
+  // Cargar al inicio
   useEffect(() => { refresh(); }, [refresh]);
 
-  // ── FIX: evento local — solo recarga desde localStorage, NO llama a Supabase
-  // Este evento lo dispara el mismo dispositivo al guardar. Como el realtime
-  // ya sincroniza entre dispositivos, aquí solo refrescamos el estado local
-  // para que la UI del dispositivo que guardó también se actualice sin
-  // generar un request extra a Supabase.
+  // FIX: evento local — solo lee localStorage, NO llama a Supabase
   useEffect(() => {
     const handler = () => {
       try {
@@ -147,10 +149,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
     };
     window.addEventListener('optica_ventas_updated', handler);
     return () => window.removeEventListener('optica_ventas_updated', handler);
-  }, []); // Sin refresh en deps: no necesitamos llamar a Supabase aquí
+  }, []);
 
-  // ── REALTIME: sincronización instantánea entre dispositivos ──────────────
-  // Cada canal actualiza solo su tabla en el estado local sin hacer queries.
+  // ── REALTIME ──────────────────────────────────────────────────────────────
   useEffect(() => {
     const ventasChannel = supabase
       .channel('ventas-realtime')
@@ -242,10 +243,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       )
       .subscribe();
 
-    // ── FIX: POLLING ELIMINADO ───────────────────────────────────────────────
-    // El setInterval de 30 segundos fue removido. El realtime de Supabase
-    // maneja la sincronización entre dispositivos. El polling solo generaba
-    // requests innecesarios que saturaban el plan y causaban errores 500.
+    // POLLING ELIMINADO
 
     return () => {
       supabase.removeChannel(ventasChannel);
