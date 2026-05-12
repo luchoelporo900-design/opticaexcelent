@@ -72,7 +72,6 @@ function rowToExpense(row: any): StoredExpense {
   };
 }
 
-// ── FIX: columnas explícitas para evitar error 500 con select=* y jsonb ───────
 const VENTAS_COLUMNS = [
   'id', 'fecha',
   'cliente_nombre', 'cliente_apellido', 'cliente_telefono', 'cliente_ci',
@@ -82,28 +81,44 @@ const VENTAS_COLUMNS = [
   'delivery_type', 'delivered_at', 'receipt_url',
 ].join(',');
 
+// ── Cargar desde localStorage inmediatamente ──────────────────────────────────
+function loadFromCache(): { sales: StoredSale[]; payments: StoredPayment[]; expenses: StoredExpense[] } {
+  try {
+    const s = localStorage.getItem('optica_yolanda_ventas');
+    const p = localStorage.getItem('optica_yolanda_abonos');
+    const e = localStorage.getItem('optica_yolanda_gastos');
+    return {
+      sales:    s ? JSON.parse(s) : [],
+      payments: p ? JSON.parse(p) : [],
+      expenses: e ? JSON.parse(e) : [],
+    };
+  } catch {
+    return { sales: [], payments: [], expenses: [] };
+  }
+}
+
 // ── Provider ──────────────────────────────────────────────────────────────────
 export function DataProvider({ children }: { children: ReactNode }) {
-  const [sales,    setSales]    = useState<StoredSale[]>([]);
-  const [payments, setPayments] = useState<StoredPayment[]>([]);
-  const [expenses, setExpenses] = useState<StoredExpense[]>([]);
-  const [loading,  setLoading]  = useState(true);
+  // ✅ Inicializar directamente desde localStorage — sin esperar a Supabase
+  const cached = loadFromCache();
+  const [sales,    setSales]    = useState<StoredSale[]>(cached.sales);
+  const [payments, setPayments] = useState<StoredPayment[]>(cached.payments);
+  const [expenses, setExpenses] = useState<StoredExpense[]>(cached.expenses);
+  // ✅ loading solo es true si no hay nada en cache
+  const [loading,    setLoading]    = useState(cached.sales.length === 0);
   const [isFetching, setIsFetching] = useState(false);
 
   const refresh = useCallback(async () => {
     if (isFetching) return;
     setIsFetching(true);
-    setLoading(true);
+    // ✅ No ponemos loading:true si ya hay datos — evita pantalla en blanco
     try {
       const [{ data: ventasData }, { data: pagosData }, { data: gastosData }] = await Promise.all([
-        // FIX: sin .order() — PostgREST falla con order=id.desc en este proyecto
-        // El ordenamiento se hace en el frontend con .sort()
         supabase.from('ventas').select(VENTAS_COLUMNS),
         supabase.from('pagos').select('*'),
         supabase.from('gastos').select('*'),
       ]);
 
-      // FIX: ordenamiento en frontend en lugar de en la query
       const newSales    = (ventasData || []).map(rowToSale).sort((a, b) => b.id - a.id);
       const newPayments = (pagosData  || []).map(rowToPayment).sort((a, b) => b.id - a.id);
       const newExpenses = (gastosData || []).map(rowToExpense).sort((a, b) => b.id - a.id);
@@ -119,14 +134,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       } catch { /* ignore quota errors */ }
 
     } catch {
-      try {
-        const s = localStorage.getItem('optica_yolanda_ventas');
-        const p = localStorage.getItem('optica_yolanda_abonos');
-        const e = localStorage.getItem('optica_yolanda_gastos');
-        if (s) setSales(JSON.parse(s));
-        if (p) setPayments(JSON.parse(p));
-        if (e) setExpenses(JSON.parse(e));
-      } catch { /* ignore */ }
+      // Si falla Supabase, mantener lo que hay en estado (ya cargado desde cache)
     } finally {
       setLoading(false);
       setIsFetching(false);
@@ -134,10 +142,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Cargar al inicio
+  // ✅ Cargar desde Supabase en background sin bloquear la UI
   useEffect(() => { refresh(); }, [refresh]);
 
-  // FIX: evento local — solo lee localStorage, NO llama a Supabase
+  // ✅ Evento local — actualiza desde localStorage sin llamar a Supabase
   useEffect(() => {
     const handler = () => {
       try {
@@ -244,8 +252,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
         }
       )
       .subscribe();
-
-    // POLLING ELIMINADO
 
     return () => {
       supabase.removeChannel(ventasChannel);

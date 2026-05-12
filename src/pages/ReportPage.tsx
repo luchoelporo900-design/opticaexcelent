@@ -35,7 +35,7 @@ type BranchRow = { branch_name: string; sale_count: number; total: number; colle
 type PhotoEntry = {
   sale_number: string; branch_name: string; seller_name: string;
   created_at: string; photo_url: string; frame_description: string; customer_name: string;
-  is_receta?: boolean; // ✅ para distinguir en galería
+  is_receta?: boolean;
 };
 
 function fmt(n: number) {
@@ -57,7 +57,6 @@ function getWeekRange(dateStr: string): { start: string; end: string } {
   return { start: f(monday), end: f(saturday) };
 }
 
-// ── Badges de canal y entrega ────────────────────────────────────────────────
 function ChannelBadge({ channel }: { channel?: string }) {
   if (!channel) return null;
   const isOnline = channel === 'online';
@@ -81,7 +80,6 @@ function DeliveryBadge({ type }: { type?: string }) {
     delivery:   { label: 'Delivery',       color: '#3b82f6', bg: 'rgba(59,130,246,0.10)', border: 'rgba(59,130,246,0.25)', icon: <Truck   size={10} /> },
     encomienda: { label: 'Encomienda',     color: '#f59e0b', bg: 'rgba(245,158,11,0.10)', border: 'rgba(245,158,11,0.25)', icon: <Package size={10} /> },
   }[type] ?? { label: type, color: '#C5A059', bg: 'rgba(197,160,89,0.10)', border: 'rgba(197,160,89,0.25)', icon: <MapPin size={10} /> };
-
   return (
     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-light"
       style={{ background: cfg.bg, color: cfg.color, border: `1px solid ${cfg.border}` }}>
@@ -90,17 +88,13 @@ function DeliveryBadge({ type }: { type?: string }) {
   );
 }
 
-// ── Tarjeta de armazón con receta ────────────────────────────────────────────
 function EyeglassReviewCard({ eg, idx, onLightbox }: { eg: any; idx: number; onLightbox: (url: string) => void }) {
   const rx = eg.prescription;
   const hasRx = rx && (rx.od_esfera || rx.oi_esfera || rx.od_cilindro);
   const isConfirmar = eg.receta_a_confirmar === true;
-
   return (
     <div className="rounded-xl overflow-hidden"
       style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(197,160,89,0.14)' }}>
-
-      {/* Foto armazón + info básica */}
       <div className="flex items-start gap-3 p-3">
         {eg.photo_url ? (
           <button onClick={() => onLightbox(eg.photo_url)}
@@ -121,27 +115,17 @@ function EyeglassReviewCard({ eg, idx, onLightbox }: { eg: any; idx: number; onL
         <div className="flex-1 min-w-0 space-y-1">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs font-light" style={{ color: 'rgba(197,160,89,0.7)' }}>Armazón {idx + 1}</span>
-            {eg.saleType === 'reparacion' && (
-              <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(167,139,250,0.12)', color: '#a78bfa' }}>Reparación</span>
-            )}
-            {eg.saleType === 'media' && (
-              <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(245,158,11,0.12)', color: '#f59e0b' }}>½ venta</span>
-            )}
-            {eg.price && Number(eg.price) > 0 && (
-              <span className="text-xs font-light" style={{ color: '#C5A059' }}>Gs. {fmt(Number(eg.price))}</span>
-            )}
+            {eg.saleType === 'reparacion' && <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(167,139,250,0.12)', color: '#a78bfa' }}>Reparación</span>}
+            {eg.saleType === 'media' && <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(245,158,11,0.12)', color: '#f59e0b' }}>½ venta</span>}
+            {eg.price && Number(eg.price) > 0 && <span className="text-xs font-light" style={{ color: '#C5A059' }}>Gs. {fmt(Number(eg.price))}</span>}
           </div>
-          {eg.frame_description && (
-            <p className="text-xs text-white font-light truncate">{eg.frame_description}</p>
-          )}
+          {eg.frame_description && <p className="text-xs text-white font-light truncate">{eg.frame_description}</p>}
           <div className="flex gap-1.5 flex-wrap">
             {eg.crystals   && <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(59,130,246,0.12)', color: '#3b82f6' }}>{eg.crystals}</span>}
             {eg.treatments && <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(16,185,129,0.12)', color: '#10b981' }}>{eg.treatments}</span>}
           </div>
         </div>
       </div>
-
-      {/* ✅ FOTO DE RECETA */}
       {eg.receta_url && (
         <div className="px-3 pb-2 flex items-center gap-2">
           <p className="text-xs font-light shrink-0" style={{ color: 'rgba(255,255,255,0.35)' }}>📋 Foto receta:</p>
@@ -156,8 +140,6 @@ function EyeglassReviewCard({ eg, idx, onLightbox }: { eg: any; idx: number; onL
           </button>
         </div>
       )}
-
-      {/* Receta óptica (datos) */}
       {isConfirmar ? (
         <div className="mx-3 mb-3 flex items-center gap-2 px-3 py-2 rounded-lg"
           style={{ background: 'rgba(249,115,22,0.08)', border: '1px solid rgba(249,115,22,0.30)' }}>
@@ -198,9 +180,7 @@ function EyeglassReviewCard({ eg, idx, onLightbox }: { eg: any; idx: number; onL
       ) : eg.prescription_text ? (
         <div className="mx-3 mb-3 px-3 py-2 rounded-lg"
           style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.18)' }}>
-          <p className="text-xs font-mono font-light" style={{ color: 'rgba(255,255,255,0.65)', lineHeight: 1.8 }}>
-            {eg.prescription_text}
-          </p>
+          <p className="text-xs font-mono font-light" style={{ color: 'rgba(255,255,255,0.65)', lineHeight: 1.8 }}>{eg.prescription_text}</p>
         </div>
       ) : (
         <div className="mx-3 mb-3 flex items-center gap-2 px-3 py-2 rounded-lg"
@@ -213,19 +193,13 @@ function EyeglassReviewCard({ eg, idx, onLightbox }: { eg: any; idx: number; onL
   );
 }
 
-// ── Lightbox ────────────────────────────────────────────────────────────────
 function PhotoThumb({ entry }: { entry: PhotoEntry }) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <button onClick={() => setOpen(true)}
         className="relative group rounded-xl overflow-hidden"
-        style={{
-          width: 80, height: 80, flexShrink: 0,
-          border: entry.is_receta
-            ? '1px solid rgba(59,130,246,0.35)'
-            : '1px solid rgba(197,160,89,0.20)',
-        }}>
+        style={{ width: 80, height: 80, flexShrink: 0, border: entry.is_receta ? '1px solid rgba(59,130,246,0.35)' : '1px solid rgba(197,160,89,0.20)' }}>
         <img src={entry.photo_url} alt={entry.frame_description || 'foto'} className="w-full h-full object-cover" />
         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
           style={{ background: 'rgba(0,0,0,0.65)' }}>
@@ -257,7 +231,6 @@ function PhotoThumb({ entry }: { entry: PhotoEntry }) {
   );
 }
 
-// ── Página principal ─────────────────────────────────────────────────────────
 export default function ReportPage() {
   const { profile } = useAuth();
   const isAdmin = profile?.role === 'admin' || profile?.role === 'gerente';
@@ -348,7 +321,6 @@ export default function ReportPage() {
     const photoRows: PhotoEntry[] = [];
     for (const v of ventas) {
       for (const eg of (v.anteojos as any[] || [])) {
-        // ✅ Foto del armazón
         if (eg.photo_url) {
           photoRows.push({
             sale_number: `VTA-${v.id}`, branch_name: v.sucursalVenta || '',
@@ -358,7 +330,6 @@ export default function ReportPage() {
             is_receta: false,
           });
         }
-        // ✅ Foto de receta
         if (eg.receta_url) {
           photoRows.push({
             sale_number: `VTA-${v.id}`, branch_name: v.sucursalVenta || '',
@@ -414,6 +385,19 @@ export default function ReportPage() {
     const saleDate = (sale.fecha || '').slice(0, 10);
     if (saleDate) { setSelectedDate(saleDate); setScope('day'); }
     setExpandedSale(saleId); setHighlightedSale(saleId);
+  }
+
+  // ✅ Marcar UNA venta como vista individualmente
+  function dismissOneSale(saleId: number, sellerName: string) {
+    markAllSeen([String(saleId)]);
+    setNewSalesAlerts(prev =>
+      prev
+        .map(a => a.seller === sellerName
+          ? { ...a, ventas: a.ventas.filter((v: any) => v.id !== saleId) }
+          : a
+        )
+        .filter(a => a.ventas.length > 0)
+    );
   }
 
   function dismissNewSales(seller: string, ventas: any[]) {
@@ -536,7 +520,7 @@ export default function ReportPage() {
         )}
       </div>
 
-      {/* Ventas nuevas no vistas */}
+      {/* ✅ Ventas nuevas — con botón Vista individual por venta */}
       {isAdmin && newSalesAlerts.length > 0 && (
         <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(197,160,89,0.35)', background: 'rgba(197,160,89,0.04)' }}>
           <div className="flex items-center justify-between px-4 py-3"
@@ -568,23 +552,33 @@ export default function ReportPage() {
                   <button onClick={() => dismissNewSales(seller, ventas)}
                     className="text-xs font-light px-2 py-1 rounded"
                     style={{ color: 'rgba(255,255,255,0.35)', background: 'rgba(255,255,255,0.04)' }}>
-                    Vista ✓
+                    Vista todas ✓
                   </button>
                 </div>
-                <div className="space-y-1 pl-8">
+                <div className="space-y-1.5 pl-8">
                   {ventas.map((v: any) => (
-                    <button key={v.id} onClick={() => handleNewSaleClick(v)}
-                      className="w-full text-left flex items-center gap-3 px-3 py-2 rounded-lg group"
-                      style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(197,160,89,0.10)' }}>
-                      <span className="text-xs font-mono" style={{ color: '#C5A059' }}>VTA-{v.id}</span>
-                      <span className="text-xs text-white font-light flex-1 truncate">{v.cliente.nombre} {v.cliente.apellido}</span>
-                      <ChannelBadge channel={(v as any).channel} />
-                      <DeliveryBadge type={(v as any).delivery_type} />
-                      <span className="text-xs font-light" style={{ color: '#22c55e' }}>Gs. {fmt(Number(v.total))}</span>
-                      <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.3)' }}>
-                        {new Date(v.fecha).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    </button>
+                    <div key={v.id} className="flex items-center gap-2">
+                      {/* Fila de la venta — clickeable para ir al detalle */}
+                      <button onClick={() => handleNewSaleClick(v)}
+                        className="flex-1 text-left flex items-center gap-3 px-3 py-2 rounded-lg"
+                        style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(197,160,89,0.10)' }}>
+                        <span className="text-xs font-mono" style={{ color: '#C5A059' }}>VTA-{v.id}</span>
+                        <span className="text-xs text-white font-light flex-1 truncate">{v.cliente.nombre} {v.cliente.apellido}</span>
+                        <ChannelBadge channel={(v as any).channel} />
+                        <DeliveryBadge type={(v as any).delivery_type} />
+                        <span className="text-xs font-light" style={{ color: '#22c55e' }}>Gs. {fmt(Number(v.total))}</span>
+                        <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                          {new Date(v.fecha).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </button>
+                      {/* ✅ Botón Vista individual */}
+                      <button
+                        onClick={() => dismissOneSale(v.id, seller)}
+                        className="shrink-0 flex items-center gap-1 px-2.5 py-2 rounded-lg text-xs font-light"
+                        style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', color: '#10b981' }}>
+                        <CheckCircle size={11} />Vista
+                      </button>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -727,7 +721,6 @@ export default function ReportPage() {
                     borderRadius: isHighlighted ? 12 : 0,
                     boxShadow:  isHighlighted ? '0 0 24px rgba(245,158,11,0.18)' : 'none',
                   }}>
-
                   <div className="flex items-center gap-3 px-5 py-3.5 cursor-pointer"
                     style={{ background: isHighlighted ? 'rgba(245,158,11,0.05)' : isExp ? 'rgba(197,160,89,0.03)' : i%2===0 ? 'transparent' : 'rgba(255,255,255,0.008)' }}
                     onClick={() => setExpandedSale(isExp ? null : saleKey)}>
@@ -776,7 +769,6 @@ export default function ReportPage() {
                   {isExp && (
                     <div className="px-5 pb-5 space-y-4"
                       style={{ background: 'rgba(197,160,89,0.02)', borderTop: '1px solid rgba(197,160,89,0.08)' }}>
-
                       <div className="pt-3 flex flex-wrap items-center gap-3">
                         <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
                           style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
@@ -804,29 +796,22 @@ export default function ReportPage() {
                         </div>
                       </div>
 
-                      {/* ── ARMAZONES, FOTOS DE RECETA Y RECETA ÓPTICA ── */}
                       {anteojos.length > 0 && (
                         <div>
-                          <p className="text-xs font-light tracking-widest uppercase mb-2"
-                            style={{ color: 'rgba(197,160,89,0.55)' }}>
+                          <p className="text-xs font-light tracking-widest uppercase mb-2" style={{ color: 'rgba(197,160,89,0.55)' }}>
                             Armazones y recetas
                           </p>
                           <div className="space-y-2">
                             {anteojos.map((eg: any, ei: number) => (
-                              <EyeglassReviewCard
-                                key={ei} eg={eg} idx={ei}
-                                onLightbox={url => setLightbox(url)}
-                              />
+                              <EyeglassReviewCard key={ei} eg={eg} idx={ei} onLightbox={url => setLightbox(url)} />
                             ))}
                           </div>
                         </div>
                       )}
 
-                      {/* ── PAGOS Y COMPROBANTES ── */}
                       {salePays.length > 0 && (
                         <div>
-                          <p className="text-xs font-light tracking-widest uppercase mb-2"
-                            style={{ color: 'rgba(197,160,89,0.55)' }}>
+                          <p className="text-xs font-light tracking-widest uppercase mb-2" style={{ color: 'rgba(197,160,89,0.55)' }}>
                             Pagos y comprobantes
                           </p>
                           <div className="space-y-2">
@@ -894,7 +879,7 @@ export default function ReportPage() {
         )}
       </div>
 
-      {/* ✅ Galería de fotos Y recetas */}
+      {/* Galería de fotos y recetas */}
       {photos.length > 0 && (
         <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
           <div className="flex items-center justify-between px-5 py-4"
