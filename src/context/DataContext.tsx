@@ -72,6 +72,7 @@ function rowToExpense(row: any): StoredExpense {
   };
 }
 
+// ── Columnas explícitas para evitar error 500 con select=* ───────────────────
 const VENTAS_COLUMNS = [
   'id', 'fecha',
   'cliente_nombre', 'cliente_apellido', 'cliente_telefono', 'cliente_ci',
@@ -79,6 +80,16 @@ const VENTAS_COLUMNS = [
   'vendedora', 'total', 'sena', 'saldo', 'metodo_pago',
   'estado_trabajo', 'anteojos', 'observaciones',
   'delivery_type', 'delivered_at', 'receipt_url',
+].join(',');
+
+const PAGOS_COLUMNS = [
+  'id', 'sale_id', 'fecha', 'monto', 'metodo',
+  'sucursal', 'vendedora', 'cliente', 'tipo', 'receipt_url',
+].join(',');
+
+const GASTOS_COLUMNS = [
+  'id', 'fecha', 'descripcion', 'categoria',
+  'monto', 'metodo', 'sucursal', 'vendedora',
 ].join(',');
 
 // ── Cargar desde localStorage inmediatamente ──────────────────────────────────
@@ -111,12 +122,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     if (isFetching) return;
     setIsFetching(true);
-    // ✅ No ponemos loading:true si ya hay datos — evita pantalla en blanco
     try {
       const [{ data: ventasData }, { data: pagosData }, { data: gastosData }] = await Promise.all([
         supabase.from('ventas').select(VENTAS_COLUMNS),
-        supabase.from('pagos').select('*'),
-        supabase.from('gastos').select('*'),
+        supabase.from('pagos').select(PAGOS_COLUMNS),
+        supabase.from('gastos').select(GASTOS_COLUMNS),
       ]);
 
       const newSales    = (ventasData || []).map(rowToSale).sort((a, b) => b.id - a.id);
@@ -134,7 +144,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       } catch { /* ignore quota errors */ }
 
     } catch {
-      // Si falla Supabase, mantener lo que hay en estado (ya cargado desde cache)
+      // Si falla Supabase, mantener lo que hay en estado
     } finally {
       setLoading(false);
       setIsFetching(false);
