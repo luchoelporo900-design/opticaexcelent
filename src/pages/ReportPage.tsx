@@ -57,6 +57,28 @@ function getWeekRange(dateStr: string): { start: string; end: string } {
   return { start: f(monday), end: f(saturday) };
 }
 
+// ── Imagen robusta para iOS — no desaparece ───────────────────────────────────
+function SafeImg({ src, alt, className, style, onClick }: {
+  src: string; alt: string; className?: string; style?: React.CSSProperties; onClick?: () => void;
+}) {
+  const [visible, setVisible] = useState(true);
+  const [loaded,  setLoaded]  = useState(false);
+
+  if (!src || !visible) return null;
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className={className}
+      style={{ ...style, opacity: loaded ? 1 : 0, transition: 'opacity 0.2s' }}
+      loading="lazy"
+      onLoad={() => setLoaded(true)}
+      onError={() => setVisible(false)}
+      onClick={onClick}
+    />
+  );
+}
+
 function ChannelBadge({ channel }: { channel?: string }) {
   if (!channel) return null;
   const isOnline = channel === 'online';
@@ -76,9 +98,9 @@ function ChannelBadge({ channel }: { channel?: string }) {
 function DeliveryBadge({ type }: { type?: string }) {
   if (!type) return null;
   const cfg = {
-    retiro:     { label: 'Retiro local',   color: '#10b981', bg: 'rgba(16,185,129,0.10)', border: 'rgba(16,185,129,0.25)', icon: <Store   size={10} /> },
-    delivery:   { label: 'Delivery',       color: '#3b82f6', bg: 'rgba(59,130,246,0.10)', border: 'rgba(59,130,246,0.25)', icon: <Truck   size={10} /> },
-    encomienda: { label: 'Encomienda',     color: '#f59e0b', bg: 'rgba(245,158,11,0.10)', border: 'rgba(245,158,11,0.25)', icon: <Package size={10} /> },
+    retiro:     { label: 'Retiro local', color: '#10b981', bg: 'rgba(16,185,129,0.10)', border: 'rgba(16,185,129,0.25)', icon: <Store   size={10} /> },
+    delivery:   { label: 'Delivery',     color: '#3b82f6', bg: 'rgba(59,130,246,0.10)', border: 'rgba(59,130,246,0.25)', icon: <Truck   size={10} /> },
+    encomienda: { label: 'Encomienda',   color: '#f59e0b', bg: 'rgba(245,158,11,0.10)', border: 'rgba(245,158,11,0.25)', icon: <Package size={10} /> },
   }[type] ?? { label: type, color: '#C5A059', bg: 'rgba(197,160,89,0.10)', border: 'rgba(197,160,89,0.25)', icon: <MapPin size={10} /> };
   return (
     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-light"
@@ -100,7 +122,7 @@ function EyeglassReviewCard({ eg, idx, onLightbox }: { eg: any; idx: number; onL
           <button onClick={() => onLightbox(eg.photo_url)}
             className="relative group shrink-0 rounded-lg overflow-hidden"
             style={{ width: 72, height: 56, border: '1px solid rgba(197,160,89,0.28)' }}>
-            <img src={eg.photo_url} alt="armazón" className="w-full h-full object-cover" />
+            <SafeImg src={eg.photo_url} alt="armazón" className="w-full h-full object-cover" />
             <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
               style={{ background: 'rgba(0,0,0,0.55)' }}>
               <ZoomIn size={14} style={{ color: '#C5A059' }} />
@@ -132,7 +154,7 @@ function EyeglassReviewCard({ eg, idx, onLightbox }: { eg: any; idx: number; onL
           <button onClick={() => onLightbox(eg.receta_url)}
             className="relative group rounded-lg overflow-hidden shrink-0"
             style={{ width: 64, height: 48, border: '1px solid rgba(59,130,246,0.35)' }}>
-            <img src={eg.receta_url} alt="receta" className="w-full h-full object-cover" />
+            <SafeImg src={eg.receta_url} alt="receta" className="w-full h-full object-cover" />
             <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
               style={{ background: 'rgba(0,0,0,0.55)' }}>
               <ZoomIn size={12} style={{ color: '#3b82f6' }} />
@@ -200,7 +222,7 @@ function PhotoThumb({ entry }: { entry: PhotoEntry }) {
       <button onClick={() => setOpen(true)}
         className="relative group rounded-xl overflow-hidden"
         style={{ width: 80, height: 80, flexShrink: 0, border: entry.is_receta ? '1px solid rgba(59,130,246,0.35)' : '1px solid rgba(197,160,89,0.20)' }}>
-        <img src={entry.photo_url} alt={entry.frame_description || 'foto'} className="w-full h-full object-cover" />
+        <SafeImg src={entry.photo_url} alt={entry.frame_description || 'foto'} className="w-full h-full object-cover" />
         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
           style={{ background: 'rgba(0,0,0,0.65)' }}>
           <ZoomIn size={16} style={{ color: entry.is_receta ? '#3b82f6' : '#C5A059' }} />
@@ -214,7 +236,7 @@ function PhotoThumb({ entry }: { entry: PhotoEntry }) {
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-6"
           style={{ background: 'rgba(0,0,0,0.93)' }} onClick={() => setOpen(false)}>
           <div className="relative max-w-2xl w-full" onClick={e => e.stopPropagation()}>
-            <img src={entry.photo_url} alt={entry.frame_description || 'foto'} className="w-full rounded-2xl"
+            <SafeImg src={entry.photo_url} alt={entry.frame_description || 'foto'} className="w-full rounded-2xl"
               style={{ border: `1px solid ${entry.is_receta ? 'rgba(59,130,246,0.3)' : 'rgba(197,160,89,0.3)'}`, maxHeight: '80vh', objectFit: 'contain' }} />
             <div className="mt-3 text-center">
               <p className="text-xs text-white font-light">{entry.sale_number} · {entry.customer_name} · {entry.branch_name}</p>
@@ -387,7 +409,6 @@ export default function ReportPage() {
     setExpandedSale(saleId); setHighlightedSale(saleId);
   }
 
-  // ✅ Marcar UNA venta como vista individualmente
   function dismissOneSale(saleId: number, sellerName: string) {
     markAllSeen([String(saleId)]);
     setNewSalesAlerts(prev =>
@@ -438,16 +459,16 @@ export default function ReportPage() {
   const totalNewSales = newSalesAlerts.reduce((s, a) => s + a.ventas.length, 0);
 
   return (
-    <div className="p-6 space-y-6 max-w-5xl mx-auto">
+    <div className="p-4 lg:p-6 space-y-6 max-w-5xl mx-auto">
 
       {lightbox && (
-        <div className="fixed inset-0 z-[999] flex items-center justify-center p-6"
+        <div className="fixed inset-0 z-[999] flex items-center justify-center p-4 lg:p-6"
           style={{ background: 'rgba(0,0,0,0.93)' }} onClick={() => setLightbox(null)}>
-          <img src={lightbox} alt="comprobante" className="max-w-xl w-full rounded-2xl object-contain"
-            style={{ maxHeight: '80vh', border: '1px solid rgba(197,160,89,0.3)' }}
-            onClick={e => e.stopPropagation()} />
-          <p className="absolute bottom-8 text-xs font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>
-            Clic fuera para cerrar
+          <SafeImg src={lightbox} alt="comprobante"
+            className="max-w-full w-full rounded-2xl object-contain"
+            style={{ maxHeight: '85vh', border: '1px solid rgba(197,160,89,0.3)' }} />
+          <p className="absolute bottom-6 text-xs font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>
+            Toca fuera para cerrar
           </p>
         </div>
       )}
@@ -520,7 +541,7 @@ export default function ReportPage() {
         )}
       </div>
 
-      {/* ✅ Ventas nuevas — con botón Vista individual por venta */}
+      {/* ✅ Ventas nuevas — botón Vista individual, funciona en mobile */}
       {isAdmin && newSalesAlerts.length > 0 && (
         <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(197,160,89,0.35)', background: 'rgba(197,160,89,0.04)' }}>
           <div className="flex items-center justify-between px-4 py-3"
@@ -532,51 +553,63 @@ export default function ReportPage() {
               </span>
             </div>
             <button onClick={dismissAllNewSales}
-              className="text-xs font-light px-3 py-1 rounded-lg"
+              className="text-xs font-light px-3 py-1 rounded-lg shrink-0"
               style={{ background: 'rgba(197,160,89,0.12)', color: 'rgba(197,160,89,0.7)', border: '1px solid rgba(197,160,89,0.2)' }}>
-              Marcar todas vistas
+              Todas vistas
             </button>
           </div>
           <div className="divide-y" style={{ borderColor: 'rgba(197,160,89,0.10)' }}>
             {newSalesAlerts.map(({ seller, ventas }) => (
-              <div key={seller} className="px-4 py-3">
+              <div key={seller} className="px-3 py-3">
                 <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <span className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-black"
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <span className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-black shrink-0"
                       style={{ background: '#C5A059' }}>{ventas.length}</span>
-                    <span className="text-sm font-light text-white">{seller}</span>
-                    <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>
-                      · Gs. {fmt(ventas.reduce((s: number, v: any) => s + Number(v.total), 0))}
+                    <span className="text-sm font-light text-white truncate">{seller}</span>
+                    <span className="text-xs font-light shrink-0" style={{ color: 'rgba(255,255,255,0.4)' }}>
+                      Gs. {fmt(ventas.reduce((s: number, v: any) => s + Number(v.total), 0))}
                     </span>
                   </div>
                   <button onClick={() => dismissNewSales(seller, ventas)}
-                    className="text-xs font-light px-2 py-1 rounded"
+                    className="text-xs font-light px-2 py-1 rounded shrink-0 ml-2"
                     style={{ color: 'rgba(255,255,255,0.35)', background: 'rgba(255,255,255,0.04)' }}>
-                    Vista todas ✓
+                    Todas ✓
                   </button>
                 </div>
-                <div className="space-y-1.5 pl-8">
+                <div className="space-y-1.5 pl-2">
                   {ventas.map((v: any) => (
-                    <div key={v.id} className="flex items-center gap-2">
-                      {/* Fila de la venta — clickeable para ir al detalle */}
+                    <div key={v.id} className="flex items-center gap-1.5">
+                      {/* ✅ Fila venta — flex-1 para que no empuje el botón */}
                       <button onClick={() => handleNewSaleClick(v)}
-                        className="flex-1 text-left flex items-center gap-3 px-3 py-2 rounded-lg"
+                        className="flex-1 min-w-0 text-left flex items-center gap-2 px-2 py-2 rounded-lg"
                         style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(197,160,89,0.10)' }}>
-                        <span className="text-xs font-mono" style={{ color: '#C5A059' }}>VTA-{v.id}</span>
-                        <span className="text-xs text-white font-light flex-1 truncate">{v.cliente.nombre} {v.cliente.apellido}</span>
-                        <ChannelBadge channel={(v as any).channel} />
-                        <DeliveryBadge type={(v as any).delivery_type} />
-                        <span className="text-xs font-light" style={{ color: '#22c55e' }}>Gs. {fmt(Number(v.total))}</span>
-                        <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                        <span className="text-xs font-mono shrink-0" style={{ color: '#C5A059' }}>
+                          {String(v.id).slice(-6)}
+                        </span>
+                        <span className="text-xs text-white font-light flex-1 truncate min-w-0">
+                          {v.cliente.nombre} {v.cliente.apellido}
+                        </span>
+                        <span className="text-xs font-light shrink-0" style={{ color: '#22c55e' }}>
+                          {fmt(Number(v.total))}
+                        </span>
+                        <span className="text-xs font-light shrink-0 hidden sm:inline" style={{ color: 'rgba(255,255,255,0.3)' }}>
                           {new Date(v.fecha).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
                         </span>
                       </button>
-                      {/* ✅ Botón Vista individual */}
+                      {/* ✅ Botón Vista — tamaño fijo para mobile */}
                       <button
                         onClick={() => dismissOneSale(v.id, seller)}
-                        className="shrink-0 flex items-center gap-1 px-2.5 py-2 rounded-lg text-xs font-light"
-                        style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', color: '#10b981' }}>
-                        <CheckCircle size={11} />Vista
+                        className="shrink-0 flex items-center justify-center gap-1 rounded-lg text-xs font-light"
+                        style={{
+                          background: 'rgba(16,185,129,0.08)',
+                          border: '1px solid rgba(16,185,129,0.25)',
+                          color: '#10b981',
+                          width: 52,
+                          height: 36,
+                          minWidth: 52,
+                        }}>
+                        <CheckCircle size={11} />
+                        <span>Ok</span>
                       </button>
                     </div>
                   ))}
@@ -615,19 +648,19 @@ export default function ReportPage() {
       )}
 
       {/* KPIs */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-3 lg:gap-4">
         {[
           { label: 'Ventas realizadas', value: String(totalSales),           sub: 'pedidos',         icon: <BarChart3   size={16} />, color: '#3b82f6' },
           { label: 'Total facturado',   value: `${fmt(totalAmount)} Gs.`,    sub: 'ventas nuevas',   icon: <TrendingUp  size={16} />, color: '#C5A059' },
           { label: 'Total cobrado',     value: `${fmt(totalCollected)} Gs.`, sub: 'pagos recibidos', icon: <Award       size={16} />, color: '#22c55e' },
         ].map(k => (
-          <div key={k.label} className="rounded-xl p-5" style={{ background: 'rgba(255,255,255,0.02)', border: `1px solid ${k.color}22` }}>
-            <div className="flex items-center justify-between mb-4">
+          <div key={k.label} className="rounded-xl p-3 lg:p-5" style={{ background: 'rgba(255,255,255,0.02)', border: `1px solid ${k.color}22` }}>
+            <div className="flex items-center justify-between mb-2 lg:mb-4">
               <span className="text-xs font-light tracking-wider" style={{ color: 'rgba(255,255,255,0.44)' }}>{k.label}</span>
               <span style={{ color: k.color }}>{k.icon}</span>
             </div>
-            <p className="text-2xl font-light" style={{ color: k.color }}>{k.value}</p>
-            <p className="text-xs mt-1.5" style={{ color: 'rgba(255,255,255,0.28)' }}>{k.sub}</p>
+            <p className="text-xl lg:text-2xl font-light" style={{ color: k.color }}>{k.value}</p>
+            <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.28)' }}>{k.sub}</p>
           </div>
         ))}
       </div>
@@ -721,14 +754,14 @@ export default function ReportPage() {
                     borderRadius: isHighlighted ? 12 : 0,
                     boxShadow:  isHighlighted ? '0 0 24px rgba(245,158,11,0.18)' : 'none',
                   }}>
-                  <div className="flex items-center gap-3 px-5 py-3.5 cursor-pointer"
+                  <div className="flex items-center gap-3 px-4 py-3.5 cursor-pointer"
                     style={{ background: isHighlighted ? 'rgba(245,158,11,0.05)' : isExp ? 'rgba(197,160,89,0.03)' : i%2===0 ? 'transparent' : 'rgba(255,255,255,0.008)' }}
                     onClick={() => setExpandedSale(isExp ? null : saleKey)}>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xs font-mono" style={{ color: isHighlighted ? '#f59e0b' : '#C5A059' }}>VTA-{v.id}</span>
                         <span className="text-xs text-white font-light">{v.cliente.nombre} {v.cliente.apellido}</span>
-                        <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.35)' }}>{v.sucursalVenta}</span>
+                        <span className="text-xs font-light hidden sm:inline" style={{ color: 'rgba(255,255,255,0.35)' }}>{v.sucursalVenta}</span>
                         <ChannelBadge channel={channel} />
                         <DeliveryBadge type={deliveryType} />
                         {hasConfirmar && (
@@ -756,7 +789,7 @@ export default function ReportPage() {
                         : <p className="text-xs font-light" style={{ color: '#10b981' }}>✓ Pagado</p>}
                     </div>
                     {v.estadoTrabajo === 'entregado' && (
-                      <span className="text-xs px-2 py-0.5 rounded-full shrink-0"
+                      <span className="text-xs px-2 py-0.5 rounded-full shrink-0 hidden sm:inline"
                         style={{ background: 'rgba(107,114,128,0.15)', color: '#9ca3af' }}>📦 Entregado</span>
                     )}
                     <span className="text-xs px-2 py-0.5 rounded-full shrink-0"
@@ -767,9 +800,9 @@ export default function ReportPage() {
                   </div>
 
                   {isExp && (
-                    <div className="px-5 pb-5 space-y-4"
+                    <div className="px-4 pb-5 space-y-4"
                       style={{ background: 'rgba(197,160,89,0.02)', borderTop: '1px solid rgba(197,160,89,0.08)' }}>
-                      <div className="pt-3 flex flex-wrap items-center gap-3">
+                      <div className="pt-3 flex flex-wrap items-center gap-2">
                         <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
                           style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
                           <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.4)' }}>Canal:</span>
@@ -842,12 +875,16 @@ export default function ReportPage() {
                                         </button>
                                     }
                                   </div>
+                                  {/* ✅ Comprobante con SafeImg — no desaparece en iOS */}
                                   {p.receipt_url ? (
                                     <div className="px-3 pb-3">
-                                      <img src={p.receipt_url} alt="comprobante"
+                                      <SafeImg
+                                        src={p.receipt_url}
+                                        alt="comprobante"
                                         className="h-32 object-contain rounded-lg border cursor-pointer"
-                                        style={{ borderColor: 'rgba(197,160,89,0.2)', background: '#111' }}
-                                        onClick={() => setLightbox(p.receipt_url)} />
+                                        style={{ borderColor: 'rgba(197,160,89,0.2)', background: '#111', display: 'block' }}
+                                        onClick={() => setLightbox(p.receipt_url)}
+                                      />
                                     </div>
                                   ) : (
                                     <div className="flex items-center gap-2 px-3 pb-2">
@@ -884,9 +921,9 @@ export default function ReportPage() {
         <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
           <div className="flex items-center justify-between px-5 py-4"
             style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Camera size={14} style={{ color: 'rgba(197,160,89,0.6)' }} />
-              <span className="text-xs font-light tracking-wider text-white">Fotos de armazones y recetas</span>
+              <span className="text-xs font-light tracking-wider text-white">Fotos y recetas</span>
               <span className="px-2 py-0.5 rounded-full text-xs font-light" style={{ background: 'rgba(197,160,89,0.12)', color: '#C5A059' }}>
                 {photos.filter(p => !p.is_receta).length} armazones
               </span>
