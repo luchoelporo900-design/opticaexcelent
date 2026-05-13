@@ -340,9 +340,13 @@ export default function CashPage() {
     return agg;
   })();
 
-  const netTotal      = visibleSummary.total + visibleSummary.ingresos - visibleSummary.expenses;
-  // ── Efectivo neto: lo cobrado en efectivo menos todos los egresos ──────────
-  const efectivoNeto  = visibleSummary.efectivo - visibleSummary.expenses;
+  const netTotal = visibleSummary.total + visibleSummary.ingresos - visibleSummary.expenses;
+
+  // ── FIX: Efectivo neto incluye ingresos manuales en efectivo ──────────────
+  const ingresosEfectivo = ingresos
+    .filter(i => i.method === 'efectivo')
+    .reduce((s, i) => s + Number(i.amount), 0);
+  const efectivoNeto = visibleSummary.efectivo + ingresosEfectivo - visibleSummary.expenses;
 
   const totalPendiente = allSales.filter(v => {
     if ((Number(v.saldo) || 0) <= 0) return false;
@@ -484,14 +488,16 @@ export default function CashPage() {
           style={{ borderBottom: `1px solid ${efectivoNeto >= 0 ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)'}`, background: 'rgba(34,197,94,0.03)' }}>
           <Banknote size={14} style={{ color: '#22c55e' }} />
           <span className="text-xs font-light tracking-wider text-white">Efectivo en caja</span>
-          <span className="text-xs font-light ml-1" style={{ color: 'rgba(255,255,255,0.35)' }}>— cobrado menos egresos del día</span>
+          <span className="text-xs font-light ml-1" style={{ color: 'rgba(255,255,255,0.35)' }}>— cobrado + ingresos efectivo, menos egresos</span>
         </div>
         <div className="grid grid-cols-3 divide-x" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
-          {/* Efectivo cobrado */}
+          {/* Efectivo cobrado + ingresos en efectivo */}
           <div className="px-5 py-4">
             <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Efectivo cobrado</p>
-            <p className="text-xl font-light" style={{ color: '#22c55e' }}>Gs. {fmt(visibleSummary.efectivo)}</p>
-            <p className="text-xs mt-1 font-light" style={{ color: 'rgba(255,255,255,0.25)' }}>ventas del día</p>
+            <p className="text-xl font-light" style={{ color: '#22c55e' }}>Gs. {fmt(visibleSummary.efectivo + ingresosEfectivo)}</p>
+            <p className="text-xs mt-1 font-light" style={{ color: 'rgba(255,255,255,0.25)' }}>
+              ventas{ingresosEfectivo > 0 ? ` + Gs. ${fmt(ingresosEfectivo)} ingresos` : ''}
+            </p>
           </div>
           {/* Egresos */}
           <div className="px-5 py-4">
