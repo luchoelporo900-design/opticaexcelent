@@ -97,23 +97,18 @@ function hasRxData(rx: any): boolean {
             rx.add || rx.dp);
 }
 
-// ── Helpers de fecha ──────────────────────────────────────────────────────────
 function isoToDateInput(iso: string): string {
-  // "2025-05-09T21:00:00.000Z" → "2025-05-09"
   return iso ? iso.slice(0, 10) : new Date().toISOString().slice(0, 10);
 }
 function isoToTimeInput(iso: string): string {
-  // "2025-05-09T21:00:00.000Z" → "21:00"
   if (!iso) return '00:00';
   const d = new Date(iso);
   return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 }
 function buildIso(dateStr: string, timeStr: string): string {
-  // "2025-05-09" + "14:30" → ISO string local
   return new Date(`${dateStr}T${timeStr}:00`).toISOString();
 }
 
-// ── PhotoBtn con Cloudinary ───────────────────────────────────────────────────
 function PhotoBtn({ onFile, label = 'Foto' }: { onFile: (url: string) => void; label?: string }) {
   const camRef = useRef<HTMLInputElement>(null);
   const galRef = useRef<HTMLInputElement>(null);
@@ -179,7 +174,6 @@ function RxInput({ label, value, onChange, placeholder }: { label: string; value
   );
 }
 
-// ─── EyeglassEditCard ─────────────────────────────────────────────────────────
 function EyeglassEditCard({ eg, idx, onUpdate, onRemove }: {
   eg: EyeglassItem; idx: number;
   onUpdate: (p: Partial<EyeglassItem>) => void;
@@ -216,7 +210,6 @@ function EyeglassEditCard({ eg, idx, onUpdate, onRemove }: {
         </button>
       </div>
       <div className="p-4 space-y-3">
-        {/* Armazón + foto */}
         <div className="flex gap-3 items-start">
           <div className="flex-1">
             <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Armazón</p>
@@ -239,7 +232,6 @@ function EyeglassEditCard({ eg, idx, onUpdate, onRemove }: {
           </div>
         </div>
 
-        {/* Foto de receta */}
         <div>
           <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>
             Foto de receta <span style={{ color: 'rgba(255,255,255,0.25)' }}>(opcional)</span>
@@ -338,7 +330,6 @@ function EyeglassEditCard({ eg, idx, onUpdate, onRemove }: {
   );
 }
 
-// ─── Modal de entrega ─────────────────────────────────────────────────────────
 function DeliverModal({ sale, onClose, onDelivered }: { sale: any; onClose: () => void; onDelivered: () => void }) {
   const { profile } = useAuth();
   const balance    = Number(sale.saldo) || 0;
@@ -449,7 +440,6 @@ function DeliverModal({ sale, onClose, onDelivered }: { sale: any; onClose: () =
   );
 }
 
-// ─── Modal de edición ─────────────────────────────────────────────────────────
 function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void; onSaved: () => void }) {
   const [nombre,     setNombre]     = useState(sale.cliente?.nombre    ?? '');
   const [apellido,   setApellido]   = useState(sale.cliente?.apellido  ?? '');
@@ -464,7 +454,6 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
   const [sucursal,   setSucursal]   = useState(sale.sucursalVenta ?? '');
   const [receiptUrl, setReceiptUrl] = useState(sale.receipt_url   ?? '');
 
-  // ✅ Fecha editable — para cargar ventas atrasadas
   const [fechaDate, setFechaDate] = useState(isoToDateInput(sale.fecha));
   const [fechaTime, setFechaTime] = useState(isoToTimeInput(sale.fecha));
 
@@ -507,7 +496,7 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
     const nuevaFecha = buildIso(fechaDate, fechaTime);
 
     const { error: err } = await supabase.from('ventas').update({
-      fecha:            nuevaFecha,        // ✅ fecha editable
+      fecha:            nuevaFecha,
       estado_trabajo:   estado,
       total: t, sena: s, saldo: b,
       observaciones:    obs.trim()      || null,
@@ -558,34 +547,23 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
         <div className="p-5 space-y-6">
           {error && <div className="px-3 py-2.5 rounded-xl text-xs" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#f87171' }}>{error}</div>}
 
-          {/* ✅ FECHA DE LA VENTA */}
           <div>
-            <p className="text-xs font-light tracking-widest uppercase mb-3" style={{ color: 'rgba(197,160,89,0.6)' }}>
-              Fecha de la venta
-            </p>
+            <p className="text-xs font-light tracking-widest uppercase mb-3" style={{ color: 'rgba(197,160,89,0.6)' }}>Fecha de la venta</p>
             <div className="flex items-center gap-3 p-3 rounded-xl"
               style={{ background: 'rgba(197,160,89,0.05)', border: '1px solid rgba(197,160,89,0.22)' }}>
               <Calendar size={14} style={{ color: '#C5A059', flexShrink: 0 }} />
               <div className="flex gap-3 flex-1 flex-wrap">
                 <div className="flex-1 min-w-[140px]">
                   <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.35)' }}>Fecha</p>
-                  <input
-                    type="date"
-                    value={fechaDate}
-                    onChange={e => setFechaDate(e.target.value)}
+                  <input type="date" value={fechaDate} onChange={e => setFechaDate(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg bg-transparent text-white text-sm font-light outline-none border"
-                    style={{ borderColor: 'rgba(197,160,89,0.30)', colorScheme: 'dark' }}
-                  />
+                    style={{ borderColor: 'rgba(197,160,89,0.30)', colorScheme: 'dark' }} />
                 </div>
                 <div style={{ minWidth: 110 }}>
                   <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.35)' }}>Hora</p>
-                  <input
-                    type="time"
-                    value={fechaTime}
-                    onChange={e => setFechaTime(e.target.value)}
+                  <input type="time" value={fechaTime} onChange={e => setFechaTime(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg bg-transparent text-white text-sm font-light outline-none border"
-                    style={{ borderColor: 'rgba(197,160,89,0.30)', colorScheme: 'dark' }}
-                  />
+                    style={{ borderColor: 'rgba(197,160,89,0.30)', colorScheme: 'dark' }} />
                 </div>
               </div>
             </div>
@@ -594,7 +572,6 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
             </p>
           </div>
 
-          {/* Cliente */}
           <div>
             <p className="text-xs font-light tracking-widest uppercase mb-3" style={{ color: 'rgba(197,160,89,0.6)' }}>Cliente</p>
             <div className="grid grid-cols-2 gap-3">
@@ -609,7 +586,6 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
             </div>
           </div>
 
-          {/* Estado */}
           <div>
             <p className="text-xs font-light tracking-widest uppercase mb-3" style={{ color: 'rgba(197,160,89,0.6)' }}>Estado del trabajo</p>
             <div className="grid grid-cols-2 gap-2">
@@ -627,7 +603,6 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
             </div>
           </div>
 
-          {/* Montos */}
           <div>
             <p className="text-xs font-light tracking-widest uppercase mb-3" style={{ color: 'rgba(197,160,89,0.6)' }}>Montos (Gs.)</p>
             <div className="grid grid-cols-3 gap-3">
@@ -643,7 +618,6 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
             <p className="text-xs font-light mt-2" style={{ color: 'rgba(255,255,255,0.3)' }}>El saldo se recalcula automáticamente al cambiar total o seña.</p>
           </div>
 
-          {/* Comprobante */}
           <div>
             <p className="text-xs font-light tracking-widest uppercase mb-3" style={{ color: 'rgba(197,160,89,0.6)' }}>Comprobante de pago</p>
             {receiptUrl ? (
@@ -658,7 +632,6 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
             )}
           </div>
 
-          {/* Armazones */}
           <div>
             <div className="flex items-center justify-between mb-3">
               <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.6)' }}>Armazones</p>
@@ -678,7 +651,6 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
             }
           </div>
 
-          {/* Vendedora y sucursal */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(197,160,89,0.6)' }}>Vendedora</p>
@@ -697,7 +669,6 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
             </div>
           </div>
 
-          {/* Observaciones */}
           <div>
             <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(197,160,89,0.6)' }}>Observaciones</p>
             <textarea value={obs} onChange={e => setObs(e.target.value)} rows={3}
@@ -722,7 +693,6 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
   );
 }
 
-// ─── Página principal ─────────────────────────────────────────────────────────
 export default function SalesHistoryPage() {
   const { profile } = useAuth();
   const { sales: allSales, refresh } = useData();
@@ -739,12 +709,24 @@ export default function SalesHistoryPage() {
   const [lightboxSrc,  setLightboxSrc]  = useState<string | null>(null);
   const [deletingId,   setDeletingId]   = useState<string | null>(null);
 
+  // ── FIX: relee el permiso cada 30 seg para reflejar cambios desde Settings ──
   useEffect(() => {
     if (!profile) return;
     if (isAdmin) { setCanEdit(true); return; }
-    supabase.from('optica_users').select('puede_editar_ventas').eq('id', profile.id).maybeSingle()
-      .then(({ data }) => setCanEdit(data?.puede_editar_ventas ?? false));
-  }, [profile]);
+
+    const checkPerm = () => {
+      supabase
+        .from('optica_users')
+        .select('puede_editar_ventas')
+        .eq('id', profile.id)
+        .maybeSingle()
+        .then(({ data }) => setCanEdit(data?.puede_editar_ventas ?? false));
+    };
+
+    checkPerm();
+    const interval = setInterval(checkPerm, 30000);
+    return () => clearInterval(interval);
+  }, [profile, isAdmin]);
 
   async function handleDelete(saleId: number, clientName: string) {
     const confirmed = window.confirm(
@@ -842,7 +824,6 @@ export default function SalesHistoryPage() {
         </div>
       </div>
 
-      {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(197,160,89,0.2)' }}>
           <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>{isVendedora ? 'Mis ventas' : branchFilter ? `Ventas ${branchFilter}` : 'Total ventas'}</p>
@@ -866,7 +847,6 @@ export default function SalesHistoryPage() {
         )}
       </div>
 
-      {/* Filtros */}
       <div className="flex flex-wrap gap-1.5">
         <button onClick={() => setStatusFilter('todos')}
           className="px-3 py-1.5 rounded-lg text-xs font-light"
@@ -885,7 +865,6 @@ export default function SalesHistoryPage() {
         })}
       </div>
 
-      {/* Lista */}
       <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
         {filtered.length === 0 ? (
           <div className="text-center py-16">
