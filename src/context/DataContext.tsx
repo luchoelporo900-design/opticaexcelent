@@ -182,20 +182,20 @@ export function DataProvider({ children }: { children: ReactNode }) {
             setSales(prev => {
               if (prev.some(s => s.id === newSale.id)) return prev;
               const updated = [newSale, ...prev].sort((a, b) => b.id - a.id);
-              try { localStorage.setItem('optica_yolanda_ventas', JSON.stringify(updated)); } catch {}
+              try { localStorage.setItem('optica_yolanda_ventas', JSON.stringify(updated.slice(0, 200))); } catch {}
               return updated;
             });
           } else if (payload.eventType === 'UPDATE') {
             const updatedSale = rowToSale(payload.new);
             setSales(prev => {
               const updated = prev.map(s => s.id === updatedSale.id ? updatedSale : s);
-              try { localStorage.setItem('optica_yolanda_ventas', JSON.stringify(updated)); } catch {}
+              try { localStorage.setItem('optica_yolanda_ventas', JSON.stringify(updated.slice(0, 200))); } catch {}
               return updated;
             });
           } else if (payload.eventType === 'DELETE') {
             setSales(prev => {
               const updated = prev.filter(s => s.id !== Number(payload.old.id));
-              try { localStorage.setItem('optica_yolanda_ventas', JSON.stringify(updated)); } catch {}
+              try { localStorage.setItem('optica_yolanda_ventas', JSON.stringify(updated.slice(0, 200))); } catch {}
               return updated;
             });
           }
@@ -212,20 +212,20 @@ export function DataProvider({ children }: { children: ReactNode }) {
             setPayments(prev => {
               if (prev.some(p => p.id === newPay.id)) return prev;
               const updated = [newPay, ...prev].sort((a, b) => b.id - a.id);
-              try { localStorage.setItem('optica_yolanda_abonos', JSON.stringify(updated)); } catch {}
+              try { localStorage.setItem('optica_yolanda_abonos', JSON.stringify(updated.slice(0, 200))); } catch {}
               return updated;
             });
           } else if (payload.eventType === 'UPDATE') {
             const updatedPay = rowToPayment(payload.new);
             setPayments(prev => {
               const updated = prev.map(p => p.id === updatedPay.id ? updatedPay : p);
-              try { localStorage.setItem('optica_yolanda_abonos', JSON.stringify(updated)); } catch {}
+              try { localStorage.setItem('optica_yolanda_abonos', JSON.stringify(updated.slice(0, 200))); } catch {}
               return updated;
             });
           } else if (payload.eventType === 'DELETE') {
             setPayments(prev => {
               const updated = prev.filter(p => p.id !== Number(payload.old.id));
-              try { localStorage.setItem('optica_yolanda_abonos', JSON.stringify(updated)); } catch {}
+              try { localStorage.setItem('optica_yolanda_abonos', JSON.stringify(updated.slice(0, 200))); } catch {}
               return updated;
             });
           }
@@ -242,20 +242,20 @@ export function DataProvider({ children }: { children: ReactNode }) {
             setExpenses(prev => {
               if (prev.some(e => e.id === newExp.id)) return prev;
               const updated = [newExp, ...prev].sort((a, b) => b.id - a.id);
-              try { localStorage.setItem('optica_yolanda_gastos', JSON.stringify(updated)); } catch {}
+              try { localStorage.setItem('optica_yolanda_gastos', JSON.stringify(updated.slice(0, 200))); } catch {}
               return updated;
             });
           } else if (payload.eventType === 'UPDATE') {
             const updatedExp = rowToExpense(payload.new);
             setExpenses(prev => {
               const updated = prev.map(e => e.id === updatedExp.id ? updatedExp : e);
-              try { localStorage.setItem('optica_yolanda_gastos', JSON.stringify(updated)); } catch {}
+              try { localStorage.setItem('optica_yolanda_gastos', JSON.stringify(updated.slice(0, 200))); } catch {}
               return updated;
             });
           } else if (payload.eventType === 'DELETE') {
             setExpenses(prev => {
               const updated = prev.filter(e => e.id !== Number(payload.old.id));
-              try { localStorage.setItem('optica_yolanda_gastos', JSON.stringify(updated)); } catch {}
+              try { localStorage.setItem('optica_yolanda_gastos', JSON.stringify(updated.slice(0, 200))); } catch {}
               return updated;
             });
           }
