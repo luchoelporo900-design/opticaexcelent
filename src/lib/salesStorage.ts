@@ -184,7 +184,7 @@ export async function saveSale(sale: StoredSale): Promise<void> {
   await supabase.from('ventas').upsert(saleToRow(sale));
   await createLabOrder(sale);
   const current = getSales().filter(s => s.id !== sale.id);
-  trySet(LS_KEY, JSON.stringify([sale, ...current]));
+  trySet(LS_KEY, JSON.stringify([sale, ...current].slice(0, 200)));
   if (sale.sena > 0 || sale.total > 0) {
     await recordPayment({
       id: Date.now(), saleId: sale.id, fecha: sale.fecha,
@@ -290,7 +290,7 @@ export async function recordPayment(payment: StoredPayment): Promise<void> {
     receipt_url: payment.receipt_url || null,
   });
   const current = getPayments().filter(p => p.id !== payment.id);
-  trySet(LS_PAYMENTS_KEY, JSON.stringify([payment, ...current]));
+  trySet(LS_PAYMENTS_KEY, JSON.stringify([payment, ...current].slice(0, 200)));
   window.dispatchEvent(new CustomEvent('optica_ventas_updated'));
 }
 
@@ -313,7 +313,7 @@ export async function saveExpense(expense: StoredExpense): Promise<void> {
     sucursal: expense.sucursal, vendedora: expense.vendedora,
   });
   const current = getExpenses().filter(e => e.id !== expense.id);
-  trySet(LS_EXPENSES_KEY, JSON.stringify([expense, ...current]));
+  trySet(LS_EXPENSES_KEY, JSON.stringify([expense, ...current].slice(0, 200)));
   window.dispatchEvent(new CustomEvent('optica_ventas_updated'));
 }
 

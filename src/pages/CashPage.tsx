@@ -22,6 +22,7 @@ type PaymentRow = {
   id: string; sale_number: string; customer_name: string; amount: number;
   method: PaymentMethod; paid_at: string; seller_name: string;
   reference: string; branch_name: string; sale_id?: number;
+  receipt_url?: string;
 };
 
 type Expense = {
@@ -198,6 +199,7 @@ export default function CashPage() {
       reference: p.tipo === 'abono' ? 'Abono' : '',
       branch_name: p.sucursal,
       sale_id: p.saleId,
+      receipt_url: p.receipt_url || undefined,
     }));
 
     const daySales = allSales.filter(v => {
@@ -225,6 +227,7 @@ export default function CashPage() {
             reference: pago.tipo === 'abono' ? 'Abono' : '',
             branch_name: v.sucursalCobro,
             sale_id: v.id,
+            receipt_url: v.receipt_url || undefined,
           }));
         }
         const paid = Math.max(0, (Number(v.total) || 0) - (Number(v.saldo) || 0));
@@ -239,6 +242,7 @@ export default function CashPage() {
           reference: '',
           branch_name: v.sucursalCobro,
           sale_id: v.id,
+          receipt_url: v.receipt_url || undefined,
         }];
       });
 
@@ -900,6 +904,22 @@ export default function CashPage() {
                           </div>
                         </div>
                       )}
+
+                      {(() => {
+                        const receiptUrl = p.receipt_url || sale?.receipt_url || null;
+                        return receiptUrl ? (
+                          <div>
+                            <p className="text-xs font-light tracking-widest uppercase mb-2" style={{ color: 'rgba(197,160,89,0.55)' }}>Comprobante</p>
+                            <img
+                              src={receiptUrl}
+                              alt="comprobante"
+                              className="rounded-xl cursor-pointer object-cover"
+                              style={{ maxHeight: 220, maxWidth: '100%', border: '1px solid rgba(197,160,89,0.25)' }}
+                              onClick={() => setLightboxUrl(receiptUrl)}
+                            />
+                          </div>
+                        ) : null;
+                      })()}
 
                       <div className="pt-2" style={{ borderTop: '1px solid rgba(197,160,89,0.08)' }}>
                         {isRev ? (
