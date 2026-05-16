@@ -138,9 +138,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
       setExpenses(newExpenses);
 
       try {
-        localStorage.setItem('optica_yolanda_ventas', JSON.stringify(newSales));
-        localStorage.setItem('optica_yolanda_abonos', JSON.stringify(newPayments));
-        localStorage.setItem('optica_yolanda_gastos', JSON.stringify(newExpenses));
+        localStorage.setItem('optica_yolanda_ventas', JSON.stringify(newSales.slice(0, 200)));
+        localStorage.setItem('optica_yolanda_abonos', JSON.stringify(newPayments.slice(0, 200)));
+        localStorage.setItem('optica_yolanda_gastos', JSON.stringify(newExpenses.slice(0, 200)));
       } catch { /* ignore quota errors */ }
 
     } catch {
