@@ -209,43 +209,6 @@ export default function CashPage() {
       return true;
     });
 
-    const recordedSaleIds = new Set(dayPayments.map(p => p.saleId));
-
-    const fallbackRows: PaymentRow[] = daySales
-      .filter(v => !recordedSaleIds.has(v.id))
-      .flatMap(v => {
-        const pagos = (v as any).pagos as any[] | undefined;
-        if (pagos && pagos.length > 0) {
-          return pagos.map((pago: any, idx: number) => ({
-            id: `ls-${v.id}-${idx}`,
-            sale_number: `VTA-${v.id}`,
-            customer_name: `${v.cliente.nombre} ${v.cliente.apellido}`.trim(),
-            amount: Number(pago.monto) || 0,
-            method: (pago.metodo || v.metodoPago) as PaymentMethod,
-            paid_at: v.fecha,
-            seller_name: v.vendedora,
-            reference: pago.tipo === 'abono' ? 'Abono' : '',
-            branch_name: v.sucursalCobro,
-            sale_id: v.id,
-            receipt_url: v.receipt_url || undefined,
-          }));
-        }
-        const paid = Math.max(0, (Number(v.total) || 0) - (Number(v.saldo) || 0));
-        return [{
-          id: `ls-${v.id}`,
-          sale_number: `VTA-${v.id}`,
-          customer_name: `${v.cliente.nombre} ${v.cliente.apellido}`.trim(),
-          amount: paid > 0 ? paid : (Number(v.sena) || 0),
-          method: v.metodoPago as PaymentMethod,
-          paid_at: v.fecha,
-          seller_name: v.vendedora,
-          reference: '',
-          branch_name: v.sucursalCobro,
-          sale_id: v.id,
-          receipt_url: v.receipt_url || undefined,
-        }];
-      });
-
     const dayExpenses = allExpenses.filter(e => {
       if ((e.fecha || '') !== selectedDate) return false;
       if (sellerFilter && e.vendedora !== sellerFilter) return false;
@@ -254,18 +217,148 @@ export default function CashPage() {
     });
 
     try {
-      let q = supabase.from('cash_ingresos').select('*').eq('fecha', selectedDate).order('created_at', { ascending: true });
-      if (selectedBranch) q = q.ilike('sucursal', `%${selectedBranch}%`);
-      if (isVendedora && profile?.full_name) q = q.eq('vendedora', profile.full_name);
-      const { data: ingData } = await q;
+      // Consultar Supabase directamente para el día seleccionado —
+      // garantiza que fechas antiguas no en caché local se muestren correctamente
+      let ingQ: any = supabase.from('cash_ingresos').select('*')
+        .eq('fecha', selectedDate).order('created_at', { ascending: true });
+      if (selectedBranch) ingQ = ingQ.ilike('sucursal', `%${selectedBranch}%`);
+      if (isVendedora && profile?.full_name) ingQ = ingQ.eq('vendedora', profile.full_name);
+
+      let pagQ: any = supabase.from('pagos')
+        .select('id,sale_id,fecha,monto,metodo,sucursal,vendedora,cliente,tipo,receipt_url')
+        .like('fecha', `${selectedDate}%`)
+        .order('id', { ascending: false }).limit(500);
+      if (sellerFilter) pagQ = pagQ.eq('vendedora', sellerFilter);
+      if (selectedBranch) pagQ = pagQ.ilike('sucursal', `%${selectedBranch}%`);
+
+      let gasQ: any = supabase.from('gastos')
+        .select('id,fecha,descripcion,categoria,monto,metodo,sucursal,vendedora')
+        .eq('fecha', selectedDate)
+        .order('id', { ascending: false }).limit(500);
+      if (sellerFilter) gasQ = gasQ.eq('vendedora', sellerFilter);
+      if (selectedBranch) gasQ = gasQ.ilike('sucursal', `%${selectedBranch}%`);
+
+      const [{ data: ingData }, { data: dbPagos }, { data: dbGastos }] = await Promise.all([ingQ, pagQ, gasQ]);
+
+      // Pagos extra desde DB que no están en caché local (dedup por id)
+      const cachePayIds = new Set(dayPayments.map(p => String(p.id)));
+      const extraPayRows: PaymentRow[] = (dbPagos || [])
+        .filter((r: any) => !cachePayIds.has(String(r.id)))
+        .map((r: any) => ({
+          id: String(r.id),
+          sale_number: `VTA-${r.sale_id}`,
+          customer_name: r.cliente || '',
+          amount: Number(r.monto) || 0,
+          method: (r.metodo || 'efectivo') as PaymentMethod,
+          paid_at: r.fecha,
+          seller_name: r.vendedora || '',
+          reference: r.tipo === 'abono' ? 'Abono' : '',
+          branch_name: r.sucursal || '',
+          sale_id: Number(r.sale_id),
+          receipt_url: r.receipt_url || undefined,
+        }));
+
+      // Fallback desde ventas: solo sales sin pago en caché NI en DB
+      const coveredSaleIds = new Set([
+        ...dayPayments.map(p => p.saleId),
+        ...(dbPagos || []).map((r: any) => Number(r.sale_id)),
+      ]);
+      const fallbackRows: PaymentRow[] = daySales
+        .filter(v => !coveredSaleIds.has(v.id))
+        .flatMap(v => {
+          const pagos = (v as any).pagos as any[] | undefined;
+          if (pagos && pagos.length > 0) {
+            return pagos.map((pago: any, idx: number) => ({
+              id: `ls-${v.id}-${idx}`,
+              sale_number: `VTA-${v.id}`,
+              customer_name: `${v.cliente.nombre} ${v.cliente.apellido}`.trim(),
+              amount: Number(pago.monto) || 0,
+              method: (pago.metodo || v.metodoPago) as PaymentMethod,
+              paid_at: v.fecha,
+              seller_name: v.vendedora,
+              reference: pago.tipo === 'abono' ? 'Abono' : '',
+              branch_name: v.sucursalCobro,
+              sale_id: v.id,
+              receipt_url: v.receipt_url || undefined,
+            }));
+          }
+          const paid = Math.max(0, (Number(v.total) || 0) - (Number(v.saldo) || 0));
+          return [{
+            id: `ls-${v.id}`,
+            sale_number: `VTA-${v.id}`,
+            customer_name: `${v.cliente.nombre} ${v.cliente.apellido}`.trim(),
+            amount: paid > 0 ? paid : (Number(v.sena) || 0),
+            method: v.metodoPago as PaymentMethod,
+            paid_at: v.fecha,
+            seller_name: v.vendedora,
+            reference: '',
+            branch_name: v.sucursalCobro,
+            sale_id: v.id,
+            receipt_url: v.receipt_url || undefined,
+          }];
+        });
+
+      // Gastos extra desde DB que no están en caché local (dedup por id)
+      const cacheExpIds = new Set(dayExpenses.map(e => String(e.id)));
+      const expenseList: Expense[] = [
+        ...dayExpenses.map(e => ({ id: String(e.id), description: e.descripcion, category: e.categoria, amount: Number(e.monto), method: e.metodo, expense_date: e.fecha, branch_name: e.sucursal })),
+        ...(dbGastos || [])
+          .filter((r: any) => !cacheExpIds.has(String(r.id)))
+          .map((r: any) => ({
+            id: String(r.id),
+            description: r.descripcion || '',
+            category: r.categoria || '',
+            amount: Number(r.monto) || 0,
+            method: r.metodo || '',
+            expense_date: r.fecha || '',
+            branch_name: r.sucursal || '',
+          })),
+      ];
+
       buildAndCommit(
-        [...payRows, ...fallbackRows],
-        dayExpenses.map(e => ({ id: String(e.id), description: e.descripcion, category: e.categoria, amount: Number(e.monto), method: e.metodo, expense_date: e.fecha, branch_name: e.sucursal })),
+        [...payRows, ...extraPayRows, ...fallbackRows],
+        expenseList,
         (ingData || []).map((i: any) => ({ id: String(i.id), description: i.descripcion, amount: Number(i.monto), method: i.metodo, date: i.fecha, branch_name: i.sucursal })),
       );
     } catch {
+      // Fallback puro desde caché si Supabase no responde
+      const recordedSaleIds = new Set(dayPayments.map(p => p.saleId));
+      const fallbackRowsCache: PaymentRow[] = daySales
+        .filter(v => !recordedSaleIds.has(v.id))
+        .flatMap(v => {
+          const pagos = (v as any).pagos as any[] | undefined;
+          if (pagos && pagos.length > 0) {
+            return pagos.map((pago: any, idx: number) => ({
+              id: `ls-${v.id}-${idx}`,
+              sale_number: `VTA-${v.id}`,
+              customer_name: `${v.cliente.nombre} ${v.cliente.apellido}`.trim(),
+              amount: Number(pago.monto) || 0,
+              method: (pago.metodo || v.metodoPago) as PaymentMethod,
+              paid_at: v.fecha,
+              seller_name: v.vendedora,
+              reference: pago.tipo === 'abono' ? 'Abono' : '',
+              branch_name: v.sucursalCobro,
+              sale_id: v.id,
+              receipt_url: v.receipt_url || undefined,
+            }));
+          }
+          const paid = Math.max(0, (Number(v.total) || 0) - (Number(v.saldo) || 0));
+          return [{
+            id: `ls-${v.id}`,
+            sale_number: `VTA-${v.id}`,
+            customer_name: `${v.cliente.nombre} ${v.cliente.apellido}`.trim(),
+            amount: paid > 0 ? paid : (Number(v.sena) || 0),
+            method: v.metodoPago as PaymentMethod,
+            paid_at: v.fecha,
+            seller_name: v.vendedora,
+            reference: '',
+            branch_name: v.sucursalCobro,
+            sale_id: v.id,
+            receipt_url: v.receipt_url || undefined,
+          }];
+        });
       buildAndCommit(
-        [...payRows, ...fallbackRows],
+        [...payRows, ...fallbackRowsCache],
         dayExpenses.map(e => ({ id: String(e.id), description: e.descripcion, category: e.categoria, amount: Number(e.monto), method: e.metodo, expense_date: e.fecha, branch_name: e.sucursal })),
         [],
       );

@@ -129,8 +129,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
         { data: gastosData, error: gastosError  },
       ] = await Promise.all([
         supabase.from('ventas').select(VENTAS_COLUMNS),
-        supabase.from('pagos').select(PAGOS_COLUMNS),
-        supabase.from('gastos').select(GASTOS_COLUMNS),
+        supabase.from('pagos').select(PAGOS_COLUMNS).order('id', { ascending: false }).limit(100),
+        supabase.from('gastos').select(GASTOS_COLUMNS).order('id', { ascending: false }).limit(100),
       ]);
 
       if (ventasError) console.error('[DataContext] ventas error:', ventasError.code, ventasError.message, ventasError.details, ventasError.hint);
