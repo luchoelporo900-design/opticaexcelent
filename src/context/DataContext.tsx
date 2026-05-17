@@ -123,11 +123,19 @@ export function DataProvider({ children }: { children: ReactNode }) {
     if (isFetching) return;
     setIsFetching(true);
     try {
-      const [{ data: ventasData }, { data: pagosData }, { data: gastosData }] = await Promise.all([
+      const [
+        { data: ventasData, error: ventasError },
+        { data: pagosData,  error: pagosError  },
+        { data: gastosData, error: gastosError  },
+      ] = await Promise.all([
         supabase.from('ventas').select(VENTAS_COLUMNS),
         supabase.from('pagos').select(PAGOS_COLUMNS),
         supabase.from('gastos').select(GASTOS_COLUMNS),
       ]);
+
+      if (ventasError) console.error('[DataContext] ventas error:', ventasError.code, ventasError.message, ventasError.details, ventasError.hint);
+      if (pagosError)  console.error('[DataContext] pagos error:',  pagosError.code,  pagosError.message,  pagosError.details,  pagosError.hint);
+      if (gastosError) console.error('[DataContext] gastos error:', gastosError.code, gastosError.message, gastosError.details, gastosError.hint);
 
       const newSales    = (ventasData || []).map(rowToSale).sort((a, b) => b.id - a.id);
       const newPayments = (pagosData  || []).map(rowToPayment).sort((a, b) => b.id - a.id);
@@ -143,8 +151,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
         localStorage.setItem('optica_yolanda_gastos', JSON.stringify(newExpenses.slice(0, 200)));
       } catch { /* ignore quota errors */ }
 
-    } catch {
-      // Si falla Supabase, mantener lo que hay en estado
+    } catch (e) {
+      console.error('[DataContext] refresh exception:', e);
     } finally {
       setLoading(false);
       setIsFetching(false);
