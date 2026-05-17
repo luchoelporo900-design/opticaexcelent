@@ -52,10 +52,11 @@ type PaymentEntry = {
 };
 
 const FIXED_BRANCHES = [
-  { id: 'azara',    name: 'Azara' },
-  { id: 'la_fina',  name: 'La Fina' },
-  { id: 'caacupe',  name: 'Caacupé' },
-  { id: 'fernando', name: 'Fernando' },
+  { id: 'pettirossi', name: 'Pettirossi' },
+  { id: 'azara',      name: 'Azara' },
+  { id: 'lambere',    name: 'Lambaré' },
+  { id: 'acceso_sur', name: 'Acceso Sur' },
+  { id: 'capiata',    name: 'Capiatá' },
 ];
 
 const PAY_METHODS: { id: PaymentMethod; label: string; icon: React.ReactNode; color: string }[] = [
@@ -230,7 +231,7 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
     if (val.trim().length < 2) { setSuggestions([]); return; }
     setSearching(true);
     const { data } = await supabase.from('armazones')
-      .select('id, codigo, nombre, foto_url, precio, stock_azara, stock_fernando, stock_caacupe, stock_la_fina')
+      .select('id, codigo, nombre, foto_url, precio, stock_pettirossi, stock_azara, stock_lambere, stock_accesosur, stock_capiata')
       .or(`codigo.ilike.%${val.trim()}%,nombre.ilike.%${val.trim()}%`).limit(5);
     setSuggestions(data || []);
     setSearching(false);
@@ -241,7 +242,7 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
     setStockFrame(frame); setSuggestions([]);
   }
 
-  const totalStockFrame = stockFrame ? (stockFrame.stock_azara||0)+(stockFrame.stock_fernando||0)+(stockFrame.stock_caacupe||0)+(stockFrame.stock_la_fina||0) : 0;
+  const totalStockFrame = stockFrame ? (stockFrame.stock_pettirossi||0)+(stockFrame.stock_azara||0)+(stockFrame.stock_lambere||0)+(stockFrame.stock_accesosur||0)+(stockFrame.stock_capiata||0) : 0;
   const activeCfg = SALE_TYPES.find(t => t.id === currentType) ?? SALE_TYPES[0];
 
   return (
@@ -283,7 +284,7 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
                 <div className="absolute top-full left-0 right-0 mt-1 rounded-xl overflow-hidden z-50"
                   style={{ background: '#0d0d0d', border: '1px solid rgba(197,160,89,0.25)', boxShadow: '0 8px 24px rgba(0,0,0,0.6)' }}>
                   {suggestions.map(s => {
-                    const tot = (s.stock_azara||0)+(s.stock_fernando||0)+(s.stock_caacupe||0)+(s.stock_la_fina||0);
+                    const tot = (s.stock_pettirossi||0)+(s.stock_azara||0)+(s.stock_lambere||0)+(s.stock_accesosur||0)+(s.stock_capiata||0);
                     return (
                       <button key={s.id} onClick={() => selectFrame(s)}
                         className="w-full flex items-center gap-3 px-3 py-2.5 text-left"
@@ -606,11 +607,12 @@ export default function POSPage() {
           if (frame) {
             const sedeKey = (() => {
               const n = saleBranchName.toLowerCase().replace(/á/g,'a').replace(/é/g,'e').replace(/ú/g,'u');
-              if (n.includes('azara'))    return 'stock_azara';
-              if (n.includes('fernando')) return 'stock_fernando';
-              if (n.includes('caacupe') || n.includes('caacupé')) return 'stock_caacupe';
-              if (n.includes('fina'))     return 'stock_la_fina';
-              return 'stock_azara';
+              if (n.includes('pettirossi'))               return 'stock_pettirossi';
+              if (n.includes('azara'))                    return 'stock_azara';
+              if (n.includes('lambere') || n.includes('lambare')) return 'stock_lambere';
+              if (n.includes('acceso') || n.includes('sur'))      return 'stock_accesosur';
+              if (n.includes('capiata'))                  return 'stock_capiata';
+              return 'stock_pettirossi';
             })();
             await supabase.from('armazones').update({ [sedeKey]: Math.max(0, (frame[sedeKey]||0) - 1), updated_at: new Date().toISOString() }).eq('id', eg.stock_frame_id);
             await supabase.from('stock_movimientos').insert([{ armazon_id: eg.stock_frame_id, armazon_nombre: frame.nombre, armazon_codigo: frame.codigo, cantidad: 1, tipo: 'venta', sucursal: saleBranchName, vendedora: sellerName, venta_id: String(saleId) }]);

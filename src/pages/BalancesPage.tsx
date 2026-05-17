@@ -14,7 +14,7 @@ const PAYMENT_METHODS: { id: PaymentMethod; label: string; color: string }[] = [
   { id: 'giro',          label: 'Giro',         color: '#a78bfa' },
 ];
 
-const SUCURSALES = ['Azara', 'Fernando', 'Caacupé', 'La Fina'];
+const SUCURSALES = ['Pettirossi', 'Azara', 'Lambaré', 'Acceso Sur', 'Capiatá'];
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   pendiente:      { label: 'Pendiente',   color: '#f59e0b' },
@@ -51,8 +51,8 @@ function buildWaLink(clientName: string, phone: string, branchName: string, sald
   if (!phone) return null;
   const clean = phone.replace(/\D/g, '');
   const msg = saldo > 0
-    ? `Hola ${clientName}! Te contactamos de Óptica Yolanda 👓. Te recordamos que tenés un saldo pendiente de Gs. ${fmt(saldo)} en nuestra sucursal ${branchName}. Podés pasar cuando gustes. ¡Gracias!`
-    : `Hola ${clientName}! Te contactamos de Óptica Yolanda 👓. Tus lentes ya están listos para retirar en nuestra sucursal ${branchName}. ¡Te esperamos!`;
+    ? `Hola ${clientName}! Te contactamos de Óptica Excelent 👓. Te recordamos que tenés un saldo pendiente de Gs. ${fmt(saldo)} en nuestra sucursal ${branchName}. Podés pasar cuando gustes. ¡Gracias!`
+    : `Hola ${clientName}! Te contactamos de Óptica Excelent 👓. Tus lentes ya están listos para retirar en nuestra sucursal ${branchName}. ¡Te esperamos!`;
   return `https://wa.me/595${clean}?text=${encodeURIComponent(msg)}`;
 }
 

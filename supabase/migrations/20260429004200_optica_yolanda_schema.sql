@@ -1,6 +1,6 @@
 
 /*
-  # Óptica Yolanda - Elite Management V10 - Schema Principal
+  # Óptica Excelent - Management V10 - Schema Principal
 
   ## Tablas creadas:
   1. `branches` - 4 sucursales (Azara, Fernando, Caacupé, La Fina)

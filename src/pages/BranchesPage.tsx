@@ -2,20 +2,22 @@ import { useEffect, useState } from 'react';
 import { Building2, MapPin, Phone, ShoppingBag, TrendingUp } from 'lucide-react';
 import { getSales } from '../lib/salesStorage';
 
-const SUCURSALES = ['Azara', 'Fernando', 'Caacupé', 'La Fina'];
+const SUCURSALES = ['Pettirossi', 'Azara', 'Lambaré', 'Acceso Sur', 'Capiatá'];
 
 const BRANCH_IMAGES = [
   'https://images.pexels.com/photos/1005638/pexels-photo-1005638.jpeg?auto=compress&cs=tinysrgb&w=600',
   'https://images.pexels.com/photos/3184465/pexels-photo-3184465.jpeg?auto=compress&cs=tinysrgb&w=600',
   'https://images.pexels.com/photos/3184639/pexels-photo-3184639.jpeg?auto=compress&cs=tinysrgb&w=600',
   'https://images.pexels.com/photos/1181304/pexels-photo-1181304.jpeg?auto=compress&cs=tinysrgb&w=600',
+  'https://images.pexels.com/photos/3182812/pexels-photo-3182812.jpeg?auto=compress&cs=tinysrgb&w=600',
 ];
 
 const BRANCH_INFO: Record<string, { address: string; phone: string }> = {
-  'Azara':    { address: 'Sucursal Azara',    phone: '0981-000001' },
-  'Fernando': { address: 'Sucursal Fernando', phone: '0981-000002' },
-  'Caacupé':  { address: 'Sucursal Caacupé',  phone: '0981-000003' },
-  'La Fina':  { address: 'Sucursal La Fina',  phone: '0981-000004' },
+  'Pettirossi': { address: 'Sucursal Pettirossi', phone: '0981-000001' },
+  'Azara':      { address: 'Sucursal Azara',      phone: '0981-000002' },
+  'Lambaré':    { address: 'Sucursal Lambaré',    phone: '0981-000003' },
+  'Acceso Sur': { address: 'Sucursal Acceso Sur', phone: '0981-000004' },
+  'Capiatá':    { address: 'Sucursal Capiatá',    phone: '0981-000005' },
 };
 
 function fmt(n: number) {
@@ -52,7 +54,7 @@ export default function BranchesPage() {
         <div>
           <h1 className="text-xl font-light tracking-wider text-white">Sucursales</h1>
           <p className="text-xs font-light mt-0.5 tracking-wide" style={{ color: 'rgba(197,160,89,0.65)' }}>
-            Red de sedes · Óptica Yolanda
+            Red de sedes · Óptica Excelent
           </p>
         </div>
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-light"

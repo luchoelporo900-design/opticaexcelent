@@ -67,12 +67,13 @@ const SALE_TYPES: { id: SaleType; label: string; color: string; icon: React.Reac
   { id: 'reparacion', label: 'Reparación / Insumo', color: '#a78bfa', icon: <Wrench size={11} /> },
 ];
 
-const SUCURSALES     = ['Azara', 'Fernando', 'Caacupé', 'La Fina'];
+const SUCURSALES     = ['Pettirossi', 'Azara', 'Lambaré', 'Acceso Sur', 'Capiatá'];
 const FIXED_BRANCHES = [
-  { id: 'azara',    name: 'Azara'    },
-  { id: 'la_fina',  name: 'La Fina'  },
-  { id: 'caacupe',  name: 'Caacupé'  },
-  { id: 'fernando', name: 'Fernando' },
+  { id: 'pettirossi', name: 'Pettirossi' },
+  { id: 'azara',      name: 'Azara'      },
+  { id: 'lambere',    name: 'Lambaré'    },
+  { id: 'acceso_sur', name: 'Acceso Sur' },
+  { id: 'capiata',    name: 'Capiatá'    },
 ];
 
 function fmt(n: number) { return n.toLocaleString('es-PY', { minimumFractionDigits: 0, maximumFractionDigits: 0 }); }
@@ -879,7 +880,7 @@ export default function SalesHistoryPage() {
               const sc           = STATUS_CFG[v.estadoTrabajo] ?? STATUS_CFG.pendiente;
               const name         = `${v.cliente.nombre} ${v.cliente.apellido}`.trim() || '—';
               const anteojos     = (v.anteojos as any[]) || [];
-              const waUrl        = v.cliente.telefono ? `https://wa.me/595${v.cliente.telefono.replace(/\D/g,'')}?text=${encodeURIComponent(`Hola ${v.cliente.nombre}! Te contactamos de Óptica Yolanda.`)}` : null;
+              const waUrl        = v.cliente.telefono ? `https://wa.me/595${v.cliente.telefono.replace(/\D/g,'')}?text=${encodeURIComponent(`Hola ${v.cliente.nombre}! Te contactamos de Óptica Excelent.`)}` : null;
               const fechaStr     = new Date(v.fecha).toLocaleDateString('es-PY', { day:'2-digit', month:'2-digit', year:'2-digit' });
               const saldoVisible = getSaldoDisplay(v);
               const isEntregado  = v.estadoTrabajo === 'entregado';

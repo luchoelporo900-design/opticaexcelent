@@ -9,7 +9,7 @@ import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
 
 const CURRENT_MONTH = new Date().toISOString().slice(0, 7);
-const SUCURSALES    = ['Azara', 'Fernando', 'Caacupé', 'La Fina'];
+const SUCURSALES    = ['Pettirossi', 'Azara', 'Lambaré', 'Acceso Sur', 'Capiatá'];
 
 type Stats = {
   totalSales: number; totalCustomers: number; pendingLab: number;
@@ -268,7 +268,7 @@ export default function Dashboard() {
               {myPending.map(v=>{
                 const cn=`${v.cliente.nombre} ${v.cliente.apellido}`.trim()||'—';
                 const ph=v.cliente.telefono||'';
-                const msg=`Hola ${cn}, te saludamos de Óptica Yolanda. Tus lentes están listos en ${v.sucursalEntrega}. ¡Te esperamos!`;
+                const msg=`Hola ${cn}, te saludamos de Óptica Excelent. Tus lentes están listos en ${v.sucursalEntrega}. ¡Te esperamos!`;
                 const wa=ph?`https://wa.me/595${ph.replace(/\D/g,'')}?text=${encodeURIComponent(msg)}`:null;
                 const sc=v.estadoTrabajo==='en_laboratorio'?'#3b82f6':'#f59e0b';
                 return(<div key={v.id} className="flex items-center gap-3 px-5 py-3.5">
@@ -463,7 +463,7 @@ export default function Dashboard() {
             <tbody>{pendingSales.map(v=>{
               const cn=`${v.cliente.nombre} ${v.cliente.apellido}`.trim()||'—';
               const ph=v.cliente.telefono||'';
-              const msg=`Hola ${cn}, te saludamos de Óptica Yolanda. Tus lentes están listos en ${v.sucursalEntrega}. ¡Te esperamos!`;
+              const msg=`Hola ${cn}, te saludamos de Óptica Excelent. Tus lentes están listos en ${v.sucursalEntrega}. ¡Te esperamos!`;
               const wa=ph?`https://wa.me/595${ph.replace(/\D/g,'')}?text=${encodeURIComponent(msg)}`:null;
               const sc=v.estadoTrabajo==='en_laboratorio'?'#3b82f6':'#f59e0b';
               return(<tr key={v.id} className="table-row">

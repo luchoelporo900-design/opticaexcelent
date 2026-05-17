@@ -8,7 +8,7 @@ import {
 import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
 
-const SUCURSALES        = ['Azara', 'Fernando', 'Caacupé', 'La Fina'];
+const SUCURSALES        = ['Pettirossi', 'Azara', 'Lambaré', 'Acceso Sur', 'Capiatá'];
 const LS_REVIEWED_KEY   = 'optica_pagos_revisados';
 const LS_SEEN_SALES_KEY = 'optica_seen_sales';
 
@@ -956,7 +956,7 @@ export default function ReportPage() {
 
       <div className="text-center pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
         <p className="text-xs" style={{ color: 'rgba(255,255,255,0.22)' }}>
-          Óptica Yolanda · Reporte generado el {new Date().toLocaleString('es-PY')}
+          Óptica Excelent · Reporte generado el {new Date().toLocaleString('es-PY')}
         </p>
       </div>
     </div>

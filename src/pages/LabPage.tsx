@@ -3,7 +3,7 @@ import { RefreshCw, Search, CheckCircle, Package, MessageCircle, ChevronDown, Pr
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 
-const SUCURSALES = ['Azara', 'Fernando', 'Caacupé', 'La Fina'];
+const SUCURSALES = ['Pettirossi', 'Azara', 'Lambaré', 'Acceso Sur', 'Capiatá'];
 
 type LabStatus = 'enviado' | 'proceso' | 'listo' | 'entregado';
 
@@ -124,11 +124,11 @@ function printOrders(orders: LabOrder[]) {
       </div>`;
   }).join('');
 
-  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"/><title>Laboratorio — Óptica Yolanda</title>
+  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"/><title>Laboratorio — Óptica Excelent</title>
   <style>*{box-sizing:border-box;}body{font-family:Arial,sans-serif;color:#111;margin:0;padding:20px;background:#fff;}@media print{body{padding:10px;}.no-print{display:none!important;}}</style>
   </head><body>
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding-bottom:12px;border-bottom:2px solid #c8b87a;">
-    <div><h1 style="margin:0;font-size:20px;color:#8a6a00;">🔬 Óptica Yolanda</h1>
+    <div><h1 style="margin:0;font-size:20px;color:#8a6a00;">🔬 Óptica Excelent</h1>
     <p style="margin:4px 0 0;font-size:13px;color:#555;">Panel de Laboratorio · ${orders.length} pedido${orders.length !== 1 ? 's' : ''}</p></div>
     <div style="text-align:right;font-size:11px;color:#888;">Impreso el ${now}</div>
   </div>${rows}

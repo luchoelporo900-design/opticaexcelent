@@ -123,7 +123,7 @@ export default function CRMPage() {
     const full  = clean.startsWith('595') ? clean : `595${clean.replace(/^0/, '')}`;
     const months = r.reminder_type === '6_meses' ? 6 : 12;
     const msg = encodeURIComponent(
-      `Hola ${r.customer_name.split(' ')[0]}! 👓\n\nTe saludamos desde *Óptica Yolanda*.\n\nYa pasaron *${months} meses* desde tu última consulta.\n\nEs momento de realizar tu control de vista. 😊\n\n📍 Estamos disponibles en nuestras sucursales.\n\n¡Te esperamos!`
+      `Hola ${r.customer_name.split(' ')[0]}! 👓\n\nTe saludamos desde *Óptica Excelent*.\n\nYa pasaron *${months} meses* desde tu última consulta.\n\nEs momento de realizar tu control de vista. 😊\n\n📍 Estamos disponibles en nuestras sucursales.\n\n¡Te esperamos!`
     );
     return `https://wa.me/${full}?text=${msg}`;
   }

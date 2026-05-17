@@ -8,7 +8,7 @@ export type Branch = {
   created_at: string;
 };
 
-export const SUCURSALES = ['Azara', 'Fernando', 'Caacupé', 'La Fina'];
+export const SUCURSALES = ['Pettirossi', 'Azara', 'Lambaré', 'Acceso Sur', 'Capiatá'];
 
 const BRANCHES_FIJAS: Branch[] = SUCURSALES.map(name => ({
   id: name.toLowerCase().replace(/ /g, '_'),

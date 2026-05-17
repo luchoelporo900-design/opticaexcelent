@@ -48,7 +48,7 @@ const METHODS: { id: PaymentMethod; label: string; icon: React.ReactNode; color:
   { id: 'giro',          label: 'Giro',         icon: <Send           size={16} />, color: '#a78bfa' },
 ];
 
-const SUCURSALES = ['Azara', 'Fernando', 'Caacupé', 'La Fina'];
+const SUCURSALES = ['Pettirossi', 'Azara', 'Lambaré', 'Acceso Sur', 'Capiatá'];
 
 const EXPENSE_CATEGORIES = [
   { id: 'alquiler',    label: 'Alquiler'    },

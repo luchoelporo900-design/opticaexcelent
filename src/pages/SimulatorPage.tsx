@@ -97,7 +97,7 @@ export default function SimulatorPage() {
       <div>
         <h1 className="text-2xl font-light tracking-wider text-white">Simuladores de Lentes</h1>
         <p className="text-sm font-light mt-1" style={{ color: 'rgba(197,160,89,0.65)' }}>
-          Demostración fotorrealista para clientes — Óptica Yolanda
+          Demostración fotorrealista para clientes — Óptica Excelent
         </p>
       </div>
 

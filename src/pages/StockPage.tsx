@@ -10,14 +10,14 @@ import { compressImage } from '../lib/salesStorage';
 
 type Frame = {
   id: string; codigo: string; nombre: string; foto_url: string; color: string;
-  precio: number; stock_azara: number; stock_fernando: number;
-  stock_caacupe: number; stock_la_fina: number;
+  precio: number; stock_pettirossi: number; stock_azara: number;
+  stock_lambere: number; stock_accesosur: number; stock_capiata: number;
   created_at: string; updated_at: string;
 };
 
 type FormData = {
   codigo: string; nombre: string; foto_url: string; color: string; precio: number;
-  stock_azara: number; stock_fernando: number; stock_caacupe: number; stock_la_fina: number;
+  stock_pettirossi: number; stock_azara: number; stock_lambere: number; stock_accesosur: number; stock_capiata: number;
 };
 
 type Movimiento = {
@@ -29,10 +29,11 @@ type Movimiento = {
 type MasVendido = { armazon_nombre: string; armazon_codigo: string; total: number; };
 
 const SEDES = [
-  { key: 'stock_azara',    label: 'Azara',    color: '#22c55e' },
-  { key: 'stock_fernando', label: 'Fernando', color: '#3b82f6' },
-  { key: 'stock_caacupe',  label: 'Caacupé',  color: '#C5A059' },
-  { key: 'stock_la_fina',  label: 'La Fina',  color: '#a78bfa' },
+  { key: 'stock_pettirossi', label: 'Pettirossi', color: '#22c55e' },
+  { key: 'stock_azara',      label: 'Azara',      color: '#3b82f6' },
+  { key: 'stock_lambere',    label: 'Lambaré',    color: '#C5A059' },
+  { key: 'stock_accesosur',  label: 'Acceso Sur', color: '#a78bfa' },
+  { key: 'stock_capiata',    label: 'Capiatá',    color: '#f97316' },
 ];
 
 function fmt(n: number) {
@@ -41,11 +42,11 @@ function fmt(n: number) {
 
 function emptyForm(): FormData {
   return { codigo: '', nombre: '', foto_url: '', color: '', precio: 0,
-    stock_azara: 0, stock_fernando: 0, stock_caacupe: 0, stock_la_fina: 0 };
+    stock_pettirossi: 0, stock_azara: 0, stock_lambere: 0, stock_accesosur: 0, stock_capiata: 0 };
 }
 
 function totalStock(f: Frame | FormData) {
-  return (f.stock_azara||0)+(f.stock_fernando||0)+(f.stock_caacupe||0)+(f.stock_la_fina||0);
+  return (f.stock_pettirossi||0)+(f.stock_azara||0)+(f.stock_lambere||0)+(f.stock_accesosur||0)+(f.stock_capiata||0);
 }
 
 export default function StockPage() {
@@ -58,11 +59,12 @@ export default function StockPage() {
   const vendedoraSede = (() => {
     const b = defaultBranch.toLowerCase()
       .replace(/á/g,'a').replace(/é/g,'e').replace(/í/g,'i').replace(/ó/g,'o').replace(/ú/g,'u').replace(/ /g,'_');
-    if (b.includes('azara'))    return 'stock_azara';
-    if (b.includes('fernando')) return 'stock_fernando';
-    if (b.includes('caacupe'))  return 'stock_caacupe';
-    if (b.includes('fina'))     return 'stock_la_fina';
-    return 'stock_azara';
+    if (b.includes('pettirossi'))          return 'stock_pettirossi';
+    if (b.includes('azara'))               return 'stock_azara';
+    if (b.includes('lambere') || b.includes('lambare')) return 'stock_lambere';
+    if (b.includes('acceso') || b.includes('sur'))      return 'stock_accesosur';
+    if (b.includes('capiata'))             return 'stock_capiata';
+    return 'stock_pettirossi';
   })();
 
   const [frames, setFrames]           = useState<Frame[]>([]);
@@ -167,7 +169,7 @@ export default function StockPage() {
   function openNew()    { setEditing(null); setForm(emptyForm()); setShowModal(true); }
   function openEdit(f: Frame) {
     setEditing(f);
-    setForm({ codigo: f.codigo, nombre: f.nombre, foto_url: f.foto_url||'', color: (f as any).color||'', precio: f.precio, stock_azara: f.stock_azara, stock_fernando: f.stock_fernando, stock_caacupe: f.stock_caacupe, stock_la_fina: f.stock_la_fina });
+    setForm({ codigo: f.codigo, nombre: f.nombre, foto_url: f.foto_url||'', color: (f as any).color||'', precio: f.precio, stock_pettirossi: f.stock_pettirossi, stock_azara: f.stock_azara, stock_lambere: f.stock_lambere, stock_accesosur: f.stock_accesosur, stock_capiata: f.stock_capiata });
     setShowModal(true);
   }
 

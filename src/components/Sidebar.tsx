@@ -96,8 +96,8 @@ export default function Sidebar({ current, onChange }: Props) {
         </div>
         {!collapsed && (
           <div className="overflow-hidden animate-fade-in">
-            <p className="text-white text-xs font-medium tracking-widest uppercase leading-tight">Óptica Yolanda</p>
-            <p className="text-xs font-light tracking-wider text-gold-muted">Elite V10</p>
+            <p className="text-white text-xs font-medium tracking-widest uppercase leading-tight">Óptica Excelent</p>
+            <p className="text-xs font-light tracking-wider text-gold-muted">V10</p>
           </div>
         )}
       </div>
@@ -293,8 +293,8 @@ function MobileNav({ current, onChange, role, visiblePages, profile, signOut }: 
             <Glasses size={14} style={{ color: '#C5A059' }} />
           </div>
           <div>
-            <p className="text-xs font-medium tracking-wider text-white leading-tight">Óptica Yolanda</p>
-            <p className="text-xs font-light" style={{ color: 'rgba(197,160,89,0.6)', fontSize: 10 }}>Elite V10</p>
+            <p className="text-xs font-medium tracking-wider text-white leading-tight">Óptica Excelent</p>
+            <p className="text-xs font-light" style={{ color: 'rgba(197,160,89,0.6)', fontSize: 10 }}>V10</p>
           </div>
         </div>
         <div className="flex items-center gap-2">

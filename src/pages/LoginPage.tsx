@@ -67,8 +67,8 @@ export default function LoginPage() {
               <Glasses size={30} style={{ color: '#C5A059', filter: 'drop-shadow(0 0 6px rgba(197,160,89,0.55))' }} />
             </div>
           </div>
-          <h1 className="text-white font-light tracking-[0.32em] text-xl uppercase">Óptica Yolanda</h1>
-          <p className="mt-1 tracking-[0.48em] text-xs uppercase font-light text-gold-muted">Elite Management V10</p>
+          <h1 className="text-white font-light tracking-[0.32em] text-xl uppercase">Óptica Excelent</h1>
+          <p className="mt-1 tracking-[0.48em] text-xs uppercase font-light text-gold-muted">Management V10</p>
           <div className="mt-5 flex items-center justify-center gap-3">
             <div className="h-px w-8" style={{ background: 'linear-gradient(to right, transparent, rgba(197,160,89,0.40))' }} />
             <div className="w-1 h-1 rounded-full" style={{ background: '#C5A059', boxShadow: '0 0 6px rgba(197,160,89,0.70)' }} />
@@ -128,7 +128,7 @@ export default function LoginPage() {
         </div>
 
         <p className="text-center text-xs mt-7 font-light" style={{ color: 'rgba(255,255,255,0.12)' }}>
-          © 2026 Óptica Yolanda · Sistema de Gestión Elite
+          © 2026 Óptica Excelent · Sistema de Gestión
         </p>
       </div>
     </div>

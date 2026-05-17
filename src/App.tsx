@@ -55,7 +55,7 @@ function AppContent() {
         <div className="text-center space-y-5 animate-fade-in">
           <div className="gold-spinner mx-auto" />
           <div>
-            <p className="text-xs font-light tracking-[0.28em] uppercase text-gold-muted">Óptica Yolanda</p>
+            <p className="text-xs font-light tracking-[0.28em] uppercase text-gold-muted">Óptica Excelent</p>
             <p className="text-xs font-light tracking-widest mt-1" style={{ color: 'rgba(255,255,255,0.20)' }}>cargando sistema...</p>
           </div>
         </div>

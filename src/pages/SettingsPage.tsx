@@ -3,7 +3,7 @@ import { User, Glasses, Plus, Eye, EyeOff, Check, X, RefreshCw, Shield, Package,
 import { useAuth, Profile } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 
-const SUCURSALES = ['Azara', 'Fernando', 'Caacupé', 'La Fina'];
+const SUCURSALES = ['Pettirossi', 'Azara', 'Lambaré', 'Acceso Sur', 'Capiatá'];
 
 const ROLES = [
   { id: 'vendedora',   label: 'Vendedora',     color: '#3b82f6' },
@@ -446,9 +446,9 @@ export default function SettingsPage() {
         </div>
         <div className="p-5">
           {[
-            ['Sistema',         'Óptica Yolanda · Elite Management'],
+            ['Sistema',         'Óptica Excelent · Management'],
             ['Versión',         'V32.0.0'],
-            ['Sucursales',      '4 (Azara, Fernando, Caacupé, La Fina)'],
+            ['Sucursales',      '5 (Pettirossi, Azara, Lambaré, Acceso Sur, Capiatá)'],
             ['Base de datos',   'Supabase (nube)'],
             ['Módulos activos', 'Dashboard · POS · CRM · Caja · Saldos · Lab · Stock · Reportes'],
           ].map(([label, value]) => (
