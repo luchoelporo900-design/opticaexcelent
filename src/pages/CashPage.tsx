@@ -71,6 +71,10 @@ function markReviewed(id: string) {
   const s = getReviewed(); s.add(id);
   localStorage.setItem(LS_REVIEWED_KEY, JSON.stringify([...s]));
 }
+function unmarkReviewed(id: string) {
+  const s = getReviewed(); s.delete(id);
+  localStorage.setItem(LS_REVIEWED_KEY, JSON.stringify([...s]));
+}
 function fmt(n: number) {
   return n.toLocaleString('es-PY', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
@@ -368,7 +372,10 @@ export default function CashPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  function handleReview(payId: string) { markReviewed(payId); setReviewed(getReviewed()); }
+  function handleReview(payId: string) {
+    if (getReviewed().has(payId)) { unmarkReviewed(payId); } else { markReviewed(payId); }
+    setReviewed(getReviewed());
+  }
   function getSaleDetail(saleId?: number) { if (!saleId) return null; return allSales.find(v => v.id === saleId) ?? null; }
 
   function openIngreso() {
@@ -1016,11 +1023,12 @@ export default function CashPage() {
 
                       <div className="pt-2" style={{ borderTop: '1px solid rgba(197,160,89,0.08)' }}>
                         {isRev ? (
-                          <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl w-fit"
-                            style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)' }}>
+                          <button onClick={() => handleReview(p.id)}
+                            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-medium"
+                            style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)' }}>
                             <Heart size={14} fill="#ef4444" style={{ color: '#ef4444' }} />
-                            <p className="text-xs font-light" style={{ color: '#ef4444' }}>Pago revisado y confirmado</p>
-                          </div>
+                            Revisado — clic para desmarcar
+                          </button>
                         ) : (
                           <button onClick={() => handleReview(p.id)}
                             className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-medium"
