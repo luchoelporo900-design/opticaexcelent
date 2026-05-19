@@ -18,11 +18,12 @@ import ReportPage from './pages/ReportPage';
 import BalancesPage from './pages/BalancesPage';
 import SalesHistoryPage from './pages/SalesHistoryPage';
 import StockPage from './pages/StockPage';
+import BillingGoalsPage from './pages/BillingGoalsPage';
 
 type Page =
   | 'dashboard' | 'pos' | 'customers' | 'lab' | 'simulator'
   | 'branches' | 'crm' | 'settings' | 'commissions' | 'cash'
-  | 'reports' | 'balances' | 'sales_history' | 'stock';
+  | 'reports' | 'balances' | 'sales_history' | 'stock' | 'billing_goals';
 
 function AppContent() {
   const { user, loading, devMode, profile } = useAuth();
@@ -38,7 +39,7 @@ function AppContent() {
     }
   }, [profile?.branch_id, branches.length]);
 
-  const ADMIN_ONLY_PAGES: Page[] = ['settings', 'reports', 'branches', 'commissions'];
+  const ADMIN_ONLY_PAGES: Page[] = ['settings', 'reports', 'branches', 'commissions', 'billing_goals'];
 
   useEffect(() => {
     if (profile && !isAdmin && ADMIN_ONLY_PAGES.includes(page)) setPage('dashboard');
@@ -78,8 +79,9 @@ function AppContent() {
     cash:          <CashPage />,
     reports:       <ReportPage />,
     balances:      <BalancesPage />,
-    sales_history: <SalesHistoryPage />,
-    stock:         <StockPage />,
+    sales_history:  <SalesHistoryPage />,
+    stock:          <StockPage />,
+    billing_goals:  <BillingGoalsPage />,
   };
 
   return (

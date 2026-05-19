@@ -3,12 +3,12 @@ import {
   LayoutDashboard, ShoppingCart, Users, FlaskConical,
   Glasses, Building2, ChevronLeft, ChevronRight,
   Bell, LogOut, Settings, Eye, Trophy, ChevronDown,
-  DollarSign, BarChart3, AlertCircle, Search, X, ClipboardList, Package
+  DollarSign, BarChart3, AlertCircle, Search, X, ClipboardList, Package, Target
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useBranch } from '../context/BranchContext';
 
-type Page = 'dashboard' | 'pos' | 'customers' | 'lab' | 'simulator' | 'branches' | 'crm' | 'settings' | 'commissions' | 'cash' | 'reports' | 'balances' | 'sales_history' | 'stock';
+type Page = 'dashboard' | 'pos' | 'customers' | 'lab' | 'simulator' | 'branches' | 'crm' | 'settings' | 'commissions' | 'cash' | 'reports' | 'balances' | 'sales_history' | 'stock' | 'billing_goals';
 
 type Props = {
   current: Page;
@@ -21,7 +21,8 @@ const navItems: { id: Page; label: string; icon: React.ReactNode }[] = [
   { id: 'customers',   label: 'Clientes',            icon: <Users           size={18} /> },
   { id: 'crm',         label: 'CRM / Recordatorios', icon: <Bell            size={18} /> },
   { id: 'lab',         label: 'Laboratorio',         icon: <FlaskConical    size={18} /> },
-  { id: 'commissions', label: 'Comisiones',          icon: <Trophy          size={18} /> },
+  { id: 'commissions',   label: 'Comisiones',          icon: <Trophy          size={18} /> },
+  { id: 'billing_goals', label: 'Metas de Facturación', icon: <Target          size={18} /> },
   { id: 'cash',        label: 'Caja',                icon: <DollarSign      size={18} /> },
   { id: 'balances',    label: 'Saldos Pendientes',   icon: <AlertCircle     size={18} /> },
   { id: 'sales_history', label: 'Mis Ventas',        icon: <ClipboardList   size={18} /> },
@@ -36,7 +37,7 @@ function getVisiblePages(role: string): Page[] {
   switch (role) {
     case 'admin':
     case 'gerente':
-      return ['dashboard', 'pos', 'sales_history', 'customers', 'crm', 'lab', 'commissions', 'cash', 'balances', 'stock', 'reports', 'simulator', 'branches', 'settings'];
+      return ['dashboard', 'pos', 'sales_history', 'customers', 'crm', 'lab', 'commissions', 'billing_goals', 'cash', 'balances', 'stock', 'reports', 'simulator', 'branches', 'settings'];
     case 'vendedora':
       return ['dashboard', 'pos', 'sales_history', 'customers', 'crm', 'lab', 'cash', 'balances', 'stock'];
     case 'laboratorio':

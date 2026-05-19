@@ -82,6 +82,35 @@ export type LabOrder = {
   created_at: string;
   updated_at: string;
   sales?: Sale;
+  // Trazabilidad — Phase 1 (nullable, migración 20260519000002)
+  assigned_lab_name?: string | null;
+  internal_observation?: string | null;
+  assigned_by?: string | null;
+  assigned_at?: string | null;
+};
+
+export type LabHistoryEntry = {
+  // Entrada clásica de cambio de estado
+  status?: string;
+  // Entrada de asignación de laboratorio
+  event?: 'lab_assigned' | 'observation' | 'status_change';
+  lab_name?: string;
+  sent_date?: string;
+  text?: string;
+  // Común a todos los tipos de entrada
+  timestamp: string;
+  by: string;
+};
+
+export type BillingGoal = {
+  id: string;
+  seller_name: string;
+  branch_name: string;
+  month: string;           // formato YYYY-MM
+  goal_amount_gs: number;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type SellerPoints = {

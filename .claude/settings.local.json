@@ -6,7 +6,12 @@
       "Bash(Get-ChildItem \"c:\\\\Users\\\\NITRO\\\\opticaexcelent\\\\supabase\\\\migrations\")",
       "Bash(Sort-Object Name)",
       "Bash(Select-Object -Last 3)",
-      "Bash(Format-List Name)"
+      "Bash(Format-List Name)",
+      "Bash(python -)",
+      "Bash(npx tsc *)",
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(npm run *)",
+      "PowerShell(Test-Path \"c:\\\\Users\\\\NITRO\\\\opticaexcelent\\\\node_modules\" | Write-Output; \\(Get-ChildItem \"c:\\\\Users\\\\NITRO\\\\opticaexcelent\\\\node_modules\" -ErrorAction SilentlyContinue | Select-Object -First 5\\).Name)"
     ]
   }
 }
