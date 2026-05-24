@@ -724,7 +724,7 @@ export default function SalesHistoryPage() {
       supabase
         .from('optica_users')
         .select('puede_editar_ventas')
-        .eq('id', profile.id)
+        .eq('email', profile.email)
         .maybeSingle()
         .then(({ data, error }) => {
           console.log('SALES DEBUG PERMISSION QUERY', { data, error });
