@@ -974,11 +974,25 @@ export default function SalesHistoryPage() {
                           </a>
                         )}
                         {canEdit && !isEntregado && v.estadoTrabajo !== 'cancelado' && (
-                          <button onClick={() => setDeliverSale(v)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-light"
-                            style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', color: '#10b981' }}>
-                            <Package size={12} />Marcar como entregado
-                          </button>
+                          Number(v.saldo) > 0 ? (
+                            <div className="flex flex-col items-start gap-0.5">
+                              <button
+                                disabled
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-light cursor-not-allowed opacity-40"
+                                style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', color: '#10b981' }}>
+                                <Package size={12} />Marcar como entregado
+                              </button>
+                              <span className="text-xs font-light" style={{ color: 'rgba(245,158,11,0.8)', paddingLeft: 2 }}>
+                                Saldo pendiente: no se puede entregar
+                              </span>
+                            </div>
+                          ) : (
+                            <button onClick={() => setDeliverSale(v)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-light"
+                              style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', color: '#10b981' }}>
+                              <Package size={12} />Marcar como entregado
+                            </button>
+                          )
                         )}
                         {canEdit && (
                           <button onClick={() => setEditSale(v)}

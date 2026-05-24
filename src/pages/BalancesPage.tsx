@@ -152,6 +152,11 @@ export default function BalancesPage() {
   }
 
   async function markDelivered(rowId: string) {
+    const row = rows.find(r => r.id === rowId);
+    if (row && row.balance > 0) {
+      alert('No se puede entregar con saldo pendiente. El saldo debe ser 0 para marcar como entregado.');
+      return;
+    }
     const saleIdNum = Number(rowId);
     await closeSaleLocal(saleIdNum, 'retiro');
     setPaySuccess('✓ Lentes entregados — venta cerrada.');
