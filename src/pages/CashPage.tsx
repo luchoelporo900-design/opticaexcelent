@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   DollarSign, Banknote, CreditCard, ArrowRightLeft, RefreshCw,
   CheckCircle, TrendingUp, Calendar, QrCode, Send, Minus, Plus, X,
-  User, Unlock, Tag, MapPin, Clock, ChevronDown, Heart,
+  User, Unlock, Tag, MapPin, Clock, ChevronDown, Heart, Pencil, Save,
 } from 'lucide-react';
 import { useBranch } from '../context/BranchContext';
 import { useAuth } from '../context/AuthContext';
@@ -149,6 +149,23 @@ export default function CashPage() {
   const [ingSuccess, setIngSuccess] = useState(false);
   const [ingErr,     setIngErr]     = useState('');
 
+  const [canEdit,       setCanEdit]       = useState(false);
+
+  // Edición inline — ingresos
+  const [editingIngId,  setEditingIngId]  = useState<string | null>(null);
+  const [editIngDesc,   setEditIngDesc]   = useState('');
+  const [editIngAmount, setEditIngAmount] = useState('');
+  const [editIngMethod, setEditIngMethod] = useState<PaymentMethod>('efectivo');
+  const [savingEditIng, setSavingEditIng] = useState(false);
+
+  // Edición inline — egresos
+  const [editingExpId,  setEditingExpId]  = useState<string | null>(null);
+  const [editExpDesc,   setEditExpDesc]   = useState('');
+  const [editExpAmount, setEditExpAmount] = useState('');
+  const [editExpCat,    setEditExpCat]    = useState('otros');
+  const [editExpMethod, setEditExpMethod] = useState<PaymentMethod>('efectivo');
+  const [savingEditExp, setSavingEditExp] = useState(false);
+
   const isAdmin     = profile?.role === 'admin' || profile?.role === 'gerente';
   const isVendedora = profile?.role === 'vendedora';
   const weekRange   = isVendedora ? getWeekRange() : null;
@@ -163,6 +180,18 @@ export default function CashPage() {
   useEffect(() => {
     if (selectedBranch) { setExpBranch(selectedBranch); setIngBranch(selectedBranch); }
   }, [selectedBranch]);
+
+  useEffect(() => {
+    if (!profile) return;
+    if (isAdmin) { setCanEdit(true); return; }
+    const check = () =>
+      supabase.from('optica_users').select('puede_editar_ventas')
+        .eq('id', profile.id).maybeSingle()
+        .then(({ data }) => setCanEdit(data?.puede_editar_ventas ?? false));
+    check();
+    const t = setInterval(check, 30_000);
+    return () => clearInterval(t);
+  }, [profile, isAdmin]);
 
   function buildAndCommit(rows: PaymentRow[], expList: Expense[], ingList: Ingreso[]) {
     let agg = emptyAgg();
@@ -344,6 +373,33 @@ export default function CashPage() {
     setTimeout(() => setExpSuccess(false), 4000);
     setSavingExp(false);
     await refresh();
+  }
+
+  async function handleSaveIngreso(id: string) {
+    const amt = parseFloat(editIngAmount);
+    if (!editIngDesc.trim() || !amt || amt <= 0) return;
+    setSavingEditIng(true);
+    await supabase.from('cash_ingresos')
+      .update({ descripcion: editIngDesc.trim(), monto: amt, metodo: editIngMethod })
+      .eq('id', id);
+    setSavingEditIng(false);
+    setEditingIngId(null);
+    load();
+  }
+
+  async function handleSaveEgreso(exp: Expense) {
+    const amt = parseFloat(editExpAmount);
+    if (!editExpDesc.trim() || !amt || amt <= 0) return;
+    setSavingEditExp(true);
+    await saveExpense({
+      id: Number(exp.id), fecha: exp.expense_date,
+      descripcion: editExpDesc.trim(), categoria: editExpCat,
+      monto: amt, metodo: editExpMethod,
+      sucursal: exp.branch_name || '', vendedora: profile?.full_name || '',
+    });
+    setSavingEditExp(false);
+    setEditingExpId(null);
+    load();
   }
 
   const visiblePayments = isVendedora
@@ -710,13 +766,54 @@ export default function CashPage() {
         ) : (
           <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
             {ingresos.map(ing => (
-              <div key={ing.id} className="flex items-center gap-4 px-5 py-3 text-xs font-light">
-                <div className="flex-1 min-w-0">
-                  <p className="text-white truncate">{ing.description}</p>
-                  {ing.branch_name && <span style={{ color: 'rgba(255,255,255,0.28)' }}>{ing.branch_name}</span>}
+              <div key={ing.id}>
+                <div className="flex items-center gap-4 px-5 py-3 text-xs font-light">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white truncate">{ing.description}</p>
+                    {ing.branch_name && <span style={{ color: 'rgba(255,255,255,0.28)' }}>{ing.branch_name}</span>}
+                  </div>
+                  <span className="shrink-0" style={{ color: '#22c55e' }}>+ Gs. {fmt(Number(ing.amount))}</span>
+                  <span className="px-2 py-0.5 rounded shrink-0" style={{ background: 'rgba(34,197,94,0.10)', color: '#22c55e' }}>{ing.method}</span>
+                  {canEdit && editingIngId !== ing.id && (
+                    <button onClick={() => { setEditingIngId(ing.id); setEditIngDesc(ing.description); setEditIngAmount(String(ing.amount)); setEditIngMethod(ing.method as PaymentMethod); }}
+                      className="shrink-0 w-6 h-6 flex items-center justify-center rounded"
+                      style={{ background: 'rgba(197,160,89,0.08)', border: '1px solid rgba(197,160,89,0.2)', color: 'rgba(197,160,89,0.7)' }}>
+                      <Pencil size={10} />
+                    </button>
+                  )}
                 </div>
-                <span className="shrink-0" style={{ color: '#22c55e' }}>+ Gs. {fmt(Number(ing.amount))}</span>
-                <span className="px-2 py-0.5 rounded shrink-0" style={{ background: 'rgba(34,197,94,0.10)', color: '#22c55e' }}>{ing.method}</span>
+                {canEdit && editingIngId === ing.id && (
+                  <div className="px-5 pb-4 space-y-2" style={{ borderTop: '1px solid rgba(34,197,94,0.1)', background: 'rgba(34,197,94,0.02)' }}>
+                    <p className="text-xs font-light tracking-widest uppercase pt-3" style={{ color: 'rgba(34,197,94,0.55)' }}>Editando ingreso</p>
+                    <input value={editIngDesc} onChange={ev => setEditIngDesc(ev.target.value)} placeholder="Descripción"
+                      className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border"
+                      style={{ borderColor: 'rgba(34,197,94,0.25)' }} />
+                    <input value={editIngAmount} onChange={ev => setEditIngAmount(ev.target.value)} type="number" placeholder="Monto Gs."
+                      className="w-36 px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border"
+                      style={{ borderColor: 'rgba(34,197,94,0.25)' }} />
+                    <div className="flex gap-1.5 flex-wrap">
+                      {METHODS.map(m => (
+                        <button key={m.id} onClick={() => setEditIngMethod(m.id)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-light"
+                          style={{ background: editIngMethod===m.id?`${m.color}18`:'rgba(255,255,255,0.03)', border: `1px solid ${editIngMethod===m.id?m.color+'44':'rgba(255,255,255,0.07)'}`, color: editIngMethod===m.id?m.color:'rgba(255,255,255,0.38)' }}>
+                          {m.icon}<span>{m.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => handleSaveIngreso(ing.id)} disabled={savingEditIng}
+                        className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium"
+                        style={{ background: '#22c55e', color: '#000' }}>
+                        <Save size={11} />{savingEditIng ? 'Guardando...' : 'Guardar'}
+                      </button>
+                      <button onClick={() => setEditingIngId(null)}
+                        className="px-3 py-2 rounded-lg text-xs font-light"
+                        style={{ color: 'rgba(255,255,255,0.36)', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -803,16 +900,67 @@ export default function CashPage() {
             {expenses.map(e => {
               const catLabel = EXPENSE_CATEGORIES.find(c => c.id === e.category)?.label ?? e.category;
               return (
-                <div key={e.id} className="flex items-center gap-4 px-5 py-3 text-xs font-light">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-white truncate">{e.description}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="px-1.5 py-0.5 rounded text-xs" style={{ background: 'rgba(239,68,68,0.08)', color: 'rgba(239,68,68,0.7)' }}>{catLabel}</span>
-                      {e.branch_name && <span style={{ color: 'rgba(255,255,255,0.28)' }}>{e.branch_name}</span>}
+                <div key={e.id}>
+                  <div className="flex items-center gap-4 px-5 py-3 text-xs font-light">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white truncate">{e.description}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="px-1.5 py-0.5 rounded text-xs" style={{ background: 'rgba(239,68,68,0.08)', color: 'rgba(239,68,68,0.7)' }}>{catLabel}</span>
+                        {e.branch_name && <span style={{ color: 'rgba(255,255,255,0.28)' }}>{e.branch_name}</span>}
+                      </div>
                     </div>
+                    <span className="shrink-0" style={{ color: '#ef4444' }}>— Gs. {fmt(Number(e.amount))}</span>
+                    <span className="px-2 py-0.5 rounded shrink-0" style={{ background: 'rgba(239,68,68,0.10)', color: '#ef4444' }}>{e.method}</span>
+                    {canEdit && editingExpId !== e.id && (
+                      <button onClick={() => { setEditingExpId(e.id); setEditExpDesc(e.description); setEditExpAmount(String(e.amount)); setEditExpCat(e.category); setEditExpMethod(e.method as PaymentMethod); }}
+                        className="shrink-0 w-6 h-6 flex items-center justify-center rounded"
+                        style={{ background: 'rgba(197,160,89,0.08)', border: '1px solid rgba(197,160,89,0.2)', color: 'rgba(197,160,89,0.7)' }}>
+                        <Pencil size={10} />
+                      </button>
+                    )}
                   </div>
-                  <span className="shrink-0" style={{ color: '#ef4444' }}>— Gs. {fmt(Number(e.amount))}</span>
-                  <span className="px-2 py-0.5 rounded shrink-0" style={{ background: 'rgba(239,68,68,0.10)', color: '#ef4444' }}>{e.method}</span>
+                  {canEdit && editingExpId === e.id && (
+                    <div className="px-5 pb-4 space-y-2" style={{ borderTop: '1px solid rgba(239,68,68,0.1)', background: 'rgba(239,68,68,0.02)' }}>
+                      <p className="text-xs font-light tracking-widest uppercase pt-3" style={{ color: 'rgba(239,68,68,0.55)' }}>Editando egreso</p>
+                      <input value={editExpDesc} onChange={ev => setEditExpDesc(ev.target.value)} placeholder="Motivo del gasto"
+                        className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border"
+                        style={{ borderColor: 'rgba(239,68,68,0.25)' }} />
+                      <div className="flex gap-2 flex-wrap">
+                        <input value={editExpAmount} onChange={ev => setEditExpAmount(ev.target.value)} type="number" placeholder="Monto Gs."
+                          className="w-36 px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border"
+                          style={{ borderColor: 'rgba(239,68,68,0.25)' }} />
+                        <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg border flex-1 min-w-36"
+                          style={{ borderColor: 'rgba(239,68,68,0.20)', background: 'rgba(255,255,255,0.02)' }}>
+                          <Tag size={11} style={{ color: 'rgba(239,68,68,0.6)', flexShrink: 0 }} />
+                          <select value={editExpCat} onChange={ev => setEditExpCat(ev.target.value)}
+                            className="bg-transparent text-xs outline-none flex-1" style={{ color: 'rgba(255,255,255,0.7)' }}>
+                            {EXPENSE_CATEGORIES.map(c => <option key={c.id} value={c.id} style={{ background: '#111' }}>{c.label}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                      <div className="flex gap-1.5 flex-wrap">
+                        {METHODS.map(m => (
+                          <button key={m.id} onClick={() => setEditExpMethod(m.id)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-light"
+                            style={{ background: editExpMethod===m.id?`${m.color}18`:'rgba(255,255,255,0.03)', border: `1px solid ${editExpMethod===m.id?m.color+'44':'rgba(255,255,255,0.07)'}`, color: editExpMethod===m.id?m.color:'rgba(255,255,255,0.38)' }}>
+                            {m.icon}<span>{m.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => handleSaveEgreso(e)} disabled={savingEditExp}
+                          className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium"
+                          style={{ background: '#ef4444', color: '#fff' }}>
+                          <Save size={11} />{savingEditExp ? 'Guardando...' : 'Guardar'}
+                        </button>
+                        <button onClick={() => setEditingExpId(null)}
+                          className="px-3 py-2 rounded-lg text-xs font-light"
+                          style={{ color: 'rgba(255,255,255,0.36)', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
