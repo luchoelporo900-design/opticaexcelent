@@ -42,11 +42,14 @@ function AppContent() {
   const ADMIN_ONLY_PAGES: Page[] = ['settings', 'reports', 'branches', 'commissions', 'billing_goals'];
 
   useEffect(() => {
-    if (profile && !isAdmin && ADMIN_ONLY_PAGES.includes(page)) setPage('dashboard');
+    if (profile && !isAdmin && ADMIN_ONLY_PAGES.includes(page)) {
+      setPage(profile.role === 'vendedora' ? 'pos' : 'dashboard');
+    }
   }, [profile, page, isAdmin]);
 
   useEffect(() => {
     if (profile?.role === 'laboratorio') setPage('lab');
+    if (profile?.role === 'vendedora' && page === 'dashboard') setPage('pos');
   }, [profile?.role]);
 
   if (loading) {
