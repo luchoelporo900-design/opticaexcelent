@@ -9,7 +9,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
 import { supabase } from '../lib/supabase';
-import { closeSaleLocal, uploadToCloudinary } from '../lib/salesStorage';
+import { closeSaleLocal, uploadToCloudinary, compressImage } from '../lib/salesStorage';
 
 type PaymentMethod = 'efectivo' | 'transferencia' | 'tarjeta' | 'qr' | 'giro';
 type DeliveryMode  = 'retiro' | 'delivery' | 'encomienda';
@@ -339,8 +339,21 @@ function DeliverModal({ sale, onClose, onDelivered }: { sale: any; onClose: () =
   const [payMethod,    setPayMethod]    = useState<PaymentMethod>('efectivo');
   const [payAmount,    setPayAmount]    = useState(hasBalance ? String(balance) : '');
   const [payBranch,    setPayBranch]    = useState(sale.sucursalCobro || sale.sucursalVenta || '');
+  const [payReceipt,   setPayReceipt]   = useState('');
   const [saving,       setSaving]       = useState(false);
   const [error,        setError]        = useState('');
+  const receiptRef = useRef<HTMLInputElement | null>(null);
+
+  async function handlePhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async ev => {
+      const compressed = await compressImage(ev.target?.result as string);
+      setPayReceipt(compressed);
+    };
+    reader.readAsDataURL(file);
+  }
 
   async function handleDeliver() {
     setError('');
@@ -348,11 +361,12 @@ function DeliverModal({ sale, onClose, onDelivered }: { sale: any; onClose: () =
     if (hasBalance && amt <= 0)      { setError(`Ingresá el monto a cobrar (Gs. ${fmt(balance)}).`); return; }
     if (hasBalance && amt < balance) { setError(`El monto (Gs. ${fmt(amt)}) es menor al saldo (Gs. ${fmt(balance)}).`); return; }
     if (!payBranch && hasBalance)    { setError('Seleccioná la sucursal de cobro.'); return; }
+    if (hasBalance && !payReceipt)   { setError('Debés cargar el comprobante para poder entregar.'); return; }
     setSaving(true);
     const branchName = FIXED_BRANCHES.find(b => b.id === payBranch)?.name ?? payBranch ?? '';
     const clientName = `${sale.cliente?.nombre ?? ''} ${sale.cliente?.apellido ?? ''}`.trim();
     await closeSaleLocal(sale.id, deliveryMode,
-      hasBalance && amt > 0 ? { monto: amt, metodo: payMethod, sucursal: branchName, vendedora: profile?.full_name ?? '', cliente: clientName, receipt_url: undefined } : undefined
+      hasBalance && amt > 0 ? { monto: amt, metodo: payMethod, sucursal: branchName, vendedora: profile?.full_name ?? '', cliente: clientName, receipt_url: payReceipt || undefined } : undefined
     );
     setSaving(false); onDelivered(); onClose();
   }
@@ -410,6 +424,32 @@ function DeliverModal({ sale, onClose, onDelivered }: { sale: any; onClose: () =
                 <option value="" style={{ background: '#111' }}>— Sucursal de cobro —</option>
                 {FIXED_BRANCHES.map(b => <option key={b.id} value={b.id} style={{ background: '#111' }}>{b.name}</option>)}
               </select>
+              {/* Comprobante obligatorio */}
+              <div>
+                <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(239,68,68,0.8)' }}>
+                  Comprobante de pago <span style={{ color: '#ef4444' }}>*obligatorio</span>
+                </p>
+                <input ref={receiptRef} type="file" accept="image/*" capture="environment"
+                  className="hidden" onChange={handlePhoto} />
+                {payReceipt ? (
+                  <div className="relative">
+                    <img src={payReceipt} alt="comprobante"
+                      className="w-full rounded-xl object-cover"
+                      style={{ maxHeight: 140, border: '1px solid rgba(16,185,129,0.35)', background: '#111' }} />
+                    <button onClick={() => setPayReceipt('')}
+                      className="absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center"
+                      style={{ background: 'rgba(0,0,0,0.7)', color: 'rgba(255,255,255,0.7)' }}>
+                      <X size={12} />
+                    </button>
+                  </div>
+                ) : (
+                  <button onClick={() => receiptRef.current?.click()}
+                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-light"
+                    style={{ background: 'rgba(239,68,68,0.06)', border: '1px dashed rgba(239,68,68,0.4)', color: 'rgba(239,68,68,0.8)' }}>
+                    <Camera size={14} />Tocar para agregar foto del comprobante
+                  </button>
+                )}
+              </div>
             </div>
           )}
           <div>
@@ -425,9 +465,9 @@ function DeliverModal({ sale, onClose, onDelivered }: { sale: any; onClose: () =
             </div>
           </div>
           <div className="flex items-center gap-3 pt-1">
-            <button onClick={handleDeliver} disabled={saving}
+            <button onClick={handleDeliver} disabled={saving || (hasBalance && !payReceipt)}
               className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium"
-              style={{ background: saving ? 'rgba(16,185,129,0.4)' : '#10b981', color: '#000' }}>
+              style={{ background: saving || (hasBalance && !payReceipt) ? 'rgba(16,185,129,0.35)' : '#10b981', color: '#000', cursor: hasBalance && !payReceipt ? 'not-allowed' : 'pointer' }}>
               <Package size={14} />{saving ? 'Guardando...' : hasBalance ? 'Cobrar y entregar' : 'Confirmar entrega'}
             </button>
             <button onClick={onClose} className="px-5 py-3 rounded-xl text-sm font-light"

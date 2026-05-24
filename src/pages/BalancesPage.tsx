@@ -76,6 +76,15 @@ export default function BalancesPage() {
   const [paySuccess, setPaySuccess] = useState('');
   const receiptRef = useRef<HTMLInputElement | null>(null);
 
+  const [deliverFor,     setDeliverFor]     = useState<string | null>(null);
+  const [deliverAmt,     setDeliverAmt]     = useState('');
+  const [deliverMethod,  setDeliverMethod]  = useState<PaymentMethod>('efectivo');
+  const [deliverReceipt, setDeliverReceipt] = useState('');
+  const [deliverBranch,  setDeliverBranch]  = useState('');
+  const [savingDeliver,  setSavingDeliver]  = useState(false);
+  const [deliverError,   setDeliverError]   = useState('');
+  const deliverReceiptRef = useRef<HTMLInputElement | null>(null);
+
   const rows = sales
     .filter(v => {
       if (v.estadoTrabajo === 'entregado' || v.estadoTrabajo === 'cancelado') return false;
@@ -154,11 +163,48 @@ export default function BalancesPage() {
   async function markDelivered(rowId: string) {
     const row = rows.find(r => r.id === rowId);
     if (row && row.balance > 0) {
-      alert('No se puede entregar con saldo pendiente. El saldo debe ser 0 para marcar como entregado.');
+      setDeliverFor(rowId);
+      setDeliverAmt(String(row.balance));
+      setDeliverBranch(row.cobro_branch || row.branch_name || '');
+      setDeliverReceipt('');
+      setDeliverError('');
       return;
     }
     const saleIdNum = Number(rowId);
     await closeSaleLocal(saleIdNum, 'retiro');
+    setPaySuccess('✓ Lentes entregados — venta cerrada.');
+    setExpandedId(null);
+    setTimeout(() => setPaySuccess(''), 5000);
+    await refresh();
+  }
+
+  async function handleDeliverReceiptPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async ev => {
+      const compressed = await compressImage(ev.target?.result as string);
+      setDeliverReceipt(compressed);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function handleDeliverWithPayment() {
+    if (!deliverReceipt) { setDeliverError('Debés cargar el comprobante para poder entregar.'); return; }
+    const row = rows.find(r => r.id === deliverFor);
+    if (!row) return;
+    setSavingDeliver(true);
+    const clientName = `${row.customer_first_name} ${row.customer_last_name}`.trim();
+    await closeSaleLocal(Number(deliverFor), 'retiro', {
+      monto:     parseFloat(deliverAmt) || row.balance,
+      metodo:    deliverMethod,
+      sucursal:  deliverBranch || row.cobro_branch || row.branch_name,
+      vendedora: row.seller_name || '',
+      cliente:   clientName,
+      receipt_url: deliverReceipt,
+    });
+    setSavingDeliver(false);
+    setDeliverFor(null);
     setPaySuccess('✓ Lentes entregados — venta cerrada.');
     setExpandedId(null);
     setTimeout(() => setPaySuccess(''), 5000);
@@ -191,6 +237,131 @@ export default function BalancesPage() {
 
   return (
     <div className="p-4 lg:p-6 space-y-5 max-w-5xl mx-auto">
+
+      {/* Modal cobro pendiente al entregar */}
+      {deliverFor && (() => {
+        const row = rows.find(r => r.id === deliverFor);
+        if (!row) return null;
+        return (
+          <div className="fixed inset-0 z-50 flex items-end lg:items-center justify-center p-0 lg:p-4"
+            style={{ background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(4px)' }}
+            onClick={e => { if (e.target === e.currentTarget) setDeliverFor(null); }}>
+            <div className="w-full lg:max-w-md rounded-t-3xl lg:rounded-2xl overflow-hidden"
+              style={{ background: '#0e0e0e', border: '1px solid rgba(197,160,89,0.25)', maxHeight: '92vh', overflowY: 'auto' }}>
+              <div className="flex items-center justify-between px-5 py-4 sticky top-0 z-10"
+                style={{ background: '#0e0e0e', borderBottom: '1px solid rgba(197,160,89,0.12)' }}>
+                <div>
+                  <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.55)' }}>Cobrar y entregar</p>
+                  <p className="text-sm font-light text-white mt-0.5">
+                    VTA-{row.id} · {row.customer_first_name} {row.customer_last_name}
+                  </p>
+                </div>
+                <button onClick={() => setDeliverFor(null)}
+                  className="w-8 h-8 flex items-center justify-center rounded-full"
+                  style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)' }}>
+                  <X size={14} />
+                </button>
+              </div>
+              <div className="p-5 space-y-4">
+                {/* Resumen saldo */}
+                <div className="rounded-xl p-4 space-y-2" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(245,158,11,0.20)' }}>
+                  <div className="flex justify-between text-xs font-light">
+                    <span style={{ color: 'rgba(255,255,255,0.4)' }}>Total venta</span>
+                    <span className="text-white">Gs. {fmt(row.total)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs font-light">
+                    <span style={{ color: 'rgba(255,255,255,0.4)' }}>Ya cobrado</span>
+                    <span style={{ color: '#10b981' }}>Gs. {fmt(row.deposit)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs font-medium border-t pt-2" style={{ borderColor: 'rgba(245,158,11,0.15)' }}>
+                    <span style={{ color: '#f59e0b' }}>Saldo pendiente</span>
+                    <span style={{ color: '#f59e0b' }}>Gs. {fmt(row.balance)}</span>
+                  </div>
+                </div>
+                {/* Error */}
+                {deliverError && (
+                  <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl text-xs"
+                    style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#f87171' }}>
+                    ⚠ {deliverError}
+                  </div>
+                )}
+                {/* Monto */}
+                <div>
+                  <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Monto a cobrar</p>
+                  <input type="number" value={deliverAmt} onChange={e => setDeliverAmt(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border text-right"
+                    style={{ borderColor: 'rgba(245,158,11,0.4)' }} />
+                </div>
+                {/* Método */}
+                <div>
+                  <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Método de pago</p>
+                  <div className="flex gap-1.5 flex-wrap">
+                    {PAYMENT_METHODS.map(m => (
+                      <button key={m.id} onClick={() => setDeliverMethod(m.id)}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light"
+                        style={{ background: deliverMethod === m.id ? `${m.color}18` : 'rgba(255,255,255,0.03)', border: `1px solid ${deliverMethod === m.id ? m.color + '44' : 'rgba(255,255,255,0.08)'}`, color: deliverMethod === m.id ? m.color : 'rgba(255,255,255,0.42)' }}>
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {/* Sucursal */}
+                <div>
+                  <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Sucursal de cobro</p>
+                  <select value={deliverBranch} onChange={e => setDeliverBranch(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl text-sm font-light outline-none border"
+                    style={{ background: 'rgba(255,255,255,0.03)', borderColor: 'rgba(197,160,89,0.22)', color: 'rgba(255,255,255,0.8)' }}>
+                    <option value="" style={{ background: '#111' }}>— Sucursal —</option>
+                    {SUCURSALES.map(s => <option key={s} value={s} style={{ background: '#111' }}>{s}</option>)}
+                  </select>
+                </div>
+                {/* Foto comprobante — obligatoria */}
+                <div>
+                  <p className="text-xs font-light mb-1.5">
+                    <span style={{ color: 'rgba(255,255,255,0.4)' }}>Comprobante de pago </span>
+                    <span style={{ color: '#ef4444' }}>*obligatorio</span>
+                  </p>
+                  <input ref={deliverReceiptRef} type="file" accept="image/*" capture="environment"
+                    className="hidden" onChange={handleDeliverReceiptPhoto} />
+                  {deliverReceipt ? (
+                    <div className="relative">
+                      <img src={deliverReceipt} alt="comprobante"
+                        className="w-full rounded-xl object-cover"
+                        style={{ maxHeight: 140, border: '1px solid rgba(16,185,129,0.35)', background: '#111' }} />
+                      <button onClick={() => setDeliverReceipt('')}
+                        className="absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center"
+                        style={{ background: 'rgba(0,0,0,0.7)', color: 'rgba(255,255,255,0.7)' }}>
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ) : (
+                    <button onClick={() => deliverReceiptRef.current?.click()}
+                      className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-light"
+                      style={{ background: 'rgba(239,68,68,0.06)', border: '1px dashed rgba(239,68,68,0.4)', color: 'rgba(239,68,68,0.8)' }}>
+                      <Camera size={14} />Tocar para agregar foto del comprobante
+                    </button>
+                  )}
+                </div>
+                {/* Acciones */}
+                <div className="flex items-center gap-3 pt-1">
+                  <button
+                    onClick={handleDeliverWithPayment}
+                    disabled={savingDeliver || !deliverReceipt}
+                    className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium"
+                    style={{ background: savingDeliver || !deliverReceipt ? 'rgba(16,185,129,0.35)' : '#10b981', color: '#000', cursor: !deliverReceipt ? 'not-allowed' : 'pointer' }}>
+                    <Package size={14} />{savingDeliver ? 'Guardando...' : 'Cobrar y entregar'}
+                  </button>
+                  <button onClick={() => setDeliverFor(null)}
+                    className="px-5 py-3 rounded-xl text-sm font-light"
+                    style={{ background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.5)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Lightbox */}
       {lightboxSrc && (
