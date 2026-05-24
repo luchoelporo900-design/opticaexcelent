@@ -30,8 +30,9 @@ function markAllSeen(ids: string[]) {
   localStorage.setItem(LS_SEEN_SALES_KEY, JSON.stringify([...s]));
 }
 
-type SellerRow = { seller_name: string; sale_count: number; total: number; collected: number };
-type BranchRow = { branch_name: string; sale_count: number; total: number; collected: number };
+type SellerRow      = { seller_name: string; sale_count: number; total: number; collected: number };
+type BranchRow      = { branch_name: string; sale_count: number; total: number; collected: number };
+type AbonoSellerRow = { seller_name: string; count: number; total: number };
 type PhotoEntry = {
   sale_number: string; branch_name: string; seller_name: string;
   created_at: string; photo_url: string; frame_description: string; customer_name: string;
@@ -280,6 +281,9 @@ export default function ReportPage() {
   const [alerts,          setAlerts]          = useState<any[]>([]);
   const [allSellers,      setAllSellers]      = useState<string[]>([]);
   const [newSalesAlerts,  setNewSalesAlerts]  = useState<any[]>([]);
+  const [abonosList,      setAbonosList]      = useState<any[]>([]);
+  const [abonosBySeller,  setAbonosBySeller]  = useState<AbonoSellerRow[]>([]);
+  const [abonosExpanded,  setAbonosExpanded]  = useState(false);
 
   const saleRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -366,6 +370,31 @@ export default function ReportPage() {
     }
     setPhotos(photoRows);
     setSalesList([...ventas].sort((a, b) => b.id - a.id));
+
+    // ── Abonos ────────────────────────────────────────────────────────────────
+    let abonos = allPaymentsData.filter(p => p.tipo === 'abono');
+    if (scope === 'day') {
+      abonos = abonos.filter(p => (p.fecha || '').startsWith(selectedDate));
+    } else if (scope === 'week') {
+      const { start, end } = getWeekRange(selectedDate);
+      abonos = abonos.filter(p => { const d = (p.fecha || '').slice(0, 10); return d >= start && d <= end; });
+    } else if (scope === 'month') {
+      abonos = abonos.filter(p => (p.fecha || '').startsWith(selectedDate.slice(0, 7)));
+    } else if (scope === 'year') {
+      abonos = abonos.filter(p => (p.fecha || '').startsWith(selectedDate.slice(0, 4)));
+    }
+    if (sellerFilter) abonos = abonos.filter(p => p.vendedora === sellerFilter);
+    if (branchFilter) abonos = abonos.filter(p => (p.sucursal || '').toLowerCase().includes(branchFilter.toLowerCase()));
+
+    const abonoSellerMap: Record<string, AbonoSellerRow> = {};
+    for (const p of abonos) {
+      const n = p.vendedora || 'Sin vendedor';
+      if (!abonoSellerMap[n]) abonoSellerMap[n] = { seller_name: n, count: 0, total: 0 };
+      abonoSellerMap[n].count++;
+      abonoSellerMap[n].total += Number(p.monto) || 0;
+    }
+    setAbonosList([...abonos].sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()));
+    setAbonosBySeller(Object.values(abonoSellerMap).sort((a, b) => b.total - a.total));
 
     try {
       const rawAlerts = JSON.parse(localStorage.getItem('optica_delivery_alerts') || '[]');
@@ -915,6 +944,107 @@ export default function ReportPage() {
           </div>
         )}
       </div>
+
+      {/* ── Saldos Cobrados (abonos) — solo admin/gerente ───────────────────── */}
+      {isAdmin && (
+        <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(59,130,246,0.20)' }}>
+          {/* Header */}
+          <button
+            className="w-full flex items-center justify-between px-5 py-4 text-left"
+            style={{ borderBottom: abonosExpanded ? '1px solid rgba(255,255,255,0.06)' : 'none' }}
+            onClick={() => setAbonosExpanded(v => !v)}
+          >
+            <div className="flex items-center gap-2 flex-wrap">
+              <TrendingUp size={14} style={{ color: '#3b82f6' }} />
+              <span className="text-xs font-light tracking-wider text-white">Saldos Cobrados</span>
+              <span className="text-xs px-2 py-0.5 rounded-full"
+                style={{ background: 'rgba(59,130,246,0.14)', color: '#3b82f6' }}>
+                {abonosList.length} abono{abonosList.length !== 1 ? 's' : ''}
+              </span>
+              {abonosList.length > 0 && (
+                <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                  · Gs. {fmt(abonosList.reduce((s, p) => s + (Number(p.monto) || 0), 0))}
+                </span>
+              )}
+            </div>
+            <ChevronDown size={14}
+              style={{ color: 'rgba(255,255,255,0.35)', transform: abonosExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }} />
+          </button>
+
+          {abonosExpanded && (
+            <>
+              {abonosList.length === 0 ? (
+                <div className="text-center py-10">
+                  <p className="text-xs" style={{ color: 'rgba(255,255,255,0.28)' }}>Sin abonos para este período</p>
+                </div>
+              ) : (
+                <>
+                  {/* Tabla agrupada por vendedora */}
+                  <div style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                    <div className="flex items-center gap-2 px-5 py-3"
+                      style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                      <Users size={13} style={{ color: 'rgba(59,130,246,0.6)' }} />
+                      <span className="text-xs font-light tracking-wider" style={{ color: 'rgba(255,255,255,0.5)' }}>Por vendedora</span>
+                    </div>
+                    <table className="w-full">
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                          {['Vendedora', 'Abonos', 'Total cobrado'].map(h => (
+                            <th key={h} className="px-4 py-2.5 text-left text-xs font-light"
+                              style={{ color: 'rgba(255,255,255,0.32)' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {abonosBySeller.map((r, i) => (
+                          <tr key={r.seller_name}
+                            style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                            <td className="px-4 py-3 text-xs text-white font-light">{r.seller_name}</td>
+                            <td className="px-4 py-3 text-xs" style={{ color: '#3b82f6' }}>{r.count}</td>
+                            <td className="px-4 py-3 text-xs font-light" style={{ color: '#22c55e' }}>Gs. {fmt(r.total)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Listado individual */}
+                  <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+                    {abonosList.map((p, i) => {
+                      const mc = METHODS_COLOR[p.metodo] ?? '#C5A059';
+                      return (
+                        <div key={p.id ?? i}
+                          className="flex items-center gap-3 px-4 py-3 flex-wrap"
+                          style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.008)' }}>
+                          <span className="text-xs font-light shrink-0" style={{ color: 'rgba(255,255,255,0.35)', minWidth: 44 }}>
+                            {new Date(p.fecha).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          <span className="text-xs font-mono shrink-0" style={{ color: '#3b82f6' }}>
+                            VTA-{p.saleId}
+                          </span>
+                          <span className="text-xs text-white font-light flex-1 min-w-0 truncate">
+                            {p.cliente || '—'}
+                          </span>
+                          <span className="text-xs font-light shrink-0 hidden sm:inline" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                            {p.sucursal || '—'}
+                          </span>
+                          <span className="text-xs px-2 py-0.5 rounded-full shrink-0"
+                            style={{ background: `${mc}18`, color: mc }}>
+                            {p.metodo}
+                          </span>
+                          <span className="text-xs font-light shrink-0" style={{ color: '#22c55e' }}>
+                            + Gs. {fmt(Number(p.monto))}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {/* Galería de fotos y recetas */}
       {photos.length > 0 && (
