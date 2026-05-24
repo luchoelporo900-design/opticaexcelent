@@ -1112,6 +1112,64 @@ export default function CashPage() {
         )}
       </div>
 
+      {/* ── SALDOS COBRADOS DEL DÍA ── */}
+      {(() => {
+        const abonos     = visiblePayments.filter(p => p.reference === 'Abono');
+        const totalAbono = abonos.reduce((s, p) => s + p.amount, 0);
+        return (
+          <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(34,197,94,0.18)' }}>
+            <div className="flex items-center gap-2 px-5 py-3.5"
+              style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+              <CheckCircle size={14} style={{ color: '#22c55e' }} />
+              <span className="text-xs font-light tracking-wider text-white">Saldos cobrados del día</span>
+              <span className="text-xs px-2 py-0.5 rounded-full"
+                style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e' }}>
+                {abonos.length}
+              </span>
+              {abonos.length > 0 && (
+                <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.32)' }}>
+                  · Gs. {fmt(totalAbono)}
+                </span>
+              )}
+            </div>
+
+            {abonos.length === 0 ? (
+              <div className="text-center py-6">
+                <p className="text-xs" style={{ color: 'rgba(255,255,255,0.25)' }}>Sin saldos cobrados hoy</p>
+              </div>
+            ) : (
+              <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+                {abonos.map((p, i) => {
+                  const mc = METHODS.find(m => m.id === p.method)?.color ?? '#C5A059';
+                  return (
+                    <div key={p.id}
+                      className="flex items-center gap-3 px-4 py-3 text-xs font-light flex-wrap"
+                      style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                      <span className="shrink-0" style={{ color: 'rgba(255,255,255,0.35)', minWidth: 44 }}>
+                        {new Date(p.paid_at).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                      <span className="font-mono shrink-0" style={{ color: '#22c55e' }}>#{p.sale_number}</span>
+                      <span className="flex-1 min-w-0 text-white truncate">{p.customer_name || '—'}</span>
+                      <span className="shrink-0 hidden sm:inline" style={{ color: 'rgba(255,255,255,0.38)' }}>
+                        {p.seller_name || '—'}
+                      </span>
+                      <span className="shrink-0 hidden sm:inline" style={{ color: 'rgba(255,255,255,0.30)' }}>
+                        {p.branch_name || '—'}
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full shrink-0"
+                        style={{ background: `${mc}18`, color: mc }}>
+                        {METHODS.find(m => m.id === p.method)?.label ?? p.method}
+                      </span>
+                      <span className="shrink-0" style={{ color: '#22c55e' }}>+ Gs. {fmt(p.amount)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {lightboxUrl && (
         <div className="fixed inset-0 z-[999] flex items-center justify-center p-6"
           style={{ background: 'rgba(0,0,0,0.92)' }} onClick={() => setLightboxUrl(null)}>
