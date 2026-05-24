@@ -496,7 +496,7 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
     setSaving(true);
     const nuevaFecha = buildIso(fechaDate, fechaTime);
 
-    const { error: err } = await supabase.from('ventas').update({
+    const payload = {
       fecha:            nuevaFecha,
       estado_trabajo:   estado,
       total: t, sena: s, saldo: b,
@@ -520,7 +520,10 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
         stock_frame_id:     eg.stock_frame_id,
         receta_a_confirmar: eg.receta_a_confirmar ?? false,
       })),
-    }).eq('id', sale.id);
+    };
+    console.log('SALES DEBUG UPDATE PAYLOAD', payload);
+    const { data: updateData, error: err } = await supabase.from('ventas').update(payload).eq('id', sale.id);
+    console.log('SALES DEBUG UPDATE RESULT', { data: updateData, error: err });
 
     if (err) { setError('Error al guardar. Intentá de nuevo.'); setSaving(false); return; }
     setSaving(false); onSaved(); onClose();
@@ -713,6 +716,8 @@ export default function SalesHistoryPage() {
   // ── FIX: relee el permiso cada 30 seg para reflejar cambios desde Settings ──
   useEffect(() => {
     if (!profile) return;
+    console.log('SALES DEBUG PROFILE', profile);
+    console.log('SALES DEBUG ROLE', profile?.role);
     if (isAdmin) { setCanEdit(true); return; }
 
     const checkPerm = () => {
@@ -721,7 +726,12 @@ export default function SalesHistoryPage() {
         .select('puede_editar_ventas')
         .eq('id', profile.id)
         .maybeSingle()
-        .then(({ data }) => setCanEdit(data?.puede_editar_ventas ?? false));
+        .then(({ data, error }) => {
+          console.log('SALES DEBUG PERMISSION QUERY', { data, error });
+          const val = data?.puede_editar_ventas ?? false;
+          console.log('SALES DEBUG CAN_EDIT', val);
+          setCanEdit(val);
+        });
     };
 
     checkPerm();
@@ -887,6 +897,7 @@ export default function SalesHistoryPage() {
               const hasConfirmar = anteojos.some((eg: any) => eg.receta_a_confirmar);
               const isDeleting   = deletingId === key;
 
+              console.log('SALES DEBUG SHOW EDIT BUTTON', { canEdit, saleId: v.id });
               return (
                 <div key={key}>
                   <div className="px-4 py-3.5 cursor-pointer" style={{ background: isExp ? 'rgba(197,160,89,0.03)' : 'transparent' }}
