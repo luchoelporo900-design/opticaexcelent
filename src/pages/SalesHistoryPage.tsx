@@ -737,6 +737,101 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
   );
 }
 
+const REACTIVATE_ESTADOS = [
+  { value: 'en_laboratorio', label: 'En Laboratorio' },
+  { value: 'listo',          label: 'Listo'          },
+  { value: 'pagado_total',   label: 'Pagado Total'   },
+  { value: 'entregado',      label: 'Entregado'      },
+  { value: 'cancelado',      label: 'Cancelado'      },
+];
+
+function ReactivateSaleModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void; onSaved: () => void }) {
+  const [estado,  setEstado]  = useState<string>(sale.estadoTrabajo ?? 'entregado');
+  const [saldo,   setSaldo]   = useState<string>(String(sale.saldo   ?? 0));
+  const [sena,    setSena]    = useState<string>(String(sale.sena    ?? 0));
+  const [saving,  setSaving]  = useState(false);
+  const [error,   setError]   = useState('');
+
+  async function handleSave() {
+    setError('');
+    const saldoNum = Number(saldo);
+    const senaNum  = Number(sena);
+    if (isNaN(saldoNum) || isNaN(senaNum)) { setError('Ingresá valores numéricos válidos.'); return; }
+    setSaving(true);
+    const { error: dbErr } = await supabase.from('ventas').update({
+      estado_trabajo: estado,
+      saldo:          saldoNum,
+      sena:           senaNum,
+    }).eq('id', sale.id);
+    if (dbErr) { setError('Error al guardar: ' + dbErr.message); setSaving(false); return; }
+    setSaving(false);
+    onSaved();
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end lg:items-center justify-center p-0 lg:p-4"
+      style={{ background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(4px)' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="w-full lg:max-w-sm rounded-t-3xl lg:rounded-2xl overflow-hidden"
+        style={{ background: '#0e0e0e', border: '1px solid rgba(167,139,250,0.30)', maxHeight: '92vh', overflowY: 'auto' }}>
+        <div className="flex items-center justify-between px-5 py-4 sticky top-0 z-10"
+          style={{ background: '#0e0e0e', borderBottom: '1px solid rgba(167,139,250,0.12)' }}>
+          <div>
+            <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(167,139,250,0.6)' }}>Editar venta — Admin</p>
+            <p className="text-sm font-light text-white mt-0.5">VTA-{sale.id} · {`${sale.cliente?.nombre ?? ''} ${sale.cliente?.apellido ?? ''}`.trim()}</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full"
+            style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)' }}>
+            <X size={14} />
+          </button>
+        </div>
+        <div className="p-5 space-y-4">
+          {error && (
+            <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl text-xs"
+              style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#f87171' }}>
+              <AlertTriangle size={13} className="shrink-0 mt-0.5" />{error}
+            </div>
+          )}
+          <div>
+            <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Estado de trabajo</p>
+            <select value={estado} onChange={e => setEstado(e.target.value)}
+              className="w-full px-3 py-2.5 rounded-xl text-sm font-light outline-none border"
+              style={{ background: 'rgba(255,255,255,0.03)', borderColor: 'rgba(167,139,250,0.35)', color: 'rgba(255,255,255,0.85)' }}>
+              {REACTIVATE_ESTADOS.map(o => (
+                <option key={o.value} value={o.value} style={{ background: '#111' }}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Saldo pendiente (Gs.)</p>
+            <input type="number" value={saldo} onChange={e => setSaldo(e.target.value)}
+              className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border text-right"
+              style={{ borderColor: 'rgba(245,158,11,0.35)' }} />
+          </div>
+          <div>
+            <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Seña / Cobrado (Gs.)</p>
+            <input type="number" value={sena} onChange={e => setSena(e.target.value)}
+              className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border text-right"
+              style={{ borderColor: 'rgba(34,197,94,0.35)' }} />
+          </div>
+          <div className="flex items-center gap-3 pt-1">
+            <button onClick={handleSave} disabled={saving}
+              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium"
+              style={{ background: saving ? 'rgba(167,139,250,0.35)' : '#a78bfa', color: '#000' }}>
+              <Save size={14} />{saving ? 'Guardando...' : 'Guardar cambios'}
+            </button>
+            <button onClick={onClose} className="px-5 py-3 rounded-xl text-sm font-light"
+              style={{ background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.5)', border: '1px solid rgba(255,255,255,0.08)' }}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SalesHistoryPage() {
   const { profile } = useAuth();
   const { sales: allSales, refresh } = useData();
@@ -747,8 +842,9 @@ export default function SalesHistoryPage() {
   const [statusFilter, setStatusFilter] = useState<string>('todos');
   const [branchFilter, setBranchFilter] = useState<string>('');
   const [expandedId,   setExpandedId]   = useState<string | null>(null);
-  const [editSale,     setEditSale]     = useState<any | null>(null);
-  const [deliverSale,  setDeliverSale]  = useState<any | null>(null);
+  const [editSale,        setEditSale]        = useState<any | null>(null);
+  const [deliverSale,     setDeliverSale]     = useState<any | null>(null);
+  const [reactivateSale,  setReactivateSale]  = useState<any | null>(null);
   const [canEdit,      setCanEdit]      = useState(false);
   const [lightboxSrc,  setLightboxSrc]  = useState<string | null>(null);
   const [deletingId,   setDeletingId]   = useState<string | null>(null);
@@ -830,8 +926,9 @@ export default function SalesHistoryPage() {
 
   return (
     <div className="p-4 lg:p-6 space-y-5 max-w-5xl mx-auto">
-      {editSale    && <EditModal    sale={editSale}    onClose={() => setEditSale(null)}    onSaved={() => refresh()} />}
-      {deliverSale && <DeliverModal sale={deliverSale} onClose={() => setDeliverSale(null)} onDelivered={() => refresh()} />}
+      {editSale        && <EditModal          sale={editSale}        onClose={() => setEditSale(null)}        onSaved={() => refresh()} />}
+      {deliverSale     && <DeliverModal       sale={deliverSale}     onClose={() => setDeliverSale(null)}     onDelivered={() => refresh()} />}
+      {reactivateSale  && <ReactivateSaleModal sale={reactivateSale}  onClose={() => setReactivateSale(null)}  onSaved={() => refresh()} />}
 
       {lightboxSrc && (
         <div className="fixed inset-0 z-50 flex items-center justify-center"
@@ -1039,6 +1136,13 @@ export default function SalesHistoryPage() {
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-light"
                             style={{ background: 'rgba(197,160,89,0.08)', border: '1px solid rgba(197,160,89,0.25)', color: '#C5A059' }}>
                             <Pencil size={12} />Editar venta
+                          </button>
+                        )}
+                        {isAdmin && isEntregado && (
+                          <button onClick={() => setReactivateSale(v)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-light"
+                            style={{ background: 'rgba(167,139,250,0.08)', border: '1px solid rgba(167,139,250,0.28)', color: '#a78bfa' }}>
+                            <Pencil size={12} />Editar (Admin)
                           </button>
                         )}
                       </div>
