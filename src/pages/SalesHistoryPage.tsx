@@ -4,7 +4,7 @@ import {
   XCircle, FlaskConical, ShoppingBag, MessageCircle, Pencil, X, Save,
   Banknote, CreditCard, Smartphone, QrCode, Send, Store, Truck,
   AlertTriangle, Camera, Image, Plus, ChevronUp, Wrench, Check, Trash2, Glasses,
-  Calendar,
+  Calendar, ZoomIn,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
@@ -737,6 +737,160 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
   );
 }
 
+const METHOD_COLOR: Record<string, string> = {
+  efectivo: '#22c55e', transferencia: '#3b82f6', tarjeta: '#f59e0b', qr: '#C5A059', giro: '#a78bfa',
+};
+
+function SalePaymentsPanel({ saleId, allPayments, onRefresh, onLightbox }: {
+  saleId: number;
+  allPayments: any[];
+  onRefresh: () => void;
+  onLightbox: (url: string) => void;
+}) {
+  const payments = allPayments.filter(p => p.saleId === saleId);
+  const [editingId,   setEditingId]   = useState<number | null>(null);
+  const [editAmt,     setEditAmt]     = useState('');
+  const [saving,      setSaving]      = useState(false);
+  const [uploadingId, setUploadingId] = useState<number | null>(null);
+
+  async function saveAmount(payId: number) {
+    setSaving(true);
+    await supabase.from('pagos').update({ monto: Number(editAmt) }).eq('id', payId);
+    setSaving(false);
+    setEditingId(null);
+    onRefresh();
+  }
+
+  async function deleteReceipt(payId: number) {
+    if (!window.confirm('¿Eliminar el comprobante de este pago?')) return;
+    await supabase.from('pagos').update({ receipt_url: null }).eq('id', payId);
+    onRefresh();
+  }
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>, payId: number) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingId(payId);
+    try {
+      const url = await uploadToCloudinary(file);
+      await supabase.from('pagos').update({ receipt_url: url }).eq('id', payId);
+      onRefresh();
+    } finally {
+      setUploadingId(null);
+      e.target.value = '';
+    }
+  }
+
+  if (payments.length === 0) return (
+    <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.3)' }}>Sin pagos registrados</p>
+  );
+
+  return (
+    <div className="space-y-2">
+      {payments.map((p: any) => {
+        const mc        = METHOD_COLOR[p.metodo] ?? '#C5A059';
+        const isEditing = editingId === p.id;
+        return (
+          <div key={p.id} className="rounded-xl overflow-hidden"
+            style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.07)' }}>
+
+            {/* Fila principal */}
+            <div className="flex items-center gap-2 px-3 py-2.5 flex-wrap">
+              <span className="text-xs font-light shrink-0" style={{ color: 'rgba(255,255,255,0.35)', minWidth: 38 }}>
+                {new Date(p.fecha).toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' })}
+              </span>
+              <span className="text-xs px-1.5 py-0.5 rounded shrink-0"
+                style={{ background: 'rgba(197,160,89,0.08)', color: 'rgba(197,160,89,0.7)' }}>
+                {p.tipo === 'sena' ? 'Seña' : 'Abono'}
+              </span>
+              <span className="text-xs px-2 py-0.5 rounded-full shrink-0"
+                style={{ background: `${mc}18`, color: mc }}>
+                {p.metodo}
+              </span>
+
+              {isEditing ? (
+                <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                  <input
+                    type="number"
+                    value={editAmt}
+                    onChange={e => setEditAmt(e.target.value)}
+                    className="flex-1 min-w-0 px-2 py-1 rounded-lg bg-transparent text-white text-xs outline-none border text-right"
+                    style={{ borderColor: 'rgba(197,160,89,0.4)', maxWidth: 120 }}
+                    autoFocus
+                  />
+                  <button onClick={() => saveAmount(p.id)} disabled={saving}
+                    className="flex items-center justify-center w-6 h-6 rounded"
+                    style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.3)' }}>
+                    {saving ? '…' : <Check size={11} />}
+                  </button>
+                  <button onClick={() => setEditingId(null)}
+                    className="flex items-center justify-center w-6 h-6 rounded"
+                    style={{ background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.4)' }}>
+                    <X size={11} />
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <span className="text-xs text-white font-light flex-1">Gs. {fmt(Number(p.monto))}</span>
+                  <button
+                    onClick={() => { setEditingId(p.id); setEditAmt(String(p.monto)); }}
+                    className="flex items-center justify-center w-6 h-6 rounded shrink-0"
+                    style={{ background: 'rgba(197,160,89,0.08)', color: 'rgba(197,160,89,0.7)', border: '1px solid rgba(197,160,89,0.2)' }}>
+                    <Pencil size={10} />
+                  </button>
+                </>
+              )}
+            </div>
+
+            {/* Comprobante */}
+            <div className="px-3 pb-3">
+              {p.receipt_url ? (
+                <div className="flex items-start gap-2">
+                  <button onClick={() => onLightbox(p.receipt_url)}
+                    className="relative group rounded-lg overflow-hidden shrink-0"
+                    style={{ width: 64, height: 50, border: '1px solid rgba(197,160,89,0.25)' }}>
+                    <img src={p.receipt_url} alt="comprobante" className="w-full h-full object-cover" />
+                    <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      style={{ background: 'rgba(0,0,0,0.55)' }}>
+                      <ZoomIn size={13} style={{ color: '#C5A059' }} />
+                    </div>
+                  </button>
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor={`upload-pay-${p.id}`}
+                      className="flex items-center gap-1 px-2 py-1 rounded text-xs font-light cursor-pointer"
+                      style={{ background: 'rgba(59,130,246,0.08)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.25)' }}>
+                      <Camera size={10} />{uploadingId === p.id ? 'Subiendo…' : 'Reemplazar'}
+                    </label>
+                    <button onClick={() => deleteReceipt(p.id)}
+                      className="flex items-center gap-1 px-2 py-1 rounded text-xs font-light"
+                      style={{ background: 'rgba(239,68,68,0.08)', color: 'rgba(239,68,68,0.7)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                      <Trash2 size={10} />Eliminar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.25)' }}>Sin comprobante</span>
+                  <label htmlFor={`upload-pay-${p.id}`}
+                    className="flex items-center gap-1 px-2 py-1 rounded text-xs font-light cursor-pointer"
+                    style={{ background: 'rgba(59,130,246,0.08)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.25)' }}>
+                    <Camera size={10} />{uploadingId === p.id ? 'Subiendo…' : 'Subir foto'}
+                  </label>
+                </div>
+              )}
+              <input
+                type="file" accept="image/*" capture="environment"
+                id={`upload-pay-${p.id}`} className="hidden"
+                onChange={e => handleUpload(e, p.id)}
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 const REACTIVATE_ESTADOS = [
   { value: 'en_laboratorio', label: 'En Laboratorio' },
   { value: 'listo',          label: 'Listo'          },
@@ -834,7 +988,7 @@ function ReactivateSaleModal({ sale, onClose, onSaved }: { sale: any; onClose: (
 
 export default function SalesHistoryPage() {
   const { profile } = useAuth();
-  const { sales: allSales, refresh } = useData();
+  const { sales: allSales, payments: allPayments, refresh } = useData();
   const isAdmin     = profile?.role === 'admin' || profile?.role === 'gerente';
   const isVendedora = profile?.role === 'vendedora';
 
@@ -1238,6 +1392,20 @@ export default function SalesHistoryPage() {
                       {v.observaciones && (
                         <div className="px-3 py-2.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
                           <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.5)' }}>📝 {v.observaciones}</p>
+                        </div>
+                      )}
+
+                      {isAdmin && (
+                        <div>
+                          <p className="text-xs font-light tracking-widest uppercase mb-2" style={{ color: 'rgba(59,130,246,0.55)' }}>
+                            Pagos y comprobantes
+                          </p>
+                          <SalePaymentsPanel
+                            saleId={v.id}
+                            allPayments={allPayments}
+                            onRefresh={refresh}
+                            onLightbox={url => setLightboxSrc(url)}
+                          />
                         </div>
                       )}
                     </div>
