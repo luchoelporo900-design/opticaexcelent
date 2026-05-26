@@ -115,6 +115,7 @@ export default function CashPage() {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
   });
+  const [viewMode, setViewMode] = useState<'dia' | 'semana'>('dia');
   const [selectedBranch, setSelectedBranch] = useState<string>('');
   const [selectedSeller, setSelectedSeller] = useState<string>('');
   const [summary,        setSummary]        = useState<DailySummary>(emptyAgg());
@@ -171,6 +172,16 @@ export default function CashPage() {
   const weekRange   = isVendedora ? getWeekRange() : null;
   const allSellers  = [...new Set(allSales.map(v => v.vendedora).filter(Boolean))].sort();
 
+  const adminWeekStart = (() => {
+    const now = new Date();
+    const day = now.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    const mon = new Date(now);
+    mon.setDate(now.getDate() + diff);
+    return mon.toISOString().slice(0, 10);
+  })();
+  const adminWeekEnd = new Date().toISOString().slice(0, 10);
+
   useEffect(() => {
     if (isVendedora && profile?.branch_id && !selectedBranch) setSelectedBranch(profile.branch_id);
     else if (activeBranch && !selectedBranch) setSelectedBranch(activeBranch.name);
@@ -213,9 +224,25 @@ export default function CashPage() {
   const load = useCallback(async () => {
     setLoading(true);
     const sellerFilter = isVendedora ? profile?.full_name : selectedSeller || null;
+    const isWeekView = viewMode === 'semana' && !isVendedora;
+
+    let rangeStart: string, rangeEnd: string;
+    if (isWeekView) {
+      const now = new Date();
+      const day = now.getDay();
+      const diff = day === 0 ? -6 : 1 - day;
+      const mon = new Date(now);
+      mon.setDate(now.getDate() + diff);
+      rangeStart = mon.toISOString().slice(0, 10);
+      rangeEnd = now.toISOString().slice(0, 10);
+    } else {
+      rangeStart = selectedDate;
+      rangeEnd = selectedDate;
+    }
 
     const dayPayments = allPayments.filter(p => {
-      if (!(p.fecha || '').startsWith(selectedDate)) return false;
+      const d = (p.fecha || '').slice(0, 10);
+      if (isWeekView ? (d < rangeStart || d > rangeEnd) : !(p.fecha || '').startsWith(rangeStart)) return false;
       if (sellerFilter && p.vendedora !== sellerFilter) return false;
       if (selectedBranch && !branchMatch(p.sucursal || '', selectedBranch)) return false;
       return true;
@@ -236,37 +263,47 @@ export default function CashPage() {
     }));
 
     const dayExpenses = allExpenses.filter(e => {
-      if ((e.fecha || '') !== selectedDate) return false;
+      const d = (e.fecha || '').slice(0, 10);
+      if (isWeekView ? (d < rangeStart || d > rangeEnd) : d !== rangeStart) return false;
       if (sellerFilter && e.vendedora !== sellerFilter) return false;
       if (selectedBranch && !branchMatch(e.sucursal || '', selectedBranch)) return false;
       return true;
     });
 
     try {
-      // Consultar Supabase directamente para el día seleccionado —
-      // garantiza que fechas antiguas no en caché local se muestren correctamente
-      let ingQ: any = supabase.from('cash_ingresos').select('*')
-        .eq('fecha', selectedDate).order('created_at', { ascending: true });
+      let ingQ: any = supabase.from('cash_ingresos').select('*').order('created_at', { ascending: true });
+      if (isWeekView) {
+        ingQ = ingQ.gte('fecha', rangeStart).lte('fecha', rangeEnd);
+      } else {
+        ingQ = ingQ.eq('fecha', rangeStart);
+      }
       if (selectedBranch) ingQ = ingQ.ilike('sucursal', `%${selectedBranch}%`);
       if (isVendedora && profile?.full_name) ingQ = ingQ.eq('vendedora', profile.full_name);
 
       let pagQ: any = supabase.from('pagos')
         .select('id,sale_id,fecha,monto,metodo,sucursal,vendedora,cliente,tipo,receipt_url')
-        .like('fecha', `${selectedDate}%`)
-        .order('id', { ascending: false }).limit(500);
+        .order('id', { ascending: false }).limit(isWeekView ? 2000 : 500);
+      if (isWeekView) {
+        pagQ = pagQ.gte('fecha', rangeStart).lte('fecha', rangeEnd + 'T23:59:59');
+      } else {
+        pagQ = pagQ.like('fecha', `${rangeStart}%`);
+      }
       if (sellerFilter) pagQ = pagQ.eq('vendedora', sellerFilter);
       if (selectedBranch) pagQ = pagQ.ilike('sucursal', `%${selectedBranch}%`);
 
       let gasQ: any = supabase.from('gastos')
         .select('id,fecha,descripcion,categoria,monto,metodo,sucursal,vendedora')
-        .eq('fecha', selectedDate)
-        .order('id', { ascending: false }).limit(500);
+        .order('id', { ascending: false }).limit(isWeekView ? 2000 : 500);
+      if (isWeekView) {
+        gasQ = gasQ.gte('fecha', rangeStart).lte('fecha', rangeEnd);
+      } else {
+        gasQ = gasQ.eq('fecha', rangeStart);
+      }
       if (sellerFilter) gasQ = gasQ.eq('vendedora', sellerFilter);
       if (selectedBranch) gasQ = gasQ.ilike('sucursal', `%${selectedBranch}%`);
 
       const [{ data: ingData }, { data: dbPagos }, { data: dbGastos }] = await Promise.all([ingQ, pagQ, gasQ]);
 
-      // Pagos extra desde DB que no están en caché local (dedup por id)
       const cachePayIds = new Set(dayPayments.map(p => String(p.id)));
       const extraPayRows: PaymentRow[] = (dbPagos || [])
         .filter((r: any) => !cachePayIds.has(String(r.id)))
@@ -284,7 +321,6 @@ export default function CashPage() {
           receipt_url: r.receipt_url || undefined,
         }));
 
-      // Gastos extra desde DB que no están en caché local (dedup por id)
       const cacheExpIds = new Set(dayExpenses.map(e => String(e.id)));
       const expenseList: Expense[] = [
         ...dayExpenses.map(e => ({ id: String(e.id), description: e.descripcion, category: e.categoria, amount: Number(e.monto), method: e.metodo, expense_date: e.fecha, branch_name: e.sucursal })),
@@ -307,7 +343,6 @@ export default function CashPage() {
         (ingData || []).map((i: any) => ({ id: String(i.id), description: i.descripcion, amount: Number(i.monto), method: i.metodo, date: i.fecha, branch_name: i.sucursal })),
       );
     } catch {
-      // Fallback puro desde caché si Supabase no responde
       buildAndCommit(
         payRows,
         dayExpenses.map(e => ({ id: String(e.id), description: e.descripcion, category: e.categoria, amount: Number(e.monto), method: e.metodo, expense_date: e.fecha, branch_name: e.sucursal })),
@@ -315,7 +350,7 @@ export default function CashPage() {
       );
     }
     setLoading(false);
-  }, [selectedBranch, selectedDate, selectedSeller, isVendedora, profile?.full_name, allPayments, allSales, allExpenses]);
+  }, [selectedBranch, selectedDate, selectedSeller, isVendedora, profile?.full_name, allPayments, allSales, allExpenses, viewMode]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -344,7 +379,7 @@ export default function CashPage() {
     if (!ingBranch)       { setIngErr('Seleccioná una sucursal.'); return; }
     setSavingIng(true);
     const { error } = await supabase.from('cash_ingresos').insert([{
-      fecha: selectedDate, descripcion: ingDesc.trim(),
+      fecha: viewMode === 'semana' ? new Date().toISOString().slice(0, 10) : selectedDate, descripcion: ingDesc.trim(),
       monto: amt, metodo: ingMethod,
       sucursal: ingBranch, vendedora: profile?.full_name || '',
     }]);
@@ -364,7 +399,7 @@ export default function CashPage() {
     if (!expBranch)       { setExpErr('Seleccioná una sucursal.'); return; }
     setSavingExp(true);
     await saveExpense({
-      id: Date.now(), fecha: selectedDate, descripcion: expDesc.trim(),
+      id: Date.now(), fecha: viewMode === 'semana' ? new Date().toISOString().slice(0, 10) : selectedDate, descripcion: expDesc.trim(),
       categoria: expCategory, monto: amt, metodo: expMethod,
       sucursal: expBranch, vendedora: profile?.full_name || '',
     });
@@ -464,12 +499,35 @@ export default function CashPage() {
             </>
           )}
           {!isVendedora && (
-            <div className="flex items-center gap-2 px-3 py-2 rounded-lg"
-              style={{ background: 'rgba(197,160,89,0.07)', border: '1px solid rgba(197,160,89,0.18)' }}>
-              <Calendar size={13} style={{ color: 'rgba(197,160,89,0.6)' }} />
-              <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)}
-                className="bg-transparent text-xs text-white border-none outline-none" />
-            </div>
+            <>
+              <div className="flex rounded-lg overflow-hidden" style={{ border: '1px solid rgba(197,160,89,0.22)' }}>
+                {(['dia', 'semana'] as const).map(mode => (
+                  <button key={mode} onClick={() => setViewMode(mode)}
+                    className="px-3 py-2 text-xs font-light"
+                    style={{ background: viewMode === mode ? 'rgba(197,160,89,0.15)' : 'rgba(197,160,89,0.04)', color: viewMode === mode ? '#C5A059' : 'rgba(255,255,255,0.44)' }}>
+                    {mode === 'dia' ? 'Día' : 'Semana'}
+                  </button>
+                ))}
+              </div>
+              {viewMode === 'dia' ? (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg"
+                  style={{ background: 'rgba(197,160,89,0.07)', border: '1px solid rgba(197,160,89,0.18)' }}>
+                  <Calendar size={13} style={{ color: 'rgba(197,160,89,0.6)' }} />
+                  <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)}
+                    className="bg-transparent text-xs text-white border-none outline-none" />
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg"
+                  style={{ background: 'rgba(197,160,89,0.07)', border: '1px solid rgba(197,160,89,0.18)' }}>
+                  <Calendar size={13} style={{ color: 'rgba(197,160,89,0.6)' }} />
+                  <span className="text-xs text-white font-light">
+                    {new Date(adminWeekStart + 'T12:00:00').toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' })}
+                    {' — '}
+                    {new Date(adminWeekEnd + 'T12:00:00').toLocaleDateString('es-PY', { weekday: 'short', day: '2-digit', month: '2-digit' })}
+                  </span>
+                </div>
+              )}
+            </>
           )}
           {isVendedora && weekRange && !weekRange.isClosed && (
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg"
@@ -546,7 +604,7 @@ export default function CashPage() {
         </div>
         <div className="rounded-xl p-5" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(239,68,68,0.20)' }}>
           <p className="text-xs font-light mb-2 flex items-center gap-1.5" style={{ color: 'rgba(255,255,255,0.44)' }}>
-            <Minus size={11} />Egresos del día
+            <Minus size={11} />{viewMode === 'semana' ? 'Egresos de la semana' : 'Egresos del día'}
           </p>
           <p className="text-2xl font-light" style={{ color: '#ef4444' }}>{fmt(visibleSummary.expenses)}</p>
           <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.24)' }}>{expenses.length} gastos</p>
@@ -652,7 +710,7 @@ export default function CashPage() {
             style={{ background: 'rgba(197,160,89,0.04)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
             <Unlock size={14} style={{ color: '#C5A059' }} />
             <p className="text-sm font-light" style={{ color: 'rgba(255,255,255,0.75)' }}>
-              Resumen del día{selectedBranch ? ` — ${selectedBranch}` : ''}{selectedSeller ? ` · ${selectedSeller}` : ''}
+              {viewMode === 'semana' ? 'Resumen de la semana' : 'Resumen del día'}{selectedBranch ? ` — ${selectedBranch}` : ''}{selectedSeller ? ` · ${selectedSeller}` : ''}
             </p>
           </div>
           <div className="px-5 py-5">
@@ -688,7 +746,7 @@ export default function CashPage() {
             )}
             <div className="mt-3 flex items-center justify-between px-4 py-3 rounded-xl"
               style={{ background: netTotal>=0?'rgba(34,197,94,0.06)':'rgba(239,68,68,0.06)', border: `1px solid ${netTotal>=0?'rgba(34,197,94,0.25)':'rgba(239,68,68,0.25)'}` }}>
-              <span className="text-sm font-light text-white">Neto final del día</span>
+              <span className="text-sm font-light text-white">{viewMode === 'semana' ? 'Neto final de la semana' : 'Neto final del día'}</span>
               <span className="text-lg font-light" style={{ color: netTotal>=0?'#22c55e':'#ef4444' }}>Gs. {fmt(netTotal)}</span>
             </div>
           </div>
@@ -825,7 +883,7 @@ export default function CashPage() {
         <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           <div className="flex items-center gap-2">
             <Minus size={14} style={{ color: '#ef4444' }} />
-            <span className="text-xs font-light tracking-wider text-white">Egresos del día</span>
+            <span className="text-xs font-light tracking-wider text-white">{viewMode === 'semana' ? 'Egresos de la semana' : 'Egresos del día'}</span>
             <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444' }}>{expenses.length}</span>
             {expenses.length > 0 && <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.32)' }}>· Total: Gs. {fmt(expenses.reduce((s,e)=>s+e.amount,0))}</span>}
           </div>
@@ -973,7 +1031,7 @@ export default function CashPage() {
         <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           <div className="flex items-center gap-2">
             <TrendingUp size={14} style={{ color: 'rgba(197,160,89,0.6)' }} />
-            <span className="text-xs font-light tracking-wider text-white">Cobros del día</span>
+            <span className="text-xs font-light tracking-wider text-white">{viewMode === 'semana' ? 'Cobros de la semana' : 'Cobros del día'}</span>
             <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(197,160,89,0.12)', color: '#C5A059' }}>{filtered.length}</span>
           </div>
           <div className="flex items-center gap-1 flex-wrap">
@@ -990,7 +1048,7 @@ export default function CashPage() {
         {filtered.length === 0 ? (
           <div className="text-center py-14">
             <DollarSign size={28} style={{ color: 'rgba(255,255,255,0.08)', margin: '0 auto 10px' }} />
-            <p className="text-xs" style={{ color: 'rgba(255,255,255,0.28)' }}>Sin cobros para este día</p>
+            <p className="text-xs" style={{ color: 'rgba(255,255,255,0.28)' }}>{viewMode === 'semana' ? 'Sin cobros esta semana' : 'Sin cobros para este día'}</p>
           </div>
         ) : (
           <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
@@ -1121,7 +1179,7 @@ export default function CashPage() {
             <div className="flex items-center gap-2 px-5 py-3.5"
               style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
               <CheckCircle size={14} style={{ color: '#22c55e' }} />
-              <span className="text-xs font-light tracking-wider text-white">Saldos cobrados del día</span>
+              <span className="text-xs font-light tracking-wider text-white">{viewMode === 'semana' ? 'Saldos cobrados de la semana' : 'Saldos cobrados del día'}</span>
               <span className="text-xs px-2 py-0.5 rounded-full"
                 style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e' }}>
                 {abonos.length}
@@ -1135,7 +1193,7 @@ export default function CashPage() {
 
             {abonos.length === 0 ? (
               <div className="text-center py-6">
-                <p className="text-xs" style={{ color: 'rgba(255,255,255,0.25)' }}>Sin saldos cobrados hoy</p>
+                <p className="text-xs" style={{ color: 'rgba(255,255,255,0.25)' }}>{viewMode === 'semana' ? 'Sin saldos cobrados esta semana' : 'Sin saldos cobrados hoy'}</p>
               </div>
             ) : (
               <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
