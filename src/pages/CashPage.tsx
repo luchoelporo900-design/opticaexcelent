@@ -455,6 +455,9 @@ export default function CashPage() {
 
   const netTotal = visibleSummary.total + visibleSummary.ingresos - visibleSummary.expenses;
 
+  const abonosVisible    = visiblePayments.filter(p => p.reference === 'Abono');
+  const totalAbonos      = abonosVisible.reduce((s, p) => s + p.amount, 0);
+
   // ── FIX: Efectivo neto incluye ingresos manuales en efectivo ──────────────
   const ingresosEfectivo = ingresos
     .filter(i => i.method === 'efectivo')
@@ -587,7 +590,7 @@ export default function CashPage() {
       </div>
 
       {/* Totales */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="rounded-xl p-5" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(197,160,89,0.20)' }}>
           <p className="text-xs font-light mb-2 flex items-center gap-1.5" style={{ color: 'rgba(255,255,255,0.44)' }}>
             <DollarSign size={11} />{isVendedora ? 'Mis cobros de hoy' : 'Total cobrado'}
@@ -614,6 +617,13 @@ export default function CashPage() {
           <p className="text-xs font-light mb-2" style={{ color: 'rgba(255,255,255,0.44)' }}>Total en Caja</p>
           <p className="text-2xl font-light" style={{ color: netTotal >= 0 ? '#22c55e' : '#ef4444' }}>{fmt(netTotal)}</p>
           <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.24)' }}>Cobros + Ingresos — Gastos</p>
+        </div>
+        <div className="rounded-xl p-5" style={{ background: 'rgba(34,197,94,0.03)', border: '1px solid rgba(34,197,94,0.20)' }}>
+          <p className="text-xs font-light mb-2 flex items-center gap-1.5" style={{ color: 'rgba(255,255,255,0.44)' }}>
+            <CheckCircle size={11} style={{ color: '#22c55e' }} />Saldos cobrados
+          </p>
+          <p className="text-2xl font-light" style={{ color: '#22c55e' }}>{fmt(totalAbonos)}</p>
+          <p className="text-xs mt-1" style={{ color: 'rgba(34,197,94,0.5)' }}>incluido en total cobrado</p>
         </div>
       </div>
 
