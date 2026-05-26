@@ -494,6 +494,7 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
   const [vendedora,  setVendedora]  = useState(sale.vendedora     ?? '');
   const [sucursal,   setSucursal]   = useState(sale.sucursalVenta ?? '');
   const [receiptUrl, setReceiptUrl] = useState(sale.receipt_url   ?? '');
+  const [payMethod,  setPayMethod]  = useState<PaymentMethod>((sale.metodoPago || 'efectivo') as PaymentMethod);
 
   const [fechaDate, setFechaDate] = useState(isoToDateInput(sale.fecha));
   const [fechaTime, setFechaTime] = useState(isoToTimeInput(sale.fecha));
@@ -544,6 +545,7 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
       vendedora:        vendedora.trim()|| null,
       sucursal_venta:   sucursal        || null,
       receipt_url:      receiptUrl      || null,
+      metodo_pago:      payMethod,
       cliente_nombre:   nombre.trim(),
       cliente_apellido: apellido.trim(),
       cliente_telefono: telefono.trim(),
@@ -566,6 +568,7 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
     console.log('SALES DEBUG UPDATE RESULT', { data: updateData, error: err });
 
     if (err) { setError('Error al guardar. Intentá de nuevo.'); setSaving(false); return; }
+    await supabase.from('pagos').update({ metodo: payMethod }).eq('venta_id', String(sale.id)).eq('tipo', 'sena');
     setSaving(false); onSaved(); onClose();
   }
 
@@ -660,6 +663,23 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
               ))}
             </div>
             <p className="text-xs font-light mt-2" style={{ color: 'rgba(255,255,255,0.3)' }}>El saldo se recalcula automáticamente al cambiar total o seña.</p>
+          </div>
+
+          <div>
+            <p className="text-xs font-light tracking-widest uppercase mb-3" style={{ color: 'rgba(197,160,89,0.6)' }}>Método de pago</p>
+            <div className="flex gap-2 flex-wrap">
+              {PAY_METHODS.map(m => (
+                <button key={m.id} onClick={() => setPayMethod(m.id)}
+                  className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-light"
+                  style={{
+                    background: payMethod === m.id ? `${m.color}18` : 'rgba(255,255,255,0.03)',
+                    border: `1px solid ${payMethod === m.id ? m.color + '55' : 'rgba(255,255,255,0.08)'}`,
+                    color: payMethod === m.id ? m.color : 'rgba(255,255,255,0.45)'
+                  }}>
+                  {m.icon}{m.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div>
