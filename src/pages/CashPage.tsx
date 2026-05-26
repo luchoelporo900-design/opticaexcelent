@@ -1036,6 +1036,53 @@ export default function CashPage() {
         )}
       </div>
 
+      {/* ── RESUMEN POR MÉTODO DE PAGO ── */}
+      {visiblePayments.length > 0 && (
+        <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(197,160,89,0.18)' }}>
+          <div className="flex items-center gap-2 px-5 py-3.5"
+            style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(197,160,89,0.03)' }}>
+            <DollarSign size={14} style={{ color: '#C5A059' }} />
+            <span className="text-xs font-light tracking-wider text-white">Resumen cobrado por método</span>
+            <span className="text-xs font-light ml-1" style={{ color: 'rgba(255,255,255,0.35)' }}>
+              — {visiblePayments.length} cobro{visiblePayments.length !== 1 ? 's' : ''} · Total Gs. {fmt(visibleSummary.total)}
+            </span>
+          </div>
+          <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+            {METHODS.filter(m => (visibleSummary as any)[m.id] > 0).map(m => {
+              const total    = (visibleSummary as any)[m.id] as number;
+              const cantidad = visiblePayments.filter(p => p.method === m.id).length;
+              const pct      = visibleSummary.total > 0 ? (total / visibleSummary.total) * 100 : 0;
+              return (
+                <div key={m.id} className="px-5 py-3.5">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span style={{ color: m.color, opacity: 0.85 }}>{m.icon}</span>
+                    <span className="text-xs font-light text-white flex-1">{m.label}</span>
+                    <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.38)' }}>
+                      {cantidad} cobro{cantidad !== 1 ? 's' : ''}
+                    </span>
+                    <span className="text-sm font-light" style={{ color: m.color }}>
+                      Gs. {fmt(total)}
+                    </span>
+                  </div>
+                  <div className="h-1 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.05)' }}>
+                    <div className="h-full rounded-full"
+                      style={{ width: `${pct}%`, background: m.color, opacity: 0.7 }} />
+                  </div>
+                  <p className="text-xs mt-1 text-right font-light" style={{ color: 'rgba(255,255,255,0.25)' }}>
+                    {pct.toFixed(1)}% del total
+                  </p>
+                </div>
+              );
+            })}
+            <div className="flex items-center justify-between px-5 py-3.5"
+              style={{ background: 'rgba(197,160,89,0.04)' }}>
+              <span className="text-xs font-light text-white">Total cobrado</span>
+              <span className="text-lg font-light" style={{ color: '#C5A059' }}>Gs. {fmt(visibleSummary.total)}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── COBROS DEL DÍA ── */}
       <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
         <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
