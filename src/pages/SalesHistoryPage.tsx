@@ -750,12 +750,13 @@ function SalePaymentsPanel({ saleId, allPayments, onRefresh, onLightbox }: {
   const payments = allPayments.filter(p => p.saleId === saleId);
   const [editingId,   setEditingId]   = useState<number | null>(null);
   const [editAmt,     setEditAmt]     = useState('');
+  const [editMethod,  setEditMethod]  = useState<string>('');
   const [saving,      setSaving]      = useState(false);
   const [uploadingId, setUploadingId] = useState<number | null>(null);
 
-  async function saveAmount(payId: number) {
+  async function saveAmount(payId: number, method: string) {
     setSaving(true);
-    await supabase.from('pagos').update({ monto: Number(editAmt) }).eq('id', payId);
+    await supabase.from('pagos').update({ monto: Number(editAmt), metodo: method }).eq('id', payId);
     setSaving(false);
     setEditingId(null);
     onRefresh();
@@ -818,7 +819,7 @@ function SalePaymentsPanel({ saleId, allPayments, onRefresh, onLightbox }: {
                     style={{ borderColor: 'rgba(197,160,89,0.4)', maxWidth: 120 }}
                     autoFocus
                   />
-                  <button onClick={() => saveAmount(p.id)} disabled={saving}
+                  <button onClick={() => saveAmount(p.id, editMethod)} disabled={saving}
                     className="flex items-center justify-center w-6 h-6 rounded"
                     style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.3)' }}>
                     {saving ? '…' : <Check size={11} />}
@@ -833,7 +834,7 @@ function SalePaymentsPanel({ saleId, allPayments, onRefresh, onLightbox }: {
                 <>
                   <span className="text-xs text-white font-light flex-1">Gs. {fmt(Number(p.monto))}</span>
                   <button
-                    onClick={() => { setEditingId(p.id); setEditAmt(String(p.monto)); }}
+                    onClick={() => { setEditingId(p.id); setEditAmt(String(p.monto)); setEditMethod(p.metodo); }}
                     className="flex items-center justify-center w-6 h-6 rounded shrink-0"
                     style={{ background: 'rgba(197,160,89,0.08)', color: 'rgba(197,160,89,0.7)', border: '1px solid rgba(197,160,89,0.2)' }}>
                     <Pencil size={10} />
@@ -841,6 +842,23 @@ function SalePaymentsPanel({ saleId, allPayments, onRefresh, onLightbox }: {
                 </>
               )}
             </div>
+
+            {/* Métodos de pago al editar */}
+            {isEditing && (
+              <div className="flex gap-1.5 flex-wrap px-3 pb-2">
+                {PAY_METHODS.map(m => (
+                  <button key={m.id} onClick={() => setEditMethod(m.id)}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-light"
+                    style={{
+                      background: editMethod === m.id ? `${m.color}18` : 'rgba(255,255,255,0.03)',
+                      border: `1px solid ${editMethod === m.id ? m.color + '44' : 'rgba(255,255,255,0.07)'}`,
+                      color: editMethod === m.id ? m.color : 'rgba(255,255,255,0.38)'
+                    }}>
+                    {m.icon}{m.label}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* Comprobante */}
             <div className="px-3 pb-3">
