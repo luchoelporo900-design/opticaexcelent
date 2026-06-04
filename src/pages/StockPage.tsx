@@ -162,8 +162,10 @@ export default function StockPage() {
     const { data } = await supabase.from('stock_movimientos').select('*').order('created_at', { ascending: false }).limit(20);
     if (data) setMovimientos(data as Movimiento[]);
 
-    const mesStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
-    const { data: mvData } = await supabase.from('stock_movimientos').select('armazon_nombre, armazon_codigo, cantidad').eq('tipo','venta').gte('created_at', mesStart);
+    const mesStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    mesStart.setHours(mesStart.getHours() + 4);
+    const mesStartISO = mesStart.toISOString();
+    const { data: mvData } = await supabase.from('stock_movimientos').select('armazon_nombre, armazon_codigo, cantidad').eq('tipo','venta').gte('created_at', mesStartISO);
     if (mvData) {
       const map: Record<string, MasVendido> = {};
       for (const m of mvData) {
@@ -180,7 +182,7 @@ export default function StockPage() {
     const { data } = await supabase.from('stock_movimientos')
       .select('*').eq('tipo','venta')
       .gte('created_at', fechaDesde + 'T04:00:00.000Z')
-      .lte('created_at', fechaHasta + 'T03:59:59.999Z')
+      .lte('created_at', (() => { const d = new Date(fechaHasta + 'T00:00:00'); d.setDate(d.getDate() + 1); d.setHours(3, 59, 59, 999); return d.toISOString(); })())
       .order('created_at', { ascending: false });
     if (data) setVendidosFiltrados(data as Movimiento[]);
     setLoadingVendidos(false);
