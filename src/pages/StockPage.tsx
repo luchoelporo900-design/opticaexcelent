@@ -31,14 +31,14 @@ type Movimiento = {
 type MasVendido = { armazon_nombre: string; armazon_codigo: string; total: number; };
 
 type Insumo = {
-  id: string; nombre: string; unidad: string;
+  id: string; nombre: string; unidad: string; foto_url: string;
   stock_pettirossi: number; stock_azara: number; stock_lambere: number;
   stock_accesosur: number; stock_capiata: number; stock_deposito: number;
   precio_costo: number; updated_at: string;
 };
 
 type InsumoForm = {
-  nombre: string; unidad: string; precio_costo: number;
+  nombre: string; unidad: string; foto_url: string; precio_costo: number;
   stock_pettirossi: number; stock_azara: number; stock_lambere: number;
   stock_accesosur: number; stock_capiata: number; stock_deposito: number;
 };
@@ -63,7 +63,7 @@ function emptyForm(): FormData {
 }
 
 function emptyInsumoForm(): InsumoForm {
-  return { nombre: '', unidad: '', precio_costo: 0,
+  return { nombre: '', unidad: '', foto_url: '', precio_costo: 0,
     stock_pettirossi: 0, stock_azara: 0, stock_lambere: 0, stock_accesosur: 0,
     stock_capiata: 0, stock_deposito: 0 };
 }
@@ -121,6 +121,8 @@ export default function StockPage() {
   const [savingInsumo, setSavingInsumo]     = useState(false);
   const [saveInsumoOk, setSaveInsumoOk]     = useState(false);
   const [expandedInsumoId, setExpandedInsumoId] = useState<string|null>(null);
+  const [deleteInsumoId, setDeleteInsumoId] = useState<string|null>(null);
+  const insumoPhotoRef = useRef<HTMLInputElement|null>(null);
 
   // Lightbox foto
   const [lightboxUrl, setLightboxUrl] = useState<string|null>(null);
@@ -277,12 +279,20 @@ export default function StockPage() {
   function openEditInsumo(ins: Insumo) {
     setEditingInsumo(ins);
     setInsumoForm({
-      nombre: ins.nombre, unidad: ins.unidad, precio_costo: ins.precio_costo,
+      nombre: ins.nombre, unidad: ins.unidad, foto_url: ins.foto_url||'',
+      precio_costo: ins.precio_costo,
       stock_pettirossi: ins.stock_pettirossi, stock_azara: ins.stock_azara,
       stock_lambere: ins.stock_lambere, stock_accesosur: ins.stock_accesosur,
       stock_capiata: ins.stock_capiata, stock_deposito: ins.stock_deposito||0,
     });
     setShowInsumoModal(true);
+  }
+
+  async function handleInsumoPhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async ev => { const c = await compressImage(ev.target?.result as string); setInsumoForm(p => ({ ...p, foto_url: c })); };
+    reader.readAsDataURL(file);
   }
 
   async function saveInsumo() {
@@ -295,6 +305,12 @@ export default function StockPage() {
     }
     await loadInsumos(); setSavingInsumo(false); setSaveInsumoOk(true);
     setTimeout(() => { setSaveInsumoOk(false); setShowInsumoModal(false); }, 1200);
+  }
+
+  async function confirmDeleteInsumo() {
+    if (!deleteInsumoId) return;
+    await supabase.from('insumos_stock').delete().eq('id', deleteInsumoId);
+    setDeleteInsumoId(null); await loadInsumos();
   }
 
   async function adjustInsumoStock(id: string, sede: string, delta: number) {
@@ -671,8 +687,8 @@ export default function StockPage() {
       {/* ── VISTA: INSUMOS ───────────────────────────────────────────────── */}
       {vistaActiva === 'insumos' && (
         <div className="space-y-4">
-          <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(167,139,250,0.15)' }}>
-            <div className="hidden lg:grid px-5 py-3 text-xs font-light" style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 40px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(167,139,250,0.04)', color: 'rgba(255,255,255,0.32)' }}>
+          <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(197,160,89,0.12)' }}>
+            <div className="hidden lg:grid px-5 py-3 text-xs font-light" style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 40px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(197,160,89,0.03)', color: 'rgba(255,255,255,0.32)' }}>
               <span>Nombre</span><span>Unidad</span><span>Precio costo</span><span>Stock total</span><span></span>
             </div>
 
@@ -690,18 +706,31 @@ export default function StockPage() {
                   return (
                     <div key={ins.id}>
                       <div className="flex lg:grid items-center gap-3 px-4 py-3 cursor-pointer"
-                        style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 40px', background: isExp ? 'rgba(167,139,250,0.04)' : i%2===0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}
+                        style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 40px', background: isExp ? 'rgba(197,160,89,0.03)' : i%2===0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}
                         onClick={() => setExpandedInsumoId(isExp ? null : ins.id)}>
 
                         <div className="flex items-center gap-2 min-w-0 flex-1">
-                          <div className="w-8 h-8 rounded-lg shrink-0 flex items-center justify-center" style={{ background: 'rgba(167,139,250,0.08)', border: '1px solid rgba(167,139,250,0.18)' }}>
-                            <Layers size={13} style={{ color: 'rgba(167,139,250,0.6)' }} />
+                          {ins.foto_url ? (
+                            <button onClick={e => { e.stopPropagation(); setLightboxUrl(ins.foto_url); }}
+                              className="shrink-0 relative group">
+                              <img src={ins.foto_url} alt={ins.nombre} className="w-9 h-9 rounded-lg object-cover" style={{ border: '1px solid rgba(197,160,89,0.2)' }} />
+                              <div className="absolute inset-0 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" style={{ background: 'rgba(0,0,0,0.5)' }}>
+                                <ZoomIn size={12} style={{ color: '#C5A059' }} />
+                              </div>
+                            </button>
+                          ) : (
+                            <div className="w-9 h-9 rounded-lg shrink-0 flex items-center justify-center" style={{ background: 'rgba(197,160,89,0.06)', border: '1px solid rgba(197,160,89,0.12)' }}>
+                              <Package size={14} style={{ color: 'rgba(197,160,89,0.4)' }} />
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <p className="text-xs text-white font-light truncate">{ins.nombre}</p>
+                            <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.36)' }}>{ins.unidad || '—'}</p>
                           </div>
-                          <p className="text-xs text-white font-light truncate">{ins.nombre}</p>
                         </div>
 
                         <p className="hidden lg:block text-xs font-light" style={{ color: 'rgba(255,255,255,0.5)' }}>{ins.unidad || '—'}</p>
-                        <p className="hidden lg:block text-xs font-light" style={{ color: '#a78bfa' }}>
+                        <p className="hidden lg:block text-xs font-light" style={{ color: '#C5A059' }}>
                           {ins.precio_costo > 0 ? `Gs. ${fmt(ins.precio_costo)}` : '—'}
                         </p>
                         <div className="hidden lg:flex items-center gap-1.5">
@@ -710,21 +739,34 @@ export default function StockPage() {
                         </div>
                         {/* Móvil */}
                         <div className="lg:hidden flex flex-col items-end shrink-0">
-                          <span className="text-xs font-light" style={{ color: '#a78bfa' }}>{ins.unidad || 'uds.'}</span>
-                          <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.5)' }}>{totalInsumoStock(ins)} total</span>
+                          <span className="text-xs font-light" style={{ color: '#C5A059' }}>
+                            {ins.precio_costo > 0 ? `Gs. ${fmt(ins.precio_costo)}` : '—'}
+                          </span>
+                          <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.5)' }}>{totalInsumoStock(ins)} uds.</span>
                         </div>
 
                         <ChevronDown size={13} style={{ color: 'rgba(255,255,255,0.3)', transform: isExp ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }} />
                       </div>
 
                       {isExp && (
-                        <div className="px-4 pb-4 pt-3 space-y-4" style={{ background: 'rgba(167,139,250,0.02)', borderTop: '1px solid rgba(167,139,250,0.08)' }}>
+                        <div className="px-4 pb-4 pt-3 space-y-4" style={{ background: 'rgba(197,160,89,0.02)', borderTop: '1px solid rgba(197,160,89,0.08)' }}>
+
+                          {/* Foto grande al expandir */}
+                          {ins.foto_url && (
+                            <button onClick={() => setLightboxUrl(ins.foto_url)} className="relative group block">
+                              <img src={ins.foto_url} alt={ins.nombre} className="h-28 rounded-xl object-cover border" style={{ borderColor: 'rgba(197,160,89,0.25)' }} />
+                              <div className="absolute inset-0 rounded-xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" style={{ background: 'rgba(0,0,0,0.4)' }}>
+                                <ZoomIn size={20} style={{ color: '#C5A059' }} />
+                              </div>
+                            </button>
+                          )}
+
                           <div className="grid grid-cols-2 gap-3">
                             {[
-                              { label: 'Nombre',       value: ins.nombre,                                        color: 'white' },
-                              { label: 'Unidad',       value: ins.unidad || '—',                                 color: 'rgba(255,255,255,0.7)' },
-                              { label: 'Precio costo', value: ins.precio_costo > 0 ? `Gs. ${fmt(ins.precio_costo)}` : '—', color: '#a78bfa' },
-                              { label: 'Stock total',  value: `${totalInsumoStock(ins)} ${ins.unidad || 'uds.'}`, color: 'white' },
+                              { label: 'Nombre',       value: ins.nombre,                                                color: 'white' },
+                              { label: 'Unidad',       value: ins.unidad || '—',                                         color: 'rgba(255,255,255,0.7)' },
+                              { label: 'Precio costo', value: ins.precio_costo > 0 ? `Gs. ${fmt(ins.precio_costo)}` : '—', color: '#C5A059' },
+                              { label: 'Stock total',  value: `${totalInsumoStock(ins)} ${ins.unidad || 'uds.'}`,         color: 'white' },
                             ].map(d => (
                               <div key={d.label} className="rounded-lg p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
                                 <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>{d.label}</p>
@@ -735,7 +777,7 @@ export default function StockPage() {
 
                           {puedeCargarStock && (
                             <div>
-                              <p className="text-xs font-light mb-2 tracking-widest uppercase" style={{ color: 'rgba(167,139,250,0.55)' }}>Stock por sede</p>
+                              <p className="text-xs font-light mb-2 tracking-widest uppercase" style={{ color: 'rgba(197,160,89,0.55)' }}>Stock por sede</p>
                               <div className="grid grid-cols-2 gap-2">
                                 {SEDES.map(s => {
                                   const qty = (ins as any)[s.key] || 0;
@@ -755,9 +797,12 @@ export default function StockPage() {
                           )}
 
                           {isAdmin && (
-                            <div className="flex items-center gap-2 pt-1">
-                              <button onClick={() => openEditInsumo(ins)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light" style={{ background: 'rgba(167,139,250,0.08)', border: '1px solid rgba(167,139,250,0.25)', color: '#a78bfa' }}>
+                            <div className="flex items-center gap-2 flex-wrap pt-1">
+                              <button onClick={() => openEditInsumo(ins)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light" style={{ background: 'rgba(197,160,89,0.08)', border: '1px solid rgba(197,160,89,0.25)', color: '#C5A059' }}>
                                 <Edit2 size={11} />Editar
+                              </button>
+                              <button onClick={() => setDeleteInsumoId(ins.id)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.20)', color: 'rgba(239,68,68,0.7)' }}>
+                                <Trash2 size={11} />Eliminar
                               </button>
                             </div>
                           )}
@@ -897,23 +942,46 @@ export default function StockPage() {
       {/* ─── Modal insumo ─────────────────────────────────────────────────── */}
       {showInsumoModal && isAdmin && (
         <div className="fixed inset-0 z-[900] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.88)' }}>
-          <div className="w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: '#0d0d0d', border: '1px solid rgba(167,139,250,0.25)' }}>
-            <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)', background: 'rgba(167,139,250,0.04)' }}>
+          <div className="w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: '#0d0d0d', border: '1px solid rgba(197,160,89,0.25)' }}>
+            <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)', background: 'rgba(197,160,89,0.04)' }}>
               <div className="flex items-center gap-2">
-                <Layers size={15} style={{ color: '#a78bfa' }} />
+                <Layers size={15} style={{ color: '#C5A059' }} />
                 <p className="text-sm font-light text-white">{editingInsumo ? 'Editar insumo' : 'Nuevo insumo'}</p>
               </div>
               <button onClick={() => setShowInsumoModal(false)} style={{ color: 'rgba(255,255,255,0.4)' }}><X size={14} /></button>
             </div>
 
             <div className="px-5 py-5 space-y-4 max-h-[78vh] overflow-y-auto">
+              {/* Foto */}
+              <div>
+                <label className="text-xs font-light mb-2 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Foto del insumo</label>
+                {insumoForm.foto_url ? (
+                  <div className="relative inline-block">
+                    <img src={insumoForm.foto_url} alt="insumo" className="h-28 rounded-xl object-cover border cursor-pointer"
+                      style={{ borderColor: 'rgba(197,160,89,0.25)' }}
+                      onClick={() => setLightboxUrl(insumoForm.foto_url)} />
+                    <button onClick={() => setInsumoForm(p => ({ ...p, foto_url: '' }))}
+                      className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center"
+                      style={{ background: '#ef4444' }}><X size={10} color="#fff" /></button>
+                  </div>
+                ) : (
+                  <button onClick={() => insumoPhotoRef.current?.click()}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-light border"
+                    style={{ borderColor: 'rgba(197,160,89,0.22)', color: 'rgba(197,160,89,0.7)', background: 'rgba(197,160,89,0.04)' }}>
+                    <Camera size={14} />Tomar foto o elegir de galería
+                  </button>
+                )}
+                <input ref={insumoPhotoRef} type="file" accept="image/*" className="hidden" onChange={handleInsumoPhotoUpload} />
+              </div>
+
+              {/* Nombre, Unidad, Precio */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="col-span-2">
                   <label className="text-xs font-light mb-1.5 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Nombre *</label>
                   <input value={insumoForm.nombre} onChange={e => setInsumoForm(p => ({ ...p, nombre: e.target.value }))}
                     placeholder="Ej: Paño de limpieza"
                     className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border"
-                    style={{ borderColor: 'rgba(167,139,250,0.25)' }} />
+                    style={{ borderColor: 'rgba(197,160,89,0.25)' }} />
                 </div>
                 <div>
                   <label className="text-xs font-light mb-1.5 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Unidad</label>
@@ -927,10 +995,11 @@ export default function StockPage() {
                   <input type="number" value={insumoForm.precio_costo || ''} onChange={e => setInsumoForm(p => ({ ...p, precio_costo: Number(e.target.value) }))}
                     placeholder="0" min="0"
                     className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border"
-                    style={{ borderColor: 'rgba(167,139,250,0.25)' }} />
+                    style={{ borderColor: 'rgba(197,160,89,0.25)' }} />
                 </div>
               </div>
 
+              {/* Stock por sede */}
               <div>
                 <label className="text-xs font-light mb-2 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Stock por sede</label>
                 <div className="grid grid-cols-2 gap-2">
@@ -955,9 +1024,9 @@ export default function StockPage() {
               <button onClick={saveInsumo} disabled={savingInsumo || !insumoForm.nombre.trim()}
                 className="flex items-center gap-2 px-5 py-2 rounded-lg text-xs font-medium"
                 style={{
-                  background: saveInsumoOk ? 'rgba(34,197,94,0.15)' : !insumoForm.nombre.trim() ? 'rgba(167,139,250,0.06)' : 'rgba(167,139,250,0.15)',
-                  border: saveInsumoOk ? '1px solid rgba(34,197,94,0.4)' : '1px solid rgba(167,139,250,0.35)',
-                  color: saveInsumoOk ? '#22c55e' : !insumoForm.nombre.trim() ? 'rgba(167,139,250,0.35)' : '#a78bfa',
+                  background: saveInsumoOk ? 'rgba(34,197,94,0.15)' : !insumoForm.nombre.trim() ? 'rgba(197,160,89,0.06)' : 'rgba(197,160,89,0.15)',
+                  border: saveInsumoOk ? '1px solid rgba(34,197,94,0.4)' : '1px solid rgba(197,160,89,0.35)',
+                  color: saveInsumoOk ? '#22c55e' : !insumoForm.nombre.trim() ? 'rgba(197,160,89,0.35)' : '#C5A059',
                   cursor: !insumoForm.nombre.trim() ? 'not-allowed' : 'pointer',
                 }}>
                 {saveInsumoOk ? <><Check size={12} />Guardado</> : savingInsumo ? 'Guardando...' : <><Layers size={12} />{editingInsumo ? 'Guardar cambios' : 'Agregar insumo'}</>}
@@ -1023,7 +1092,7 @@ export default function StockPage() {
         </div>
       )}
 
-      {/* ─── Confirm delete ───────────────────────────────────────────────── */}
+      {/* ─── Confirm delete armazón ───────────────────────────────────────── */}
       {deleteId && (
         <div className="fixed inset-0 z-[950] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.88)' }}>
           <div className="w-full max-w-sm rounded-2xl p-6 space-y-4" style={{ background: '#0d0d0d', border: '1px solid rgba(239,68,68,0.30)' }}>
@@ -1038,6 +1107,29 @@ export default function StockPage() {
                 Cancelar
               </button>
               <button onClick={confirmDelete} className="flex-1 px-4 py-2 rounded-lg text-xs font-medium"
+                style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.35)', color: '#ef4444' }}>
+                Eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Confirm delete insumo ────────────────────────────────────────── */}
+      {deleteInsumoId && (
+        <div className="fixed inset-0 z-[950] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.88)' }}>
+          <div className="w-full max-w-sm rounded-2xl p-6 space-y-4" style={{ background: '#0d0d0d', border: '1px solid rgba(239,68,68,0.30)' }}>
+            <div className="flex items-center gap-3">
+              <AlertTriangle size={18} style={{ color: '#ef4444' }} />
+              <p className="text-sm font-light text-white">¿Eliminar este insumo?</p>
+            </div>
+            <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.45)' }}>Esta acción no se puede deshacer.</p>
+            <div className="flex gap-2">
+              <button onClick={() => setDeleteInsumoId(null)} className="flex-1 px-4 py-2 rounded-lg text-xs font-light"
+                style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)', color: 'rgba(255,255,255,0.5)' }}>
+                Cancelar
+              </button>
+              <button onClick={confirmDeleteInsumo} className="flex-1 px-4 py-2 rounded-lg text-xs font-medium"
                 style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.35)', color: '#ef4444' }}>
                 Eliminar
               </button>
