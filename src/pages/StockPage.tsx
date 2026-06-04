@@ -212,7 +212,7 @@ export default function StockPage() {
         .select('id,codigo,nombre,foto_url,precio,color,stock_pettirossi,stock_azara,stock_lambere,stock_accesosur,stock_capiata,stock_deposito')
         .or(`nombre.ilike.%${term}%,codigo.ilike.%${term}%,color.ilike.%${term}%`)
         .order('nombre')
-        .limit(50);
+        .limit(10000);
       if (data) setFrames(data as Frame[]);
       setLoading(false);
     }, 350);
