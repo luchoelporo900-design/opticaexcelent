@@ -96,6 +96,8 @@ export default function StockPage() {
     return 'stock_pettirossi';
   })();
 
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout>|null>(null);
+
   const [frames, setFrames]           = useState<Frame[]>([]);
   const [loading, setLoading]         = useState(false);
   const [search, setSearch]           = useState('');
@@ -198,13 +200,27 @@ export default function StockPage() {
   useEffect(() => { load(); loadMovimientos(); loadInsumos(); }, [load, loadMovimientos, loadInsumos]);
   useEffect(() => { if (vistaActiva === 'vendidos') loadVendidos(); }, [vistaActiva, loadVendidos]);
 
+  useEffect(() => {
+    const term = search.trim();
+    if (!term) { load(); return; }
+    if (term.length < 2) return;
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(async () => {
+      setLoading(true);
+      const { data } = await supabase
+        .from('armazones')
+        .select('id,codigo,nombre,foto_url,precio,color,stock_pettirossi,stock_azara,stock_lambere,stock_accesosur,stock_capiata,stock_deposito')
+        .or(`nombre.ilike.%${term}%,codigo.ilike.%${term}%,color.ilike.%${term}%`)
+        .order('nombre')
+        .limit(50);
+      if (data) setFrames(data as Frame[]);
+      setLoading(false);
+    }, 350);
+  }, [search, load]);
+
   // ─── Filtros ──────────────────────────────────────────────────────────────
 
-  const visible = frames.filter(f => {
-    if (!search) return true;
-    const q = search.toLowerCase();
-    return f.nombre.toLowerCase().includes(q) || f.codigo.toLowerCase().includes(q) || (f.color||'').toLowerCase().includes(q);
-  }).sort((a,b) => {
+  const visible = [...frames].sort((a,b) => {
     if (sortBy === 'precio') return b.precio - a.precio;
     if (sortBy === 'stock')  return totalStock(b) - totalStock(a);
     return a.nombre.localeCompare(b.nombre);
