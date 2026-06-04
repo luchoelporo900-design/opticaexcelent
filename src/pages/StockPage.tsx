@@ -154,7 +154,7 @@ export default function StockPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase.from('armazones').select('id,codigo,nombre,foto_url,precio,stock_pettirossi,stock_azara,stock_lambere,stock_accesosur,stock_capiata,stock_deposito,color').order('nombre', { ascending: true });
+    const { data, error } = await supabase.from('armazones').select('id,codigo,nombre,precio,stock_pettirossi,stock_azara,stock_lambere,stock_accesosur,stock_capiata,stock_deposito,color').order('nombre', { ascending: true });
     if (!error && data) setFrames(data as Frame[]);
     setLoading(false);
   }, []);
