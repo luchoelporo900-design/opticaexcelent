@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { User, Glasses, Plus, Eye, EyeOff, Check, X, RefreshCw, Shield, Package, ToggleLeft, ToggleRight, PencilLine } from 'lucide-react';
+import { User, Glasses, Plus, Eye, EyeOff, Check, X, RefreshCw, Shield, Package, ToggleLeft, ToggleRight, PencilLine, KeyRound } from 'lucide-react';
 import { useAuth, Profile } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 
@@ -150,6 +150,15 @@ export default function SettingsPage() {
   const [editPerms,      setEditPerms]      = useState<Record<string, boolean>>({});
   const [savingEditPerm, setSavingEditPerm] = useState<string | null>(null);
 
+  // Cambio de contraseña
+  const [changePwdUser, setChangePwdUser] = useState<Profile | null>(null);
+  const [newPwd,        setNewPwd]        = useState('');
+  const [confirmPwd,    setConfirmPwd]    = useState('');
+  const [pwdSaving,     setPwdSaving]     = useState(false);
+  const [pwdErr,        setPwdErr]        = useState('');
+  const [pwdOk,         setPwdOk]         = useState(false);
+  const [showNewPwd,    setShowNewPwd]    = useState(false);
+
   useEffect(() => { loadTeam(); }, []);
 
   async function loadTeam() {
@@ -246,6 +255,21 @@ export default function SettingsPage() {
     await supabase.from('optica_users').update({ puede_editar_ventas: newVal }).eq('id', userId);
     setEditPerms(prev => ({ ...prev, [userId]: newVal }));
     setSavingEditPerm(null);
+  }
+
+  function openChangePwd(user: Profile) {
+    setChangePwdUser(user); setNewPwd(''); setConfirmPwd(''); setPwdErr(''); setPwdOk(false); setShowNewPwd(false);
+  }
+
+  async function changePwd() {
+    setPwdErr('');
+    if (newPwd.length < 6) { setPwdErr('La contraseña debe tener al menos 6 caracteres.'); return; }
+    if (newPwd !== confirmPwd) { setPwdErr('Las contraseñas no coinciden.'); return; }
+    if (!changePwdUser) return;
+    setPwdSaving(true);
+    await supabase.from('optica_users').update({ password: newPwd }).eq('id', changePwdUser.id);
+    setPwdSaving(false); setPwdOk(true);
+    setTimeout(() => { setChangePwdUser(null); setPwdOk(false); }, 1500);
   }
 
   const vendedoras = team.filter(m => m.role === 'vendedora');
@@ -397,13 +421,13 @@ export default function SettingsPage() {
           ) : (
             <div>
               <div className="grid px-5 py-2.5 text-xs font-light"
-                style={{ gridTemplateColumns: '1fr 160px 180px 50px', borderBottom: '1px solid rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.30)' }}>
-                <span>Usuario</span><span>Rol</span><span>Sucursal</span><span></span>
+                style={{ gridTemplateColumns: '1fr 160px 180px 40px 40px', borderBottom: '1px solid rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.30)' }}>
+                <span>Usuario</span><span>Rol</span><span>Sucursal</span><span></span><span></span>
               </div>
               <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
                 {team.map((m, i) => (
                   <div key={m.id} className="grid items-center gap-3 px-5 py-3"
-                    style={{ gridTemplateColumns: '1fr 160px 180px 50px', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.008)' }}>
+                    style={{ gridTemplateColumns: '1fr 160px 180px 40px 40px', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.008)' }}>
                     <div className="min-w-0">
                       <p className="text-sm text-white font-light truncate">{m.full_name}</p>
                       <p className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.35)' }}>{m.email}</p>
@@ -421,7 +445,15 @@ export default function SettingsPage() {
                       <option value="" style={{ background: '#111' }}>Sin sucursal</option>
                       {SUCURSALES.map(s => <option key={s} value={s} style={{ background: '#111' }}>{s}</option>)}
                     </select>
-                    {m.id !== profile?.id && (
+                    <button onClick={() => openChangePwd(m)}
+                      className="flex items-center justify-center w-8 h-8 rounded-lg"
+                      title="Cambiar contraseña"
+                      style={{ color: 'rgba(197,160,89,0.5)', border: '1px solid rgba(197,160,89,0.2)' }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#C5A059'; }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(197,160,89,0.5)'; }}>
+                      <KeyRound size={13} />
+                    </button>
+                    {m.id !== profile?.id ? (
                       <button onClick={() => deleteUser(m.id)}
                         className="flex items-center justify-center w-8 h-8 rounded-lg"
                         style={{ color: 'rgba(239,68,68,0.5)', border: '1px solid rgba(239,68,68,0.2)' }}
@@ -429,12 +461,68 @@ export default function SettingsPage() {
                         onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(239,68,68,0.5)'; }}>
                         <X size={13} />
                       </button>
-                    )}
+                    ) : <div />}
                   </div>
                 ))}
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Modal cambio de contraseña */}
+      {changePwdUser && (
+        <div className="fixed inset-0 z-[900] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.88)' }}>
+          <div className="w-full max-w-sm rounded-2xl overflow-hidden" style={{ background: '#0d0d0d', border: '1px solid rgba(197,160,89,0.25)' }}>
+            <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)', background: 'rgba(197,160,89,0.04)' }}>
+              <div className="flex items-center gap-2">
+                <KeyRound size={14} style={{ color: '#C5A059' }} />
+                <p className="text-sm font-light text-white">Cambiar contraseña — <span style={{ color: '#C5A059' }}>{changePwdUser.full_name}</span></p>
+              </div>
+              <button onClick={() => setChangePwdUser(null)} style={{ color: 'rgba(255,255,255,0.4)' }}><X size={14} /></button>
+            </div>
+            <div className="px-5 py-5 space-y-4">
+              {pwdErr && (
+                <div className="px-3 py-2 rounded-xl text-xs" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#f87171' }}>{pwdErr}</div>
+              )}
+              <div>
+                <label className="block text-xs font-light mb-1.5" style={{ color: 'rgba(197,160,89,0.65)' }}>Nueva contraseña</label>
+                <div className="relative">
+                  <input type={showNewPwd ? 'text' : 'password'} value={newPwd} onChange={e => setNewPwd(e.target.value)}
+                    placeholder="Mínimo 6 caracteres"
+                    className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border"
+                    style={{ borderColor: 'rgba(197,160,89,0.22)' }} />
+                  <button type="button" onClick={() => setShowNewPwd(!showNewPwd)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: 'rgba(197,160,89,0.5)' }}>
+                    {showNewPwd ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-light mb-1.5" style={{ color: 'rgba(197,160,89,0.65)' }}>Confirmar contraseña</label>
+                <input type="password" value={confirmPwd} onChange={e => setConfirmPwd(e.target.value)}
+                  placeholder="Repetir contraseña"
+                  className="w-full px-3 py-2.5 rounded-xl bg-transparent text-white text-sm font-light outline-none border"
+                  style={{ borderColor: 'rgba(197,160,89,0.22)' }} />
+              </div>
+            </div>
+            <div className="flex gap-2 px-5 py-4" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+              <button onClick={() => setChangePwdUser(null)} className="flex-1 px-4 py-2.5 rounded-xl text-xs font-light"
+                style={{ color: 'rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                Cancelar
+              </button>
+              <button onClick={changePwd} disabled={pwdSaving || !newPwd.trim() || !confirmPwd.trim()}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-medium"
+                style={{
+                  background: pwdOk ? 'rgba(34,197,94,0.15)' : 'rgba(197,160,89,0.15)',
+                  border: pwdOk ? '1px solid rgba(34,197,94,0.4)' : '1px solid rgba(197,160,89,0.35)',
+                  color: pwdOk ? '#22c55e' : '#C5A059',
+                  opacity: (!newPwd.trim() || !confirmPwd.trim()) ? 0.45 : 1,
+                }}>
+                {pwdOk ? <><Check size={12} />Guardado</> : pwdSaving ? 'Guardando...' : <><KeyRound size={12} />Guardar contraseña</>}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

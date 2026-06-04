@@ -179,8 +179,8 @@ export default function StockPage() {
     setLoadingVendidos(true);
     const { data } = await supabase.from('stock_movimientos')
       .select('*').eq('tipo','venta')
-      .gte('created_at', fechaDesde + 'T00:00:00')
-      .lte('created_at', fechaHasta + 'T23:59:59')
+      .gte('created_at', fechaDesde + 'T04:00:00.000Z')
+      .lte('created_at', fechaHasta + 'T03:59:59.999Z')
       .order('created_at', { ascending: false });
     if (data) setVendidosFiltrados(data as Movimiento[]);
     setLoadingVendidos(false);

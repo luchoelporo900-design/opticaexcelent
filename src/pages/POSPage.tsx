@@ -34,6 +34,12 @@ type EyeglassItem = {
   saleType: SaleType;
   stock_frame_id?: string;
   receta_a_confirmar?: boolean;
+  sin_stock_en_sede?: boolean;
+  estuche_insumo_id?: string;
+  incluir_franela?: boolean;
+  incluir_franela_especial?: boolean;
+  incluir_limpiacristales?: boolean;
+  incluir_cordones?: boolean;
 };
 
 type InsumoItem = {
@@ -49,6 +55,12 @@ type PaymentEntry = {
   amount: string;
   reference: string;
   receipts: string[];
+};
+
+type InsumoCatalog = {
+  id: string; nombre: string;
+  stock_pettirossi: number; stock_azara: number; stock_lambere: number;
+  stock_accesosur: number; stock_capiata: number; stock_deposito: number;
 };
 
 const FIXED_BRANCHES = [
@@ -85,6 +97,16 @@ const SALE_TYPES: { id: SaleType; label: string; sublabel: string; color: string
 
 function uid() { return Math.random().toString(36).slice(2) + Date.now().toString(36); }
 function fmt(n: number) { return n.toLocaleString('es-PY', { minimumFractionDigits: 0, maximumFractionDigits: 0 }); }
+function sedeKeyFromName(name: string): string {
+  const n = name.toLowerCase().replace(/á/g,'a').replace(/é/g,'e').replace(/ú/g,'u');
+  if (n.includes('pettirossi'))                       return 'stock_pettirossi';
+  if (n.includes('azara'))                            return 'stock_azara';
+  if (n.includes('lambere') || n.includes('lambare')) return 'stock_lambere';
+  if (n.includes('acceso') || n.includes('sur'))      return 'stock_accesosur';
+  if (n.includes('capiata'))                          return 'stock_capiata';
+  if (n.includes('deposito'))                         return 'stock_deposito';
+  return 'stock_pettirossi';
+}
 function emptyRx(): Prescription {
   return { od_esfera:'', od_cilindro:'', od_eje:'', od_altura:'', oi_esfera:'', oi_cilindro:'', oi_eje:'', oi_altura:'', add:'', dp:'', obs:'' };
 }
@@ -206,10 +228,12 @@ function RxInput({ label, value, onChange, placeholder }: { label: string; value
   );
 }
 
-function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
+function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove, saleBranch, insumosCatalog }: {
   eg: EyeglassItem; idx: number;
   onUpdate: (p: Partial<EyeglassItem>) => void;
   onRemove: () => void;
+  saleBranch: string;
+  insumosCatalog: InsumoCatalog[];
 }) {
   const camRef = useRef<HTMLInputElement>(null);
   const galRef = useRef<HTMLInputElement>(null);
@@ -217,6 +241,29 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
   const [searching,   setSearching]   = useState(false);
   const [stockFrame,  setStockFrame]  = useState<any | null>(null);
   const currentType = eg.saleType ?? 'completa';
+
+  const sedeKey = sedeKeyFromName(saleBranch);
+  const stockEnSede = stockFrame ? ((stockFrame as any)[sedeKey] ?? 0) : null;
+  const sinStockEnSede = !!(eg.stock_frame_id && stockFrame && stockEnSede === 0);
+
+  const SEDES_LIST = [
+    { key: 'stock_pettirossi', label: 'Pettirossi' }, { key: 'stock_azara', label: 'Azara' },
+    { key: 'stock_lambere', label: 'Lambaré' }, { key: 'stock_accesosur', label: 'Acceso Sur' },
+    { key: 'stock_capiata', label: 'Capiatá' },
+  ];
+  const sedesConStockNames = stockFrame ? SEDES_LIST.filter(s => ((stockFrame as any)[s.key]||0) > 0).map(s => s.label) : [];
+
+  const estuches    = insumosCatalog.filter(i => i.nombre.toLowerCase().includes('stuche'));
+  const franelas    = insumosCatalog.filter(i => { const n = i.nombre.toLowerCase(); return n.includes('franela') && !n.includes('especial'); });
+  const franelasEsp = insumosCatalog.filter(i => i.nombre.toLowerCase().includes('franela especial'));
+  const limpias     = insumosCatalog.filter(i => i.nombre.toLowerCase().includes('limpiacristal'));
+  const cordones    = insumosCatalog.filter(i => i.nombre.toLowerCase().includes('cordon'));
+
+  // Sync sin_stock_en_sede to parent when frame/sede changes
+  useEffect(() => {
+    const blocked = !!(eg.stock_frame_id && stockFrame && ((stockFrame as any)[sedeKey] ?? 0) === 0);
+    if (eg.sin_stock_en_sede !== blocked) onUpdate({ sin_stock_en_sede: blocked });
+  }, [stockFrame, sedeKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handlePhoto(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return;
@@ -330,10 +377,19 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
             </div>
           </div>
           {eg.stock_frame_id && stockFrame && (
-            <div className="mt-2 flex items-center gap-2 px-3 py-2 rounded-lg" style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.22)' }}>
-              <Check size={12} style={{ color: '#22c55e', flexShrink: 0 }} />
-              <span className="text-xs font-light" style={{ color: '#22c55e' }}>{stockFrame.nombre} · Stock: {totalStockFrame} uds. · Se descontará 1 al guardar</span>
-            </div>
+            sinStockEnSede ? (
+              <div className="mt-2 px-3 py-2 rounded-lg space-y-1" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.30)' }}>
+                <p className="text-xs font-light" style={{ color: '#ef4444' }}>⛔ Sin stock en tu sede. No podés registrar esta venta.</p>
+                {sedesConStockNames.length > 0 && (
+                  <p className="text-xs font-light" style={{ color: 'rgba(239,68,68,0.7)' }}>Disponible en: {sedesConStockNames.join(', ')}</p>
+                )}
+              </div>
+            ) : (
+              <div className="mt-2 flex items-center gap-2 px-3 py-2 rounded-lg" style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.22)' }}>
+                <Check size={12} style={{ color: '#22c55e', flexShrink: 0 }} />
+                <span className="text-xs font-light" style={{ color: '#22c55e' }}>{stockFrame.nombre} · Stock: {totalStockFrame} uds. · Se descontará 1 al guardar</span>
+              </div>
+            )
           )}
         </div>
 
@@ -393,6 +449,56 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove }: {
             </div>
           )}
         </div>
+
+        {(estuches.length > 0 || franelas.length > 0 || franelasEsp.length > 0 || limpias.length > 0 || cordones.length > 0) && (
+          <div className="rounded-xl p-3 space-y-2.5" style={{ background: 'rgba(167,139,250,0.04)', border: '1px solid rgba(167,139,250,0.18)' }}>
+            <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(167,139,250,0.55)' }}>Insumos incluidos</p>
+            {estuches.length > 0 && (
+              <div>
+                <p className="text-xs font-light mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Estuche</p>
+                <select value={eg.estuche_insumo_id || ''} onChange={e => onUpdate({ estuche_insumo_id: e.target.value || undefined })}
+                  className="w-full px-3 py-2 rounded-xl text-xs font-light outline-none border"
+                  style={{ background: 'rgba(255,255,255,0.03)', borderColor: 'rgba(167,139,250,0.25)', color: 'rgba(255,255,255,0.75)' }}>
+                  <option value="" style={{ background: '#111' }}>Sin estuche</option>
+                  {estuches.map(est => {
+                    const stk = (est as any)[sedeKey] ?? 0;
+                    return <option key={est.id} value={est.id} style={{ background: '#111', color: stk === 0 ? '#ef4444' : '#fff' }}>{est.nombre} · Stock: {stk}</option>;
+                  })}
+                </select>
+                {eg.estuche_insumo_id && (() => {
+                  const est = estuches.find(x => x.id === eg.estuche_insumo_id);
+                  return est && ((est as any)[sedeKey] ?? 0) === 0 ? (
+                    <p className="text-xs mt-1" style={{ color: '#ef4444' }}>⚠ Sin stock de estuche en tu sede</p>
+                  ) : null;
+                })()}
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                { items: franelas,    field: 'incluir_franela',          label: 'Franela' },
+                { items: franelasEsp, field: 'incluir_franela_especial', label: 'Franela Especial' },
+                { items: limpias,     field: 'incluir_limpiacristales',  label: 'Limpia cristales' },
+                { items: cordones,    field: 'incluir_cordones',         label: 'Cordones' },
+              ] as const).filter(x => x.items.length > 0).map(({ items, field, label }) => {
+                const item = items[0];
+                const stk = (item as any)[sedeKey] ?? 0;
+                const checked = !!(eg as any)[field];
+                return (
+                  <button key={field} type="button" onClick={() => onUpdate({ [field]: !checked } as any)}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-light"
+                    style={{ background: checked ? 'rgba(167,139,250,0.10)' : 'rgba(255,255,255,0.02)', border: `1px solid ${checked ? 'rgba(167,139,250,0.35)' : 'rgba(255,255,255,0.08)'}`, color: checked ? '#a78bfa' : 'rgba(255,255,255,0.45)' }}>
+                    <span className="w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0"
+                      style={{ borderColor: checked ? '#a78bfa' : 'rgba(255,255,255,0.3)', background: checked ? '#a78bfa' : 'transparent' }}>
+                      {checked && <Check size={9} color="#000" />}
+                    </span>
+                    <span className="flex-1 text-left">{label}</span>
+                    <span style={{ color: stk === 0 ? '#ef4444' : 'rgba(255,255,255,0.35)' }}>({stk})</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         <div className="flex items-center gap-2 flex-wrap">
           <button onClick={() => onUpdate({ showReceta: !eg.showReceta, receta_a_confirmar: false })}
@@ -525,9 +631,10 @@ export default function POSPage() {
   const [shipRec,    setShipRec]    = useState('');
   const [shipPhone,  setShipPhone]  = useState('');
   const [shipTrack,  setShipTrack]  = useState('');
-  const [eyeglasses, setEyeglasses] = useState<EyeglassItem[]>([]);
-  const [insumos,    setInsumos]    = useState<InsumoItem[]>([]);
-  const [payments,   setPayments]   = useState<PaymentEntry[]>([newPayment()]);
+  const [eyeglasses,     setEyeglasses]     = useState<EyeglassItem[]>([]);
+  const [insumos,        setInsumos]        = useState<InsumoItem[]>([]);
+  const [payments,       setPayments]       = useState<PaymentEntry[]>([newPayment()]);
+  const [insumosCatalog, setInsumosCatalog] = useState<InsumoCatalog[]>([]);
   const [status, setStatus] = useState<SaleStatus>('pendiente');
   const [notes,  setNotes]  = useState('');
   const [saving,  setSaving]  = useState(false);
@@ -547,6 +654,12 @@ export default function POSPage() {
     }
   }, [profile?.branch_id]);
 
+  useEffect(() => {
+    supabase.from('insumos_stock')
+      .select('id, nombre, stock_pettirossi, stock_azara, stock_lambere, stock_accesosur, stock_capiata, stock_deposito')
+      .then(({ data }) => { if (data) setInsumosCatalog(data as InsumoCatalog[]); });
+  }, []);
+
   function addEyeglass()              { setEyeglasses(prev => [...prev, newEyeglass()]); }
   function removeEyeglass(id: string) { setEyeglasses(prev => prev.filter(eg => eg._id !== id)); }
   function updateEg(id: string, patch: Partial<EyeglassItem>) { setEyeglasses(prev => prev.map(eg => eg._id === id ? { ...eg, ...patch } : eg)); }
@@ -565,6 +678,8 @@ export default function POSPage() {
     if (!saleBranch)    { setSaveErr('Seleccioná la Sucursal de venta.'); return; }
     if (!delBranch)     { setSaveErr('Seleccioná la Sucursal de entrega.'); return; }
     if (!payBranch)     { setSaveErr('Seleccioná la Sucursal de cobro.'); return; }
+    const sinStockBlocked = eyeglasses.some(eg => !!eg.stock_frame_id && !!eg.sin_stock_en_sede);
+    if (sinStockBlocked) { setSaveErr('Hay anteojos sin stock en tu sede. No podés guardar esta venta.'); return; }
     setSaving(true);
     try {
       const sellerName     = profile?.full_name ?? 'Sin nombre';
@@ -601,22 +716,38 @@ export default function POSPage() {
         pagos: payments.map(p => ({ metodo: p.method, monto: parseFloat(p.amount) || totalNum, referencia: p.reference || undefined, receipts: p.receipts })),
       } as any);
 
+      const armazonSedeKey = sedeKeyFromName(saleBranchName);
       for (const eg of eyeglasses) {
         if (eg.stock_frame_id) {
           const { data: frame } = await supabase.from('armazones').select('*').eq('id', eg.stock_frame_id).single();
           if (frame) {
-            const sedeKey = (() => {
-              const n = saleBranchName.toLowerCase().replace(/á/g,'a').replace(/é/g,'e').replace(/ú/g,'u');
-              if (n.includes('pettirossi'))               return 'stock_pettirossi';
-              if (n.includes('azara'))                    return 'stock_azara';
-              if (n.includes('lambere') || n.includes('lambare')) return 'stock_lambere';
-              if (n.includes('acceso') || n.includes('sur'))      return 'stock_accesosur';
-              if (n.includes('capiata'))                  return 'stock_capiata';
-              return 'stock_pettirossi';
-            })();
-            await supabase.from('armazones').update({ [sedeKey]: Math.max(0, (frame[sedeKey]||0) - 1), updated_at: new Date().toISOString() }).eq('id', eg.stock_frame_id);
-            await supabase.from('stock_movimientos').insert([{ armazon_id: eg.stock_frame_id, armazon_nombre: frame.nombre, armazon_codigo: frame.codigo, cantidad: 1, tipo: 'venta', sucursal: saleBranchName, vendedora: sellerName, venta_id: String(saleId) }]);
+            await supabase.from('armazones').update({ [armazonSedeKey]: Math.max(0, (frame[armazonSedeKey]||0) - 1), updated_at: new Date().toISOString() }).eq('id', eg.stock_frame_id);
+            const { error: movError } = await supabase.from('stock_movimientos').insert([{ armazon_id: eg.stock_frame_id, armazon_nombre: frame.nombre, armazon_codigo: frame.codigo, cantidad: 1, tipo: 'venta', sucursal: saleBranchName, vendedora: sellerName, venta_id: String(saleId) }]);
+            if (movError) console.error('Error insertando stock_movimiento:', movError);
           }
+        }
+      }
+
+      // Deduct insumos from insumos_stock
+      const insumoSedeKey = sedeKeyFromName(saleBranchName);
+      for (const eg of eyeglasses) {
+        const insIds: string[] = [];
+        if (eg.estuche_insumo_id) insIds.push(eg.estuche_insumo_id);
+        const insumoChecks: Array<{ flag?: boolean; filter: (n: string) => boolean }> = [
+          { flag: eg.incluir_franela,          filter: n => n.includes('franela') && !n.includes('especial') },
+          { flag: eg.incluir_franela_especial, filter: n => n.includes('franela especial') },
+          { flag: eg.incluir_limpiacristales,  filter: n => n.includes('limpiacristal') },
+          { flag: eg.incluir_cordones,         filter: n => n.includes('cordon') },
+        ];
+        for (const ci of insumoChecks) {
+          if (ci.flag) {
+            const ins = insumosCatalog.find(i => ci.filter(i.nombre.toLowerCase()));
+            if (ins) insIds.push(ins.id);
+          }
+        }
+        for (const insId of insIds) {
+          const { data: ins } = await supabase.from('insumos_stock').select('*').eq('id', insId).single();
+          if (ins) await supabase.from('insumos_stock').update({ [insumoSedeKey]: Math.max(0, ((ins as any)[insumoSedeKey]||0) - 1) }).eq('id', insId);
         }
       }
 
@@ -804,7 +935,7 @@ export default function POSPage() {
         <Section title="Anteojos" icon={<Glasses size={15} />}>
           <div className="space-y-3">
             {eyeglasses.map((eg, idx) => (
-              <SimpleEyeglassCard key={eg._id} eg={eg} idx={idx} onUpdate={patch => updateEg(eg._id, patch)} onRemove={() => removeEyeglass(eg._id)} />
+              <SimpleEyeglassCard key={eg._id} eg={eg} idx={idx} onUpdate={patch => updateEg(eg._id, patch)} onRemove={() => removeEyeglass(eg._id)} saleBranch={saleBranch} insumosCatalog={insumosCatalog} />
             ))}
             {eyeglasses.length > 1 && eyeglasses.some(eg => eg.price) && (
               <div className="rounded-xl px-4 py-3 space-y-1.5" style={{ background: 'rgba(197,160,89,0.04)', border: '1px solid rgba(197,160,89,0.15)' }}>
@@ -957,7 +1088,7 @@ export default function POSPage() {
             style={{ borderColor: 'rgba(197,160,89,0.22)' }} />
         </Section>
 
-        <button onClick={handleSaveSale} disabled={saving}
+        <button onClick={handleSaveSale} disabled={saving || eyeglasses.some(eg => !!eg.stock_frame_id && !!eg.sin_stock_en_sede)}
           className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl text-base font-medium disabled:opacity-40"
           style={{ background: '#C5A059', color: '#000' }}>
           {saving
