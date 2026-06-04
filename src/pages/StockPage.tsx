@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Package, Plus, Search, RefreshCw, Edit2, Trash2, X, Check,
   ChevronDown, AlertTriangle, Glasses, DollarSign,
-  BarChart2, Camera, Clock, Trophy, Calendar, ZoomIn,
+  BarChart2, Camera, Clock, Trophy, Calendar, ZoomIn, Layers,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -12,12 +12,14 @@ type Frame = {
   id: string; codigo: string; nombre: string; foto_url: string; color: string;
   precio: number; stock_pettirossi: number; stock_azara: number;
   stock_lambere: number; stock_accesosur: number; stock_capiata: number;
+  stock_deposito: number;
   created_at: string; updated_at: string;
 };
 
 type FormData = {
   codigo: string; nombre: string; foto_url: string; color: string; precio: number;
-  stock_pettirossi: number; stock_azara: number; stock_lambere: number; stock_accesosur: number; stock_capiata: number;
+  stock_pettirossi: number; stock_azara: number; stock_lambere: number;
+  stock_accesosur: number; stock_capiata: number; stock_deposito: number;
 };
 
 type Movimiento = {
@@ -28,12 +30,26 @@ type Movimiento = {
 
 type MasVendido = { armazon_nombre: string; armazon_codigo: string; total: number; };
 
+type Insumo = {
+  id: string; nombre: string; unidad: string;
+  stock_pettirossi: number; stock_azara: number; stock_lambere: number;
+  stock_accesosur: number; stock_capiata: number; stock_deposito: number;
+  precio_costo: number; updated_at: string;
+};
+
+type InsumoForm = {
+  nombre: string; unidad: string; precio_costo: number;
+  stock_pettirossi: number; stock_azara: number; stock_lambere: number;
+  stock_accesosur: number; stock_capiata: number; stock_deposito: number;
+};
+
 const SEDES = [
   { key: 'stock_pettirossi', label: 'Pettirossi', color: '#22c55e' },
   { key: 'stock_azara',      label: 'Azara',      color: '#3b82f6' },
   { key: 'stock_lambere',    label: 'Lambaré',    color: '#C5A059' },
   { key: 'stock_accesosur',  label: 'Acceso Sur', color: '#a78bfa' },
   { key: 'stock_capiata',    label: 'Capiatá',    color: '#f97316' },
+  { key: 'stock_deposito',   label: 'Depósito',   color: '#f97316' },
 ];
 
 function fmt(n: number) {
@@ -42,11 +58,24 @@ function fmt(n: number) {
 
 function emptyForm(): FormData {
   return { codigo: '', nombre: '', foto_url: '', color: '', precio: 0,
-    stock_pettirossi: 0, stock_azara: 0, stock_lambere: 0, stock_accesosur: 0, stock_capiata: 0 };
+    stock_pettirossi: 0, stock_azara: 0, stock_lambere: 0, stock_accesosur: 0,
+    stock_capiata: 0, stock_deposito: 0 };
+}
+
+function emptyInsumoForm(): InsumoForm {
+  return { nombre: '', unidad: '', precio_costo: 0,
+    stock_pettirossi: 0, stock_azara: 0, stock_lambere: 0, stock_accesosur: 0,
+    stock_capiata: 0, stock_deposito: 0 };
 }
 
 function totalStock(f: Frame | FormData) {
-  return (f.stock_pettirossi||0)+(f.stock_azara||0)+(f.stock_lambere||0)+(f.stock_accesosur||0)+(f.stock_capiata||0);
+  return (f.stock_pettirossi||0)+(f.stock_azara||0)+(f.stock_lambere||0)+
+    (f.stock_accesosur||0)+(f.stock_capiata||0)+(f.stock_deposito||0);
+}
+
+function totalInsumoStock(ins: Insumo | InsumoForm) {
+  return (ins.stock_pettirossi||0)+(ins.stock_azara||0)+(ins.stock_lambere||0)+
+    (ins.stock_accesosur||0)+(ins.stock_capiata||0)+(ins.stock_deposito||0);
 }
 
 export default function StockPage() {
@@ -76,18 +105,28 @@ export default function StockPage() {
   const [loadingMov, setLoadingMov]   = useState(false);
 
   // Filtro por fecha en vendidos
-  const hoy   = new Date().toISOString().slice(0,10);
+  const hoy    = new Date().toISOString().slice(0,10);
   const mesIni = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0,10);
   const [fechaDesde, setFechaDesde] = useState(mesIni);
   const [fechaHasta, setFechaHasta] = useState(hoy);
   const [vendidosFiltrados, setVendidosFiltrados] = useState<Movimiento[]>([]);
   const [loadingVendidos, setLoadingVendidos]     = useState(false);
 
+  // Insumos
+  const [insumos, setInsumos]               = useState<Insumo[]>([]);
+  const [loadingInsumos, setLoadingInsumos] = useState(false);
+  const [showInsumoModal, setShowInsumoModal] = useState(false);
+  const [editingInsumo, setEditingInsumo]   = useState<Insumo|null>(null);
+  const [insumoForm, setInsumoForm]         = useState<InsumoForm>(emptyInsumoForm());
+  const [savingInsumo, setSavingInsumo]     = useState(false);
+  const [saveInsumoOk, setSaveInsumoOk]     = useState(false);
+  const [expandedInsumoId, setExpandedInsumoId] = useState<string|null>(null);
+
   // Lightbox foto
   const [lightboxUrl, setLightboxUrl] = useState<string|null>(null);
 
-  // Vista activa: 'stock' o 'vendidos'
-  const [vistaActiva, setVistaActiva] = useState<'stock'|'vendidos'>('stock');
+  // Vista activa
+  const [vistaActiva, setVistaActiva] = useState<'stock'|'vendidos'|'insumos'>('stock');
 
   const [showModal, setShowModal]     = useState(false);
   const [editing, setEditing]         = useState<Frame|null>(null);
@@ -145,7 +184,14 @@ export default function StockPage() {
     setLoadingVendidos(false);
   }, [fechaDesde, fechaHasta]);
 
-  useEffect(() => { load(); loadMovimientos(); }, [load, loadMovimientos]);
+  const loadInsumos = useCallback(async () => {
+    setLoadingInsumos(true);
+    const { data, error } = await supabase.from('insumos_stock').select('*').order('nombre', { ascending: true });
+    if (!error && data) setInsumos(data as Insumo[]);
+    setLoadingInsumos(false);
+  }, []);
+
+  useEffect(() => { load(); loadMovimientos(); loadInsumos(); }, [load, loadMovimientos, loadInsumos]);
   useEffect(() => { if (vistaActiva === 'vendidos') loadVendidos(); }, [vistaActiva, loadVendidos]);
 
   // ─── Filtros ──────────────────────────────────────────────────────────────
@@ -164,12 +210,18 @@ export default function StockPage() {
   const totalUnidades = frames.reduce((s,f) => s + totalStock(f), 0);
   const totalValor    = frames.reduce((s,f) => s + totalStock(f) * f.precio, 0);
 
-  // ─── CRUD ─────────────────────────────────────────────────────────────────
+  // ─── CRUD armazones ───────────────────────────────────────────────────────
 
   function openNew()    { setEditing(null); setForm(emptyForm()); setShowModal(true); }
   function openEdit(f: Frame) {
     setEditing(f);
-    setForm({ codigo: f.codigo, nombre: f.nombre, foto_url: f.foto_url||'', color: (f as any).color||'', precio: f.precio, stock_pettirossi: f.stock_pettirossi, stock_azara: f.stock_azara, stock_lambere: f.stock_lambere, stock_accesosur: f.stock_accesosur, stock_capiata: f.stock_capiata });
+    setForm({
+      codigo: f.codigo, nombre: f.nombre, foto_url: f.foto_url||'',
+      color: (f as any).color||'', precio: f.precio,
+      stock_pettirossi: f.stock_pettirossi, stock_azara: f.stock_azara,
+      stock_lambere: f.stock_lambere, stock_accesosur: f.stock_accesosur,
+      stock_capiata: f.stock_capiata, stock_deposito: f.stock_deposito||0,
+    });
     setShowModal(true);
   }
 
@@ -219,6 +271,39 @@ export default function StockPage() {
     setTimeout(() => { setQuickOk(false); setShowQuickModal(false); }, 1200);
   }
 
+  // ─── CRUD insumos ─────────────────────────────────────────────────────────
+
+  function openNewInsumo() { setEditingInsumo(null); setInsumoForm(emptyInsumoForm()); setShowInsumoModal(true); }
+  function openEditInsumo(ins: Insumo) {
+    setEditingInsumo(ins);
+    setInsumoForm({
+      nombre: ins.nombre, unidad: ins.unidad, precio_costo: ins.precio_costo,
+      stock_pettirossi: ins.stock_pettirossi, stock_azara: ins.stock_azara,
+      stock_lambere: ins.stock_lambere, stock_accesosur: ins.stock_accesosur,
+      stock_capiata: ins.stock_capiata, stock_deposito: ins.stock_deposito||0,
+    });
+    setShowInsumoModal(true);
+  }
+
+  async function saveInsumo() {
+    if (!insumoForm.nombre.trim()) return;
+    setSavingInsumo(true);
+    if (editingInsumo) {
+      await supabase.from('insumos_stock').update({ ...insumoForm, updated_at: new Date().toISOString() }).eq('id', editingInsumo.id);
+    } else {
+      await supabase.from('insumos_stock').insert([{ ...insumoForm, id: crypto.randomUUID() }]);
+    }
+    await loadInsumos(); setSavingInsumo(false); setSaveInsumoOk(true);
+    setTimeout(() => { setSaveInsumoOk(false); setShowInsumoModal(false); }, 1200);
+  }
+
+  async function adjustInsumoStock(id: string, sede: string, delta: number) {
+    const ins = insumos.find(x => x.id === id); if (!ins) return;
+    const newVal = Math.max(0, ((ins as any)[sede]||0) + delta);
+    await supabase.from('insumos_stock').update({ [sede]: newVal, updated_at: new Date().toISOString() }).eq('id', id);
+    setInsumos(prev => prev.map(x => x.id === id ? { ...x, [sede]: newVal } : x));
+  }
+
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
@@ -233,16 +318,23 @@ export default function StockPage() {
           <p className="text-xs mt-0.5 tracking-wide" style={{ color: 'rgba(197,160,89,0.65)' }}>Inventario de monturas por sede</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => { load(); loadMovimientos(); }} disabled={loading}
+          <button onClick={() => { load(); loadMovimientos(); loadInsumos(); }} disabled={loading}
             className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-light"
             style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.55)' }}>
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
           </button>
-          {puedeCargarStock && (
+          {puedeCargarStock && vistaActiva === 'stock' && (
             <button onClick={openNew}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-light"
               style={{ background: 'rgba(197,160,89,0.12)', border: '1px solid rgba(197,160,89,0.30)', color: '#C5A059' }}>
               <Plus size={13} />Agregar armazón
+            </button>
+          )}
+          {isAdmin && vistaActiva === 'insumos' && (
+            <button onClick={openNewInsumo}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-light"
+              style={{ background: 'rgba(197,160,89,0.12)', border: '1px solid rgba(197,160,89,0.30)', color: '#C5A059' }}>
+              <Plus size={13} />Agregar insumo
             </button>
           )}
         </div>
@@ -280,8 +372,8 @@ export default function StockPage() {
         })}
       </div>
 
-      {/* Tabs: Stock / Vendidos */}
-      <div className="flex gap-2">
+      {/* Tabs: Stock / Vendidos / Insumos */}
+      <div className="flex gap-2 flex-wrap">
         <button onClick={() => setVistaActiva('stock')}
           className="px-4 py-2 rounded-lg text-xs font-light"
           style={{ background: vistaActiva === 'stock' ? 'rgba(197,160,89,0.15)' : 'rgba(255,255,255,0.04)', border: `1px solid ${vistaActiva === 'stock' ? 'rgba(197,160,89,0.35)' : 'rgba(255,255,255,0.09)'}`, color: vistaActiva === 'stock' ? '#C5A059' : 'rgba(255,255,255,0.45)' }}>
@@ -291,6 +383,11 @@ export default function StockPage() {
           className="px-4 py-2 rounded-lg text-xs font-light"
           style={{ background: vistaActiva === 'vendidos' ? 'rgba(34,197,94,0.12)' : 'rgba(255,255,255,0.04)', border: `1px solid ${vistaActiva === 'vendidos' ? 'rgba(34,197,94,0.30)' : 'rgba(255,255,255,0.09)'}`, color: vistaActiva === 'vendidos' ? '#22c55e' : 'rgba(255,255,255,0.45)' }}>
           🏷️ Armazones Vendidos
+        </button>
+        <button onClick={() => setVistaActiva('insumos')}
+          className="px-4 py-2 rounded-lg text-xs font-light"
+          style={{ background: vistaActiva === 'insumos' ? 'rgba(167,139,250,0.12)' : 'rgba(255,255,255,0.04)', border: `1px solid ${vistaActiva === 'insumos' ? 'rgba(167,139,250,0.30)' : 'rgba(255,255,255,0.09)'}`, color: vistaActiva === 'insumos' ? '#a78bfa' : 'rgba(255,255,255,0.45)' }}>
+          🧴 Insumos
         </button>
       </div>
 
@@ -432,6 +529,14 @@ export default function StockPage() {
                             </button>
                           )}
 
+                          {/* Badge depósito */}
+                          {(f.stock_deposito||0) > 0 && (
+                            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-light"
+                              style={{ background: 'rgba(197,160,89,0.12)', border: '1px solid rgba(197,160,89,0.35)', color: '#C5A059' }}>
+                              📦 Hay stock en Depósito: {f.stock_deposito} unidades
+                            </div>
+                          )}
+
                           <div className="grid grid-cols-2 gap-3">
                             {[
                               { label: 'Precio',      value: `Gs. ${fmt(f.precio)}`, color: '#C5A059' },
@@ -563,6 +668,110 @@ export default function StockPage() {
         </div>
       )}
 
+      {/* ── VISTA: INSUMOS ───────────────────────────────────────────────── */}
+      {vistaActiva === 'insumos' && (
+        <div className="space-y-4">
+          <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(167,139,250,0.15)' }}>
+            <div className="hidden lg:grid px-5 py-3 text-xs font-light" style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 40px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(167,139,250,0.04)', color: 'rgba(255,255,255,0.32)' }}>
+              <span>Nombre</span><span>Unidad</span><span>Precio costo</span><span>Stock total</span><span></span>
+            </div>
+
+            {loadingInsumos ? (
+              <div className="p-4 space-y-2">{[...Array(4)].map((_,i) => <div key={i} className="h-10 rounded shimmer" />)}</div>
+            ) : insumos.length === 0 ? (
+              <div className="text-center py-14">
+                <Layers size={28} style={{ color: 'rgba(255,255,255,0.08)', margin: '0 auto 10px' }} />
+                <p className="text-xs" style={{ color: 'rgba(255,255,255,0.28)' }}>Sin insumos registrados</p>
+              </div>
+            ) : (
+              <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+                {insumos.map((ins, i) => {
+                  const isExp = expandedInsumoId === ins.id;
+                  return (
+                    <div key={ins.id}>
+                      <div className="flex lg:grid items-center gap-3 px-4 py-3 cursor-pointer"
+                        style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 40px', background: isExp ? 'rgba(167,139,250,0.04)' : i%2===0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}
+                        onClick={() => setExpandedInsumoId(isExp ? null : ins.id)}>
+
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <div className="w-8 h-8 rounded-lg shrink-0 flex items-center justify-center" style={{ background: 'rgba(167,139,250,0.08)', border: '1px solid rgba(167,139,250,0.18)' }}>
+                            <Layers size={13} style={{ color: 'rgba(167,139,250,0.6)' }} />
+                          </div>
+                          <p className="text-xs text-white font-light truncate">{ins.nombre}</p>
+                        </div>
+
+                        <p className="hidden lg:block text-xs font-light" style={{ color: 'rgba(255,255,255,0.5)' }}>{ins.unidad || '—'}</p>
+                        <p className="hidden lg:block text-xs font-light" style={{ color: '#a78bfa' }}>
+                          {ins.precio_costo > 0 ? `Gs. ${fmt(ins.precio_costo)}` : '—'}
+                        </p>
+                        <div className="hidden lg:flex items-center gap-1.5">
+                          <span className="text-sm font-light text-white">{totalInsumoStock(ins)}</span>
+                          <span className="text-xs" style={{ color: 'rgba(255,255,255,0.3)' }}>{ins.unidad || 'uds.'}</span>
+                        </div>
+                        {/* Móvil */}
+                        <div className="lg:hidden flex flex-col items-end shrink-0">
+                          <span className="text-xs font-light" style={{ color: '#a78bfa' }}>{ins.unidad || 'uds.'}</span>
+                          <span className="text-xs font-light" style={{ color: 'rgba(255,255,255,0.5)' }}>{totalInsumoStock(ins)} total</span>
+                        </div>
+
+                        <ChevronDown size={13} style={{ color: 'rgba(255,255,255,0.3)', transform: isExp ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }} />
+                      </div>
+
+                      {isExp && (
+                        <div className="px-4 pb-4 pt-3 space-y-4" style={{ background: 'rgba(167,139,250,0.02)', borderTop: '1px solid rgba(167,139,250,0.08)' }}>
+                          <div className="grid grid-cols-2 gap-3">
+                            {[
+                              { label: 'Nombre',       value: ins.nombre,                                        color: 'white' },
+                              { label: 'Unidad',       value: ins.unidad || '—',                                 color: 'rgba(255,255,255,0.7)' },
+                              { label: 'Precio costo', value: ins.precio_costo > 0 ? `Gs. ${fmt(ins.precio_costo)}` : '—', color: '#a78bfa' },
+                              { label: 'Stock total',  value: `${totalInsumoStock(ins)} ${ins.unidad || 'uds.'}`, color: 'white' },
+                            ].map(d => (
+                              <div key={d.label} className="rounded-lg p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                                <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>{d.label}</p>
+                                <p className="text-sm font-light" style={{ color: d.color }}>{d.value}</p>
+                              </div>
+                            ))}
+                          </div>
+
+                          {puedeCargarStock && (
+                            <div>
+                              <p className="text-xs font-light mb-2 tracking-widest uppercase" style={{ color: 'rgba(167,139,250,0.55)' }}>Stock por sede</p>
+                              <div className="grid grid-cols-2 gap-2">
+                                {SEDES.map(s => {
+                                  const qty = (ins as any)[s.key] || 0;
+                                  return (
+                                    <div key={s.key} className="flex items-center justify-between px-3 py-2 rounded-lg" style={{ background: `${s.color}08`, border: `1px solid ${s.color}22` }}>
+                                      <span className="text-xs font-light" style={{ color: s.color }}>{s.label}</span>
+                                      <div className="flex items-center gap-1.5">
+                                        <button onClick={() => adjustInsumoStock(ins.id, s.key, -1)} className="w-6 h-6 rounded flex items-center justify-center text-sm" style={{ background: 'rgba(239,68,68,0.10)', color: '#ef4444' }}>−</button>
+                                        <span className="text-sm font-light text-white w-5 text-center">{qty}</span>
+                                        <button onClick={() => adjustInsumoStock(ins.id, s.key, +1)} className="w-6 h-6 rounded flex items-center justify-center text-sm" style={{ background: 'rgba(34,197,94,0.10)', color: '#22c55e' }}>+</button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {isAdmin && (
+                            <div className="flex items-center gap-2 pt-1">
+                              <button onClick={() => openEditInsumo(ins)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light" style={{ background: 'rgba(167,139,250,0.08)', border: '1px solid rgba(167,139,250,0.25)', color: '#a78bfa' }}>
+                                <Edit2 size={11} />Editar
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ─── Lightbox foto ───────────────────────────────────────────────── */}
       {lightboxUrl && (
         <div className="fixed inset-0 z-[999] flex items-center justify-center p-4"
@@ -579,7 +788,7 @@ export default function StockPage() {
         </div>
       )}
 
-      {/* ─── Modal completo admin ─────────────────────────────────────────── */}
+      {/* ─── Modal completo admin (armazón) ──────────────────────────────── */}
       {showModal && puedeCargarStock && (
         <div className="fixed inset-0 z-[900] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.88)' }}>
           <div className="w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: '#0d0d0d', border: '1px solid rgba(197,160,89,0.25)' }}>
@@ -679,6 +888,79 @@ export default function StockPage() {
                   cursor: (!form.nombre.trim() || !form.codigo.trim()) ? 'not-allowed' : 'pointer',
                 }}>
                 {saveOk ? <><Check size={12} />Guardado</> : saving ? 'Guardando...' : <><Package size={12} />{editing ? 'Guardar cambios' : 'Agregar armazón'}</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Modal insumo ─────────────────────────────────────────────────── */}
+      {showInsumoModal && isAdmin && (
+        <div className="fixed inset-0 z-[900] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.88)' }}>
+          <div className="w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: '#0d0d0d', border: '1px solid rgba(167,139,250,0.25)' }}>
+            <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)', background: 'rgba(167,139,250,0.04)' }}>
+              <div className="flex items-center gap-2">
+                <Layers size={15} style={{ color: '#a78bfa' }} />
+                <p className="text-sm font-light text-white">{editingInsumo ? 'Editar insumo' : 'Nuevo insumo'}</p>
+              </div>
+              <button onClick={() => setShowInsumoModal(false)} style={{ color: 'rgba(255,255,255,0.4)' }}><X size={14} /></button>
+            </div>
+
+            <div className="px-5 py-5 space-y-4 max-h-[78vh] overflow-y-auto">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <label className="text-xs font-light mb-1.5 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Nombre *</label>
+                  <input value={insumoForm.nombre} onChange={e => setInsumoForm(p => ({ ...p, nombre: e.target.value }))}
+                    placeholder="Ej: Paño de limpieza"
+                    className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border"
+                    style={{ borderColor: 'rgba(167,139,250,0.25)' }} />
+                </div>
+                <div>
+                  <label className="text-xs font-light mb-1.5 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Unidad</label>
+                  <input value={insumoForm.unidad} onChange={e => setInsumoForm(p => ({ ...p, unidad: e.target.value }))}
+                    placeholder="Ej: unidad, caja, ml"
+                    className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border"
+                    style={{ borderColor: 'rgba(255,255,255,0.12)' }} />
+                </div>
+                <div>
+                  <label className="text-xs font-light mb-1.5 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Precio costo (Gs.)</label>
+                  <input type="number" value={insumoForm.precio_costo || ''} onChange={e => setInsumoForm(p => ({ ...p, precio_costo: Number(e.target.value) }))}
+                    placeholder="0" min="0"
+                    className="w-full px-3 py-2.5 rounded-lg bg-transparent text-white text-xs outline-none border"
+                    style={{ borderColor: 'rgba(167,139,250,0.25)' }} />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-light mb-2 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Stock por sede</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {SEDES.map(s => (
+                    <div key={s.key} className="rounded-lg p-3" style={{ background: `${s.color}08`, border: `1px solid ${s.color}22` }}>
+                      <label className="text-xs font-light mb-1.5 block" style={{ color: s.color }}>{s.label}</label>
+                      <input type="number" value={(insumoForm as any)[s.key] || ''} onChange={e => setInsumoForm(p => ({ ...p, [s.key]: Number(e.target.value) }))}
+                        placeholder="0" min="0"
+                        className="w-full px-2.5 py-2 rounded-lg bg-transparent text-white text-xs outline-none border"
+                        style={{ borderColor: `${s.color}30` }} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 px-5 py-4" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+              <button onClick={() => setShowInsumoModal(false)} className="px-4 py-2 rounded-lg text-xs font-light"
+                style={{ color: 'rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                Cancelar
+              </button>
+              <button onClick={saveInsumo} disabled={savingInsumo || !insumoForm.nombre.trim()}
+                className="flex items-center gap-2 px-5 py-2 rounded-lg text-xs font-medium"
+                style={{
+                  background: saveInsumoOk ? 'rgba(34,197,94,0.15)' : !insumoForm.nombre.trim() ? 'rgba(167,139,250,0.06)' : 'rgba(167,139,250,0.15)',
+                  border: saveInsumoOk ? '1px solid rgba(34,197,94,0.4)' : '1px solid rgba(167,139,250,0.35)',
+                  color: saveInsumoOk ? '#22c55e' : !insumoForm.nombre.trim() ? 'rgba(167,139,250,0.35)' : '#a78bfa',
+                  cursor: !insumoForm.nombre.trim() ? 'not-allowed' : 'pointer',
+                }}>
+                {saveInsumoOk ? <><Check size={12} />Guardado</> : savingInsumo ? 'Guardando...' : <><Layers size={12} />{editingInsumo ? 'Guardar cambios' : 'Agregar insumo'}</>}
               </button>
             </div>
           </div>
