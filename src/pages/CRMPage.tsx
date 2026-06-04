@@ -32,8 +32,23 @@ function getReminders(): Reminder[] {
   catch { return []; }
 }
 
-function saveReminders(list: Reminder[]) {
-  localStorage.setItem(LS_REMINDERS_KEY, JSON.stringify(list));
+function saveReminders(reminders: Reminder[]) {
+  try {
+    localStorage.setItem(LS_REMINDERS_KEY, JSON.stringify(reminders));
+  } catch (e) {
+    // Quota excedida: limpiar enviados viejos (más de 6 meses) y reintentar
+    const seisM = Date.now() - 1000 * 60 * 60 * 24 * 180;
+    const limpios = reminders.filter(r =>
+      r.status !== 'enviado' || new Date(r.scheduled_date).getTime() > seisM
+    );
+    try {
+      localStorage.setItem(LS_REMINDERS_KEY, JSON.stringify(limpios));
+    } catch (e2) {
+      // Si sigue fallando, guardar solo pendientes
+      const soloP = reminders.filter(r => r.status !== 'enviado');
+      try { localStorage.setItem(LS_REMINDERS_KEY, JSON.stringify(soloP)); } catch {}
+    }
+  }
 }
 
 export default function CRMPage() {
