@@ -563,9 +563,7 @@ function EditModal({ sale, onClose, onSaved }: { sale: any; onClose: () => void;
         receta_a_confirmar: eg.receta_a_confirmar ?? false,
       })),
     };
-    console.log('SALES DEBUG UPDATE PAYLOAD', payload);
-    const { data: updateData, error: err } = await supabase.from('ventas').update(payload).eq('id', sale.id);
-    console.log('SALES DEBUG UPDATE RESULT', { data: updateData, error: err });
+    const { error: err } = await supabase.from('ventas').update(payload).eq('id', sale.id);
 
     if (err) { setError('Error al guardar. Intentá de nuevo.'); setSaving(false); return; }
     await supabase.from('pagos').update({ metodo: payMethod }).eq('venta_id', String(sale.id)).eq('tipo', 'sena');
@@ -1044,8 +1042,6 @@ export default function SalesHistoryPage() {
   // ── FIX: relee el permiso cada 30 seg para reflejar cambios desde Settings ──
   useEffect(() => {
     if (!profile) return;
-    console.log('SALES DEBUG PROFILE', profile);
-    console.log('SALES DEBUG ROLE', profile?.role);
     if (isAdmin) { setCanEdit(true); return; }
 
     const checkPerm = () => {
@@ -1054,10 +1050,8 @@ export default function SalesHistoryPage() {
         .select('puede_editar_ventas')
         .eq('email', profile.email)
         .maybeSingle()
-        .then(({ data, error }) => {
-          console.log('SALES DEBUG PERMISSION QUERY', { data, error });
+        .then(({ data }) => {
           const val = data?.puede_editar_ventas ?? false;
-          console.log('SALES DEBUG CAN_EDIT', val);
           setCanEdit(val);
         });
     };
@@ -1226,7 +1220,6 @@ export default function SalesHistoryPage() {
               const hasConfirmar = anteojos.some((eg: any) => eg.receta_a_confirmar);
               const isDeleting   = deletingId === key;
 
-              console.log('SALES DEBUG SHOW EDIT BUTTON', { canEdit, saleId: v.id });
               return (
                 <div key={key}>
                   <div className="px-4 py-3.5 cursor-pointer" style={{ background: isExp ? 'rgba(197,160,89,0.03)' : 'transparent' }}
