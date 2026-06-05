@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
-import { compressImage } from '../lib/salesStorage';
+import { compressImage, uploadToCloudinary } from '../lib/salesStorage';
 
 type Frame = {
   id: string; codigo: string; nombre: string; foto_url: string; color: string;
@@ -247,9 +247,12 @@ export default function StockPage() {
 
   async function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async ev => { const c = await compressImage(ev.target?.result as string); setForm(p => ({ ...p, foto_url: c })); };
-    reader.readAsDataURL(file);
+    try {
+      const url = await uploadToCloudinary(file);
+      setForm(p => ({ ...p, foto_url: url }));
+    } catch (err) {
+      console.error('Error subiendo foto:', err);
+    }
   }
 
   async function save() {
@@ -278,9 +281,12 @@ export default function StockPage() {
 
   async function handleQuickPhoto(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async ev => { const c = await compressImage(ev.target?.result as string); setQuickFoto(c); };
-    reader.readAsDataURL(file);
+    try {
+      const url = await uploadToCloudinary(file);
+      setQuickFoto(url);
+    } catch (err) {
+      console.error('Error subiendo foto:', err);
+    }
   }
 
   async function saveQuick() {

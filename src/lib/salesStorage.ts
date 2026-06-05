@@ -103,20 +103,34 @@ async function compressImageFile(file: File, maxWidth = 1200, quality = 0.7): Pr
 export async function uploadToCloudinary(file: File): Promise<string> {
   const compressed = await compressImageFile(file);
 
+  const timestamp = Math.round(Date.now() / 1000);
+  const folder = 'optica/armazones';
+  const apiKey = '486696538195865';
+  const apiSecret = '91x3_CPe2BRvCkemg_Ji-GVwWTM';
+  const cloudName = 'dsf7ikhrx';
+
+  const sigStr = `folder=${folder}&timestamp=${timestamp}${apiSecret}`;
+  const encoder = new TextEncoder();
+  const data = encoder.encode(sigStr);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const signature = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
   const formData = new FormData();
   formData.append('file', compressed, 'foto.webp');
-  formData.append('upload_preset', 'optica_yolanda');
-  formData.append('folder', 'optica/anteojos');
+  formData.append('folder', folder);
+  formData.append('timestamp', String(timestamp));
+  formData.append('api_key', apiKey);
+  formData.append('signature', signature);
 
   const res = await fetch(
-    'https://api.cloudinary.com/v1_1/dvtpcst0v/image/upload',
+    `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
     { method: 'POST', body: formData }
   );
 
   if (!res.ok) throw new Error('Error al subir imagen a Cloudinary');
-
-  const data = await res.json();
-  return data.secure_url as string;
+  const result = await res.json();
+  return result.secure_url as string;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
