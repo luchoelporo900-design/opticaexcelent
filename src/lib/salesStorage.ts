@@ -105,9 +105,9 @@ export async function uploadToCloudinary(file: File): Promise<string> {
 
   const timestamp = Math.round(Date.now() / 1000);
   const folder = 'optica/armazones';
-  const apiKey = '486696538195865';
-  const apiSecret = '91x3_CPe2BRvCkemg_Ji-GVwWTM';
-  const cloudName = 'dsf7ikhrx';
+  const apiKey = import.meta.env.VITE_CLOUDINARY_API_KEY;
+  const apiSecret = import.meta.env.VITE_CLOUDINARY_API_SECRET;
+  const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
 
   const sigStr = `folder=${folder}&timestamp=${timestamp}${apiSecret}`;
   const encoder = new TextEncoder();
