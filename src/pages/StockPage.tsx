@@ -601,9 +601,9 @@ export default function StockPage() {
                                   <div key={s.key} className="flex items-center justify-between px-3 py-2 rounded-lg" style={{ background: `${s.color}08`, border: `1px solid ${s.color}22` }}>
                                     <span className="text-xs font-light" style={{ color: s.color }}>{s.label}</span>
                                     <div className="flex items-center gap-1.5">
-                                      <button onClick={() => adjustStock(f.id, s.key, -1)} className="w-6 h-6 rounded flex items-center justify-center text-sm" style={{ background: 'rgba(239,68,68,0.10)', color: '#ef4444' }}>−</button>
+                                      <button onClick={() => puedeCargarStock && adjustStock(f.id, s.key, -1)} disabled={!puedeCargarStock} className="w-6 h-6 rounded flex items-center justify-center text-sm" style={{ background: puedeCargarStock ? 'rgba(239,68,68,0.10)' : 'rgba(255,255,255,0.04)', color: puedeCargarStock ? '#ef4444' : 'rgba(255,255,255,0.15)', cursor: puedeCargarStock ? 'pointer' : 'not-allowed' }}>−</button>
                                       <span className="text-sm font-light text-white w-5 text-center">{qty}</span>
-                                      <button onClick={() => adjustStock(f.id, s.key, +1)} className="w-6 h-6 rounded flex items-center justify-center text-sm" style={{ background: 'rgba(34,197,94,0.10)', color: '#22c55e' }}>+</button>
+                                      <button onClick={() => puedeCargarStock && adjustStock(f.id, s.key, +1)} disabled={!puedeCargarStock} className="w-6 h-6 rounded flex items-center justify-center text-sm" style={{ background: puedeCargarStock ? 'rgba(34,197,94,0.10)' : 'rgba(255,255,255,0.04)', color: puedeCargarStock ? '#22c55e' : 'rgba(255,255,255,0.15)', cursor: puedeCargarStock ? 'pointer' : 'not-allowed' }}>+</button>
                                     </div>
                                   </div>
                                 );
