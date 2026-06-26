@@ -39,7 +39,7 @@ function getVisiblePages(role: string): Page[] {
     case 'gerente':
       return ['dashboard', 'pos', 'sales_history', 'customers', 'crm', 'lab', 'commissions', 'billing_goals', 'cash', 'balances', 'stock', 'reports', 'simulator', 'branches', 'settings'];
     case 'vendedora':
-      return ['pos', 'sales_history', 'crm', 'lab', 'cash', 'balances', 'stock'];
+      return ['pos', 'sales_history', 'crm', 'cash', 'balances', 'stock'];
     case 'laboratorio':
       return ['lab'];
     default:
