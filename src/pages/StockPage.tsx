@@ -612,7 +612,7 @@ export default function StockPage() {
                           </div>
 
                           <div className="flex items-center gap-2 flex-wrap pt-1">
-                            {isVendedora && (
+                            {isVendedora && puedeCargarStock && (
                               <button onClick={() => openQuick(f)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light" style={{ background: 'rgba(197,160,89,0.08)', border: '1px solid rgba(197,160,89,0.25)', color: '#C5A059' }}>
                                 <Camera size={11} />Código / Foto
                               </button>
