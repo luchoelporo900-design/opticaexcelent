@@ -381,6 +381,7 @@ export default function StockPage() {
       </div>
 
       {/* Stats */}
+      {(isAdmin || puedeCargarStock) && (
       <div className="grid grid-cols-3 gap-3">
         {[
           { label: 'Modelos',  value: totalModelos,  unit: 'modelos',  color: '#C5A059', icon: <Package size={14} /> },
@@ -397,8 +398,10 @@ export default function StockPage() {
           </div>
         ))}
       </div>
+      )}
 
       {/* Stock por sede */}
+      {(isAdmin || puedeCargarStock) && (
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {SEDES.map(s => {
           const total = frames.reduce((sum,f) => sum + ((f as any)[s.key]||0), 0);
@@ -411,6 +414,7 @@ export default function StockPage() {
           );
         })}
       </div>
+      )}
 
       {/* Tabs: Stock / Vendidos / Insumos */}
       <div className="flex gap-2 flex-wrap">
@@ -419,11 +423,13 @@ export default function StockPage() {
           style={{ background: vistaActiva === 'stock' ? 'rgba(197,160,89,0.15)' : 'rgba(255,255,255,0.04)', border: `1px solid ${vistaActiva === 'stock' ? 'rgba(197,160,89,0.35)' : 'rgba(255,255,255,0.09)'}`, color: vistaActiva === 'stock' ? '#C5A059' : 'rgba(255,255,255,0.45)' }}>
           📦 Armazones en Stock
         </button>
+        {(isAdmin || puedeCargarStock) && (
         <button onClick={() => setVistaActiva('vendidos')}
           className="px-4 py-2 rounded-lg text-xs font-light"
           style={{ background: vistaActiva === 'vendidos' ? 'rgba(34,197,94,0.12)' : 'rgba(255,255,255,0.04)', border: `1px solid ${vistaActiva === 'vendidos' ? 'rgba(34,197,94,0.30)' : 'rgba(255,255,255,0.09)'}`, color: vistaActiva === 'vendidos' ? '#22c55e' : 'rgba(255,255,255,0.45)' }}>
           🏷️ Armazones Vendidos
         </button>
+        )}
         <button onClick={() => setVistaActiva('insumos')}
           className="px-4 py-2 rounded-lg text-xs font-light"
           style={{ background: vistaActiva === 'insumos' ? 'rgba(167,139,250,0.12)' : 'rgba(255,255,255,0.04)', border: `1px solid ${vistaActiva === 'insumos' ? 'rgba(167,139,250,0.30)' : 'rgba(255,255,255,0.09)'}`, color: vistaActiva === 'insumos' ? '#a78bfa' : 'rgba(255,255,255,0.45)' }}>
