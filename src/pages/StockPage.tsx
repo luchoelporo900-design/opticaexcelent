@@ -437,6 +437,7 @@ export default function StockPage() {
       {vistaActiva === 'stock' && (
         <>
           {/* Más vendidos + últimos movimientos */}
+          {(isAdmin || puedeCargarStock) && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(197,160,89,0.15)' }}>
               <div className="flex items-center gap-2 px-4 py-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(197,160,89,0.04)' }}>
@@ -488,6 +489,7 @@ export default function StockPage() {
               )}
             </div>
           </div>
+          )}
 
           {/* Filtros tabla */}
           <div className="flex items-center gap-2 flex-wrap">
@@ -792,7 +794,7 @@ export default function StockPage() {
                               { label: 'Nombre',       value: ins.nombre,                                                color: 'white' },
                               { label: 'Unidad',       value: ins.unidad || '—',                                         color: 'rgba(255,255,255,0.7)' },
                               { label: 'Precio costo', value: ins.precio_costo > 0 ? `Gs. ${fmt(ins.precio_costo)}` : '—', color: '#C5A059' },
-                              { label: 'Stock total',  value: `${totalInsumoStock(ins)} ${ins.unidad || 'uds.'}`,         color: 'white' },
+                              { label: isAdmin ? 'Stock total' : 'Stock en tu sucursal', value: isAdmin ? `${totalInsumoStock(ins)} ${ins.unidad || 'uds.'}` : `${(ins as any)[vendedoraSede] || 0} ${ins.unidad || 'uds.'}`, color: 'white' },
                             ].map(d => (
                               <div key={d.label} className="rounded-lg p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
                                 <p className="text-xs font-light mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>{d.label}</p>
