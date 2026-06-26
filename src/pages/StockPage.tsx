@@ -413,23 +413,25 @@ export default function StockPage() {
       </div>
 
       {/* Tabs: Stock / Vendidos / Insumos */}
-      <div className="flex gap-2 flex-wrap">
-        <button onClick={() => setVistaActiva('stock')}
-          className="px-4 py-2 rounded-lg text-xs font-light"
-          style={{ background: vistaActiva === 'stock' ? 'rgba(197,160,89,0.15)' : 'rgba(255,255,255,0.04)', border: `1px solid ${vistaActiva === 'stock' ? 'rgba(197,160,89,0.35)' : 'rgba(255,255,255,0.09)'}`, color: vistaActiva === 'stock' ? '#C5A059' : 'rgba(255,255,255,0.45)' }}>
-          📦 Armazones en Stock
-        </button>
-        <button onClick={() => setVistaActiva('vendidos')}
-          className="px-4 py-2 rounded-lg text-xs font-light"
-          style={{ background: vistaActiva === 'vendidos' ? 'rgba(34,197,94,0.12)' : 'rgba(255,255,255,0.04)', border: `1px solid ${vistaActiva === 'vendidos' ? 'rgba(34,197,94,0.30)' : 'rgba(255,255,255,0.09)'}`, color: vistaActiva === 'vendidos' ? '#22c55e' : 'rgba(255,255,255,0.45)' }}>
-          🏷️ Armazones Vendidos
-        </button>
-        <button onClick={() => setVistaActiva('insumos')}
-          className="px-4 py-2 rounded-lg text-xs font-light"
-          style={{ background: vistaActiva === 'insumos' ? 'rgba(167,139,250,0.12)' : 'rgba(255,255,255,0.04)', border: `1px solid ${vistaActiva === 'insumos' ? 'rgba(167,139,250,0.30)' : 'rgba(255,255,255,0.09)'}`, color: vistaActiva === 'insumos' ? '#a78bfa' : 'rgba(255,255,255,0.45)' }}>
-          🧴 Insumos
-        </button>
-      </div>
+      {(isAdmin || puedeCargarStock) ? (
+        <div className="flex gap-2 flex-wrap">
+          <button onClick={() => setVistaActiva('stock')}
+            className="px-4 py-2 rounded-lg text-xs font-light"
+            style={{ background: vistaActiva === 'stock' ? 'rgba(197,160,89,0.15)' : 'rgba(255,255,255,0.04)', border: `1px solid ${vistaActiva === 'stock' ? 'rgba(197,160,89,0.35)' : 'rgba(255,255,255,0.09)'}`, color: vistaActiva === 'stock' ? '#C5A059' : 'rgba(255,255,255,0.45)' }}>
+            📦 Armazones en Stock
+          </button>
+          <button onClick={() => setVistaActiva('vendidos')}
+            className="px-4 py-2 rounded-lg text-xs font-light"
+            style={{ background: vistaActiva === 'vendidos' ? 'rgba(34,197,94,0.12)' : 'rgba(255,255,255,0.04)', border: `1px solid ${vistaActiva === 'vendidos' ? 'rgba(34,197,94,0.30)' : 'rgba(255,255,255,0.09)'}`, color: vistaActiva === 'vendidos' ? '#22c55e' : 'rgba(255,255,255,0.45)' }}>
+            🏷️ Armazones Vendidos
+          </button>
+          <button onClick={() => setVistaActiva('insumos')}
+            className="px-4 py-2 rounded-lg text-xs font-light"
+            style={{ background: vistaActiva === 'insumos' ? 'rgba(167,139,250,0.12)' : 'rgba(255,255,255,0.04)', border: `1px solid ${vistaActiva === 'insumos' ? 'rgba(167,139,250,0.30)' : 'rgba(255,255,255,0.09)'}`, color: vistaActiva === 'insumos' ? '#a78bfa' : 'rgba(255,255,255,0.45)' }}>
+            🧴 Insumos
+          </button>
+        </div>
+      ) : null}
 
       {/* ── VISTA: STOCK ─────────────────────────────────────────────────── */}
       {vistaActiva === 'stock' && (
@@ -820,7 +822,7 @@ export default function StockPage() {
                             </div>
                           )}
 
-                          {isAdmin && (
+                          {(isAdmin || puedeCargarStock) && (
                             <div className="flex items-center gap-2 flex-wrap pt-1">
                               <button onClick={() => openEditInsumo(ins)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-light" style={{ background: 'rgba(197,160,89,0.08)', border: '1px solid rgba(197,160,89,0.25)', color: '#C5A059' }}>
                                 <Edit2 size={11} />Editar
