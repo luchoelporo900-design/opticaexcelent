@@ -39,6 +39,8 @@ type EyeglassItem = {
   incluir_franela?: boolean;
   incluir_franela_especial?: boolean;
   incluir_limpiacristales?: boolean;
+  incluir_plaquetas?: boolean;
+  incluir_tornillo?: boolean;
   incluir_cordones?: boolean;
 };
 
@@ -257,6 +259,8 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove, saleBranch, insumosCa
   const franelas    = insumosCatalog.filter(i => { const n = i.nombre.toLowerCase(); return n.includes('franela') && !n.includes('especial'); });
   const franelasEsp = insumosCatalog.filter(i => i.nombre.toLowerCase().includes('franela especial'));
   const limpias     = insumosCatalog.filter(i => i.nombre.toLowerCase().includes('limpiacristal'));
+  const plaquetas   = insumosCatalog.filter(i => i.nombre.toLowerCase().includes('plaqueta'));
+  const tornillos   = insumosCatalog.filter(i => i.nombre.toLowerCase().includes('tornillo'));
   const cordones    = insumosCatalog.filter(i => i.nombre.toLowerCase().includes('cordon'));
 
   // Sync sin_stock_en_sede to parent when frame/sede changes
@@ -450,7 +454,7 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove, saleBranch, insumosCa
           )}
         </div>
 
-        {(estuches.length > 0 || franelas.length > 0 || franelasEsp.length > 0 || limpias.length > 0 || cordones.length > 0) && (
+        {(estuches.length > 0 || franelas.length > 0 || franelasEsp.length > 0 || limpias.length > 0 || plaquetas.length > 0 || tornillos.length > 0 || cordones.length > 0) && (
           <div className="rounded-xl p-3 space-y-2.5" style={{ background: 'rgba(167,139,250,0.04)', border: '1px solid rgba(167,139,250,0.18)' }}>
             <p className="text-xs font-light tracking-widest uppercase" style={{ color: 'rgba(167,139,250,0.55)' }}>Insumos incluidos</p>
             {estuches.length > 0 && (
@@ -478,6 +482,8 @@ function SimpleEyeglassCard({ eg, idx, onUpdate, onRemove, saleBranch, insumosCa
                 { items: franelas,    field: 'incluir_franela',          label: 'Franela' },
                 { items: franelasEsp, field: 'incluir_franela_especial', label: 'Franela Especial' },
                 { items: limpias,     field: 'incluir_limpiacristales',  label: 'Limpia cristales' },
+                { items: plaquetas,   field: 'incluir_plaquetas',        label: 'Plaquetas' },
+                { items: tornillos,   field: 'incluir_tornillo',         label: 'Tornillo' },
                 { items: cordones,    field: 'incluir_cordones',         label: 'Cordones' },
               ] as const).filter(x => x.items.length > 0).map(({ items, field, label }) => {
                 const item = items[0];
@@ -737,6 +743,8 @@ export default function POSPage() {
           { flag: eg.incluir_franela,          filter: n => n.includes('franela') && !n.includes('especial') },
           { flag: eg.incluir_franela_especial, filter: n => n.includes('franela especial') },
           { flag: eg.incluir_limpiacristales,  filter: n => n.includes('limpiacristal') },
+          { flag: eg.incluir_plaquetas,        filter: n => n.includes('plaqueta') },
+          { flag: eg.incluir_tornillo,         filter: n => n.includes('tornillo') },
           { flag: eg.incluir_cordones,         filter: n => n.includes('cordon') },
         ];
         for (const ci of insumoChecks) {
